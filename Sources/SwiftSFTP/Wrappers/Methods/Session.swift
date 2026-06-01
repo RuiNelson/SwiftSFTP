@@ -132,7 +132,7 @@ public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
 ///   - description: Human-readable reason sent to the peer.
 ///   - language: Localization tag for `description`.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SessionDisconnectEx(
+public func SessionDisconnect(
     session: LibSSH2Session,
     reason: Int = 11,
     description: String,
@@ -154,7 +154,7 @@ public func SessionDisconnectEx(
 
 /// Frees all resources associated with a session instance.
 ///
-/// Typically called after ``SessionDisconnectEx(session:reason:description:language:)``. The ``LibSSH2Session`` handle
+/// Typically called after ``SessionDisconnect(session:reason:description:language:)``. The ``LibSSH2Session`` handle
 /// is no longer usable after a successful return.
 ///
 /// - Parameter session: The session to free.

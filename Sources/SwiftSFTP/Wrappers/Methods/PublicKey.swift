@@ -4,8 +4,8 @@ import libssh2
 /// Creates a public-key subsystem handle.
 ///
 /// The public-key subsystem lets the client manipulate authorized keys stored on the server (the `publickey` SSH
-/// extension). The returned handle is used as input to ``PublicKeyAddEx(publicKey:name:blob:overwrite:attributes:)``,
-/// ``PublicKeyRemoveEx(publicKey:name:blob:)``,
+/// extension). The returned handle is used as input to ``PublicKeyAdd(publicKey:name:blob:overwrite:attributes:)``,
+/// ``PublicKeyRemove(publicKey:name:blob:)``,
 /// ``PublicKeyListFetch(publicKey:)`` and ``PublicKeyShutdown(publicKey:)``.
 ///
 /// - Parameter session: The session that will own the public-key subsystem handle.
@@ -91,7 +91,7 @@ public func PublicKeyAdd(
 /// Removes a public key from the public-key subsystem.
 ///
 /// The key is identified by the same `name` and `blob` pair that was used in
-/// ``PublicKeyAddEx(publicKey:name:blob:overwrite:attributes:)``.
+/// ``PublicKeyAdd(publicKey:name:blob:overwrite:attributes:)``.
 ///
 /// - Parameters:
 ///   - publicKey: The public-key subsystem handle returned by
