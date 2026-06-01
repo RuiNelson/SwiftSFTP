@@ -1,10 +1,6 @@
-//
-//  Pointers.swift
-//  SwiftSFTP
-//
-//  Created by Rui Nelson on 01/06/2026.
-//
 import Foundation
+
+// MARK: Opaque
 
 extension UnsafePointer {
     func data(count: Int) -> Data {
@@ -26,6 +22,8 @@ extension UnsafeMutablePointer {
         return Data(bytes: self, count: count)
     }
 }
+
+// MARK: CChar
 
 extension UnsafePointer<CChar> {
     var string: String {
@@ -51,6 +49,8 @@ extension UnsafeMutablePointer<CChar>? {
         return Data(bytes: self, count: count)
     }
 }
+
+// MARK: UInt8
 
 extension UnsafePointer<UInt8>? {
     func data(count: Int) -> Data {
