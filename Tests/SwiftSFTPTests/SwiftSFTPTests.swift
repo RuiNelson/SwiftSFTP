@@ -9,8 +9,8 @@ import Testing
     print("libssh2 crypto engine: \(cryptoEngine)")
     
     let session = try SessionInit()
-    let algorithms = try SessionSupportedAlgs(session: session, methodType: .hostKey)
-    print("Supported Algorithms for Host Key: \(algorithms)")
+    let algorithms = try SessionSupportedAlgs(session: session, methodType: .encryptClientToServer)
+    print("Supported Algorithms: \(algorithms)")
     
     #expect(!version.isEmpty)
     #expect(cryptoEngine != .unknown)

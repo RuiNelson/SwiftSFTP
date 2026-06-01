@@ -123,8 +123,8 @@ public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
 
 /// Sends a disconnect message to the remote host and tears down the transport layer.
 ///
-/// The `language` tag follows the IETF `RFC 5646` style (for example `en-US`); pass an empty string when localization is
-/// not relevant.
+/// The `language` tag follows the IETF `RFC 5646` style (for example `en-US`); pass an empty string when localization
+/// is not relevant.
 ///
 /// - Parameters:
 ///   - session: The session to disconnect.
@@ -181,16 +181,14 @@ public func HostKeyHash(session: LibSSH2Session, hashType: LibSSH2HostKeyHashTyp
 
 /// Returns the remote host key and the negotiated host-key type.
 ///
-/// `type` is one of the `LIBSSH2_HOSTKEY_TYPE_*` constants (`RSA`,
-/// `DSS` (deprecated), or `UNKNOWN`).
-///
 /// - Parameter session: The session to inspect.
 /// - Returns: A tuple with the raw key bytes and the key type, or `nil` if the host key is not available.
-public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: Int)? {
+public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: LibSSH2HostKeyType)? {
     var length = 0
     var type: Int32 = 0
     guard let pointer = libssh2.libssh2_session_hostkey(session.rawValue, &length, &type) else { return nil }
-    return (Data(bytes: pointer, count: length), Int(type))
+    guard let keyType = LibSSH2HostKeyType(fromRaw: type) else { return nil }
+    return (Data(bytes: pointer, count: length), keyType)
 }
 
 /// Sets the preferred algorithms for a session method type.

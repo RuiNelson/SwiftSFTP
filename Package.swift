@@ -99,7 +99,7 @@ let package = Package(
         ),
         .target(
             name: "SwiftSFTP",
-            dependencies: ["libssh2"]
+            dependencies: ["libssh2", "OpenSSLCrypto"]
         ),
         .testTarget(
             name: "SwiftSFTPTests",

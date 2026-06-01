@@ -213,4 +213,29 @@ xcodebuild -create-xcframework \
   -headers "$WATCH_SIM_DIR/include" \
   -output "$OUTPUT_DIR/OpenSSLSSL.xcframework"
 
+# Add a modulemap to each OpenSSLCrypto slice so Swift targets can import it.
+for slice_dir in "$OUTPUT_DIR/OpenSSLCrypto.xcframework"/*/Headers; do
+  cat >"$slice_dir/module.modulemap" <<'MMAP'
+module OpenSSLCrypto {
+    header "openssl/opensslconf.h"
+    header "openssl/ossl_typ.h"
+    header "openssl/obj_mac.h"
+    header "openssl/bio.h"
+    header "openssl/evp.h"
+    header "openssl/pem.h"
+    header "openssl/err.h"
+    header "openssl/crypto.h"
+    header "openssl/core.h"
+    header "openssl/core_names.h"
+    header "openssl/params.h"
+    header "openssl/types.h"
+    header "openssl/asn1.h"
+    header "openssl/x509.h"
+    header "openssl/rsa.h"
+    header "openssl/ec.h"
+    export *
+}
+MMAP
+done
+
 echo "Built static OpenSSL XCFrameworks in $OUTPUT_DIR"
