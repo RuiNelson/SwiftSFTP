@@ -328,6 +328,18 @@ public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttri
     try libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, 1).checkReturnValue()
 }
 
+/// Sets the size of an SFTP file handle.
+///
+/// - Parameters:
+///   - handle: The SFTP file handle to modify.
+///   - fileSize: The new file size in bytes.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
+///   sessions.
+public func SFTPSetFileSize(handle: LibSSH2SFTPHandle, fileSize: UInt64) throws {
+    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_SIZE), fileSize: fileSize)
+    try SFTPFSetStat(handle: handle, attributes: attrs)
+}
+
 /// Sets the POSIX permissions on an SFTP file handle.
 ///
 /// - Parameters:
