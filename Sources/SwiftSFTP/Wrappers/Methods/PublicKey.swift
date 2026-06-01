@@ -2,6 +2,19 @@ import Foundation
 import libssh2
 
 /// Creates a public-key subsystem handle.
+///
+/// The public-key subsystem lets the client manipulate authorized keys
+/// stored on the server (the `publickey` SSH extension). The returned
+/// handle is used as input to ``PublicKeyAddEx(publicKey:name:blob:overwrite:attributes:)``,
+/// ``PublicKeyRemoveEx(publicKey:name:blob:)``,
+/// ``PublicKeyListFetch(publicKey:)`` and ``PublicKeyShutdown(publicKey:)``.
+///
+/// - Parameter session: The session that will own the public-key
+///   subsystem handle.
+/// - Returns: A new ``LibSSH2PublicKey`` instance.
+/// - Throws: ``LibSSH2Error`` with `.allocationFailure` if libssh2 cannot
+///   allocate the subsystem, or other errors from the underlying
+///   `libssh2_publickey_init` call.
 public func PublicKeyInit(session: LibSSH2Session) throws -> LibSSH2PublicKey {
     guard let publicKey = libssh2.libssh2_publickey_init(session.rawValue) else {
         throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
@@ -10,7 +23,27 @@ public func PublicKeyInit(session: LibSSH2Session) throws -> LibSSH2PublicKey {
 }
 
 /// Adds a public key with attributes to the public-key subsystem.
-public func PublicKeyAddEx(
+///
+/// The `name` and `blob` identify a single authorized key entry. When
+/// `overwrite` is `true` any existing entry with the same name and blob
+/// is replaced; when `false` a duplicate causes the call to fail.
+///
+/// - Parameters:
+///   - publicKey: The public-key subsystem handle returned by
+///     ``PublicKeyInit(session:)``.
+///   - name: Identifier for the key, as agreed with the server. For
+///     `publickey` v1 this is typically a user-friendly alias.
+///   - blob: Raw key blob, as carried in the `publickey` protocol (not
+///     an `authorized_keys` line).
+///   - overwrite: Pass `true` to replace an existing entry with the same
+///     name and blob.
+///   - attributes: Optional key attributes sent alongside the entry.
+///     Each attribute is duplicated internally and freed before the
+///     call returns.
+/// - Throws: ``LibSSH2Error`` on failure (bad use, allocation failure,
+///   socket send, socket timeout, public-key protocol error, or
+///   `EAGAIN` for non-blocking sessions).
+public func PublicKeyAdd(
     publicKey: LibSSH2PublicKey,
     name: String,
     blob: Data,
@@ -58,7 +91,19 @@ public func PublicKeyAddEx(
 }
 
 /// Removes a public key from the public-key subsystem.
-public func PublicKeyRemoveEx(publicKey: LibSSH2PublicKey, name: String, blob: Data) throws {
+///
+/// The key is identified by the same `name` and `blob` pair that was
+/// used in ``PublicKeyAddEx(publicKey:name:blob:overwrite:attributes:)``.
+///
+/// - Parameters:
+///   - publicKey: The public-key subsystem handle returned by
+///     ``PublicKeyInit(session:)``.
+///   - name: Identifier of the entry to remove.
+///   - blob: Raw key blob of the entry to remove.
+/// - Throws: ``LibSSH2Error`` on failure (allocation, socket send,
+///   socket timeout, public-key protocol error, or `EAGAIN` for
+///   non-blocking sessions).
+public func PublicKeyRemove(publicKey: LibSSH2PublicKey, name: String, blob: Data) throws {
     try name.withCString { namePointer in
         try blob.withUnsafeBytes { rawBlob in
             try CheckReturnValue(
@@ -76,6 +121,19 @@ public func PublicKeyRemoveEx(publicKey: LibSSH2PublicKey, name: String, blob: D
 
 
 /// Returns public keys from the public-key subsystem.
+///
+/// Fetches the complete list of authorized keys visible through the
+/// subsystem and decodes each entry into a
+/// ``LibSSH2PublicKeyListEntry``. The raw list buffer is freed before
+/// the call returns.
+///
+/// - Parameter publicKey: The public-key subsystem handle returned by
+///   ``PublicKeyInit(session:)``.
+/// - Returns: The public-key entries reported by the server, or an
+///   empty array if none are available.
+/// - Throws: ``LibSSH2Error`` on failure (allocation, socket send,
+///   public-key protocol error, or `EAGAIN` for non-blocking
+///   sessions).
 public func PublicKeyListFetch(publicKey: LibSSH2PublicKey) throws -> [LibSSH2PublicKeyListEntry] {
     var count: CUnsignedLong = 0
     var list: UnsafeMutablePointer<libssh2_publickey_list>?
@@ -86,6 +144,16 @@ public func PublicKeyListFetch(publicKey: LibSSH2PublicKey) throws -> [LibSSH2Pu
 }
 
 /// Frees a raw public-key list.
+///
+/// Prefer ``PublicKeyListFetch(publicKey:)``, which frees the list
+/// internally and returns decoded ``LibSSH2PublicKeyListEntry`` values.
+/// Use this overload only when a raw `libssh2_publickey_list` pointer
+/// was obtained out of band.
+///
+/// - Parameters:
+///   - publicKey: The public-key subsystem handle that produced the
+///     list.
+///   - rawList: The raw list pointer to free.
 public func PublicKeyListFree(
     publicKey: LibSSH2PublicKey,
     rawList: UnsafeMutablePointer<libssh2_publickey_list>
@@ -94,6 +162,14 @@ public func PublicKeyListFree(
 }
 
 /// Shuts down a public-key subsystem handle.
+///
+/// Releases the resources owned by a public-key subsystem created with
+/// ``PublicKeyInit(session:)``. The ``LibSSH2PublicKey`` handle is no
+/// longer usable after a successful return.
+///
+/// - Parameter publicKey: The public-key subsystem handle to tear down.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for
+///   non-blocking sessions.
 public func PublicKeyShutdown(publicKey: LibSSH2PublicKey) throws {
     try CheckReturnValue(libssh2.libssh2_publickey_shutdown(publicKey.rawValue))
 }
