@@ -141,11 +141,11 @@ public func SFTPOpen(
 ///   timeout, SFTP protocol error, or `EAGAIN` for non-blocking sessions).
 public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Data {
     var buffer = [CChar](repeating: 0, count: maximumLength)
-    let count = try _libssh2CheckSize(
-        buffer.withUnsafeMutableBufferPointer {
-            libssh2.libssh2_sftp_read(handle.rawValue, $0.baseAddress, maximumLength)
-        }
-    )
+    let size = buffer.withUnsafeMutableBufferPointer {
+        libssh2.libssh2_sftp_read(handle.rawValue, $0.baseAddress, maximumLength)
+    }
+    if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+    let count = size
     return Data(bytes: buffer, count: count)
 }
 
@@ -217,7 +217,9 @@ public func SFTPReadDir(
 public func SFTPWrite(handle: LibSSH2SFTPHandle, data: Data) throws -> Int {
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
-        return try _libssh2CheckSize(libssh2.libssh2_sftp_write(handle.rawValue, bytes, data.count))
+        let size = libssh2.libssh2_sftp_write(handle.rawValue, bytes, data.count)
+        if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+        return size
     }
 }
 

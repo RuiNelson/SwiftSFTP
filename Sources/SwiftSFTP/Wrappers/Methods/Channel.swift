@@ -424,11 +424,11 @@ public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, mess
 ///   sessions and `.channelClosed` if the channel has been closed.
 public func ChannelRead(channel: LibSSH2Channel, streamID: Int = 0, maximumLength: Int) throws -> Data {
     var buffer = [CChar](repeating: 0, count: maximumLength)
-    let count = try _libssh2CheckSize(
-        buffer.withUnsafeMutableBufferPointer {
-            libssh2.libssh2_channel_read_ex(channel.rawValue, Int32(streamID), $0.baseAddress, maximumLength)
-        }
-    )
+    let size = buffer.withUnsafeMutableBufferPointer {
+        libssh2.libssh2_channel_read_ex(channel.rawValue, Int32(streamID), $0.baseAddress, maximumLength)
+    }
+    if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+    let count = size
     return Data(bytes: buffer, count: count)
 }
 
@@ -517,9 +517,9 @@ public func ChannelReceiveWindowAdjust2(
 public func ChannelWrite(channel: LibSSH2Channel, streamID: Int = 0, data: Data) throws -> Int {
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
-        return try _libssh2CheckSize(
-            libssh2.libssh2_channel_write_ex(channel.rawValue, Int32(streamID), bytes, data.count)
-        )
+        let size = libssh2.libssh2_channel_write_ex(channel.rawValue, Int32(streamID), bytes, data.count)
+        if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+        return size
     }
 }
 

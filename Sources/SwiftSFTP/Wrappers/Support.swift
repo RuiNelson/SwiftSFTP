@@ -14,11 +14,13 @@ func _libssh2CheckCount(_ code: Int32, session: LibSSH2Session? = nil) throws ->
     return Int(code)
 }
 
-func _libssh2CheckSize(_ size: Int, session: LibSSH2Session? = nil) throws -> Int {
-    if size < 0 {
-        throw LibSSH2Error(code: Int32(size), message: session?.lastErrorMessage)
+extension LibSSH2Session {
+    func checkSize(_ size: Int) throws -> Int {
+        if size < 0 {
+            throw LibSSH2Error(code: Int32(size), message: lastErrorMessage)
+        }
+        return size
     }
-    return size
 }
 
 extension LibSSH2Session {
