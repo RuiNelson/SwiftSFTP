@@ -14,18 +14,14 @@ extension LibSSH2Session {
         }
         return Int(code)
     }
-}
-
-extension LibSSH2Session {
+    
     func checkSize(_ size: Int) throws -> Int {
         if size < 0 {
             throw LibSSH2Error(code: Int32(size), message: lastErrorMessage)
         }
         return size
     }
-}
-
-extension LibSSH2Session {
+    
     var lastErrorMessage: String? {
         var messagePointer: UnsafeMutablePointer<CChar>?
         var messageLength: Int32 = 0
@@ -41,7 +37,7 @@ extension UnsafePointer<CChar> {
     }
 }
 
-extension Optional where Wrapped == UnsafePointer<CChar> {
+extension UnsafePointer<CChar>? {
     var string: String? {
         guard let self else { return nil }
         return String(cString: self)
