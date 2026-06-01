@@ -37,9 +37,8 @@ public func SessionSupportedAlgs(
     methodType: LibSSH2SessionMethodType
 ) throws -> [String] {
     var algorithms: UnsafeMutablePointer<UnsafePointer<CChar>?>?
-    let count = try _libssh2CheckCount(
-        libssh2.libssh2_session_supported_algs(session.rawValue, methodType.libssh2Value, &algorithms),
-        session: session
+    let count = try session.checkCount(
+        libssh2.libssh2_session_supported_algs(session.rawValue, methodType.libssh2Value, &algorithms)
     )
     defer {
         if let algorithms {

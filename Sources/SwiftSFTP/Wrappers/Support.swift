@@ -7,11 +7,13 @@ func CheckReturnValue(_ code: Int32, session: LibSSH2Session? = nil) throws {
     }
 }
 
-func _libssh2CheckCount(_ code: Int32, session: LibSSH2Session? = nil) throws -> Int {
-    if code < 0 {
-        throw LibSSH2Error(code: code, message: session?.lastErrorMessage)
+extension LibSSH2Session {
+    func checkCount(_ code: Int32) throws -> Int {
+        if code < 0 {
+            throw LibSSH2Error(code: code, message: lastErrorMessage)
+        }
+        return Int(code)
     }
-    return Int(code)
 }
 
 extension LibSSH2Session {

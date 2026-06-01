@@ -176,20 +176,20 @@ public func SFTPReadDir(
     var nameBuffer = [CChar](repeating: 0, count: maximumNameLength)
     var longEntryBuffer = [CChar](repeating: 0, count: max(maximumLongEntryLength, 0))
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
-    let count = try _libssh2CheckCount(
-        nameBuffer.withUnsafeMutableBufferPointer { namePointer in
-            longEntryBuffer.withUnsafeMutableBufferPointer { longPointer in
-                libssh2.libssh2_sftp_readdir_ex(
-                    handle.rawValue,
-                    namePointer.baseAddress,
-                    maximumNameLength,
-                    longPointer.baseAddress,
-                    maximumLongEntryLength,
-                    &rawAttributes
-                )
-            }
+    let rawCount = nameBuffer.withUnsafeMutableBufferPointer { namePointer in
+        longEntryBuffer.withUnsafeMutableBufferPointer { longPointer in
+            libssh2.libssh2_sftp_readdir_ex(
+                handle.rawValue,
+                namePointer.baseAddress,
+                maximumNameLength,
+                longPointer.baseAddress,
+                maximumLongEntryLength,
+                &rawAttributes
+            )
         }
-    )
+    }
+    if rawCount < 0 { throw LibSSH2Error(code: rawCount) }
+    let count = Int(rawCount)
     let name = String(decoding: nameBuffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     let longEntry = maximumLongEntryLength > 0
         ? String(decoding: longEntryBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
@@ -634,18 +634,18 @@ public func SFTPSymlink(
     if linkType == 1 || linkType == 2 {
         var targetBuffer = [CChar](repeating: 0, count: targetMaximumLength)
         let count = try path.withCString { pathPointer in
-            try _libssh2CheckCount(
-                targetBuffer.withUnsafeMutableBufferPointer {
-                    libssh2.libssh2_sftp_symlink_ex(
-                        sftp.rawValue,
-                        pathPointer,
-                        _uint32Length(path),
-                        $0.baseAddress,
-                        UInt32(clamping: targetMaximumLength),
-                        Int32(linkType)
-                    )
-                }
-            )
+            let rawCount = targetBuffer.withUnsafeMutableBufferPointer {
+                libssh2.libssh2_sftp_symlink_ex(
+                    sftp.rawValue,
+                    pathPointer,
+                    _uint32Length(path),
+                    $0.baseAddress,
+                    UInt32(clamping: targetMaximumLength),
+                    Int32(linkType)
+                )
+            }
+            if rawCount < 0 { throw LibSSH2Error(code: rawCount) }
+            return Int(rawCount)
         }
         return String(decoding: targetBuffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }

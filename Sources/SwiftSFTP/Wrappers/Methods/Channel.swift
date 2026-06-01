@@ -448,7 +448,9 @@ public func ChannelRead(channel: LibSSH2Channel, streamID: Int = 0, maximumLengt
 /// - Returns: `1` when data is available, `0` otherwise.
 /// - Throws: ``LibSSH2Error`` on failure.
 public func PollChannelRead(channel: LibSSH2Channel, extended: Bool) throws -> Int {
-    try _libssh2CheckCount(libssh2.libssh2_poll_channel_read(channel.rawValue, extended ? 1 : 0))
+    let result = libssh2.libssh2_poll_channel_read(channel.rawValue, extended ? 1 : 0)
+    if result < 0 { throw LibSSH2Error(code: result) }
+    return Int(result)
 }
 
 /// Returns the current status of a channel's read window.

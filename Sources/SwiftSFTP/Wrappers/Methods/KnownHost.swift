@@ -291,7 +291,9 @@ public func KnownHostReadLine(hosts: LibSSH2KnownHosts, line: String, type: Int 
 ///   call fails.
 public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws -> Int {
     try filename.withCString {
-        try _libssh2CheckCount(libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, Int32(type)))
+        let result = libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, Int32(type))
+        if result < 0 { throw LibSSH2Error(code: result) }
+        return Int(result)
     }
 }
 
