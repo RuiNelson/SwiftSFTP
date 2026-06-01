@@ -16,7 +16,7 @@ import libssh2
 /// the underlying   `libssh2_publickey_init` call.
 public func PublicKeyInit(session: LibSSH2Session) throws -> LibSSH2PublicKey {
     guard let publicKey = libssh2.libssh2_publickey_init(session.rawValue) else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2PublicKey(rawValue: publicKey)
 }

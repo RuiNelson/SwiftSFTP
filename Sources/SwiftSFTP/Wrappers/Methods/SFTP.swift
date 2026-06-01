@@ -15,7 +15,7 @@ import libssh2
 ///   non-blocking sessions).
 public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
     guard let sftp = libssh2.libssh2_sftp_init(session.rawValue) else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2SFTP(rawValue: sftp)
 }

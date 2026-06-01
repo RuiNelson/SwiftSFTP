@@ -8,7 +8,7 @@ public func SCPRecv2(session: LibSSH2Session, path: String) throws -> (channel: 
         libssh2.libssh2_scp_recv2(session.rawValue, $0, &fileStat)
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return (LibSSH2Channel(rawValue: channel), fileStat)
 }
@@ -33,7 +33,7 @@ public func SCPSend64(
         )
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2Channel(rawValue: channel)
 }

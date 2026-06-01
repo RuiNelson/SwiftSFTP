@@ -3,30 +3,32 @@ import libssh2
 
 func CheckReturnValue(_ code: Int32, session: LibSSH2Session? = nil) throws {
     if code < 0 {
-        throw LibSSH2Error(code: code, message: session.flatMap(_libssh2LastErrorMessage))
+        throw LibSSH2Error(code: code, message: session?.lastErrorMessage)
     }
 }
 
 func _libssh2CheckCount(_ code: Int32, session: LibSSH2Session? = nil) throws -> Int {
     if code < 0 {
-        throw LibSSH2Error(code: code, message: session.flatMap(_libssh2LastErrorMessage))
+        throw LibSSH2Error(code: code, message: session?.lastErrorMessage)
     }
     return Int(code)
 }
 
 func _libssh2CheckSize(_ size: Int, session: LibSSH2Session? = nil) throws -> Int {
     if size < 0 {
-        throw LibSSH2Error(code: Int32(size), message: session.flatMap(_libssh2LastErrorMessage))
+        throw LibSSH2Error(code: Int32(size), message: session?.lastErrorMessage)
     }
     return size
 }
 
-func _libssh2LastErrorMessage(session: LibSSH2Session) -> String? {
-    var messagePointer: UnsafeMutablePointer<CChar>?
-    var messageLength: Int32 = 0
-    _ = libssh2.libssh2_session_last_error(session.rawValue, &messagePointer, &messageLength, 0)
-    guard let messagePointer else { return nil }
-    return String(cString: messagePointer)
+extension LibSSH2Session {
+    var lastErrorMessage: String? {
+        var messagePointer: UnsafeMutablePointer<CChar>?
+        var messageLength: Int32 = 0
+        _ = libssh2.libssh2_session_last_error(rawValue, &messagePointer, &messageLength, 0)
+        guard let messagePointer else { return nil }
+        return String(cString: messagePointer)
+    }
 }
 
 extension UnsafePointer<CChar> {

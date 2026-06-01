@@ -42,7 +42,7 @@ public func ChannelOpen(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -82,7 +82,7 @@ public func ChannelDirectTCPIP(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -121,7 +121,7 @@ public func ChannelDirectStreamLocal(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -162,7 +162,7 @@ public func ChannelForwardListen(
         )
     }
     guard let listener else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
+        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
     }
     return (LibSSH2Listener(rawValue: listener), Int(boundPort))
 }
