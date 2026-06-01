@@ -12,9 +12,8 @@ import libssh2
 /// - Parameter session: The session that will own the public-key
 ///   subsystem handle.
 /// - Returns: A new ``LibSSH2PublicKey`` instance.
-/// - Throws: ``LibSSH2Error`` with `.allocationFailure` if libssh2 cannot
-///   allocate the subsystem, or other errors from the underlying
-///   `libssh2_publickey_init` call.
+/// - Throws: ``LibSSH2Error`` with `.allocationFailure` if libssh2 cannot allocate the subsystem, or other errors from
+/// the underlying   `libssh2_publickey_init` call.
 public func PublicKeyInit(session: LibSSH2Session) throws -> LibSSH2PublicKey {
     guard let publicKey = libssh2.libssh2_publickey_init(session.rawValue) else {
         throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: _libssh2LastErrorMessage(session: session))
