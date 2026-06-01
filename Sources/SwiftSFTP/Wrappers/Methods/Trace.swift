@@ -43,8 +43,7 @@ public func Trace(session: LibSSH2Session, options: LibSSH2TraceOptions) throws 
 /// `stderr`. Pass `nil` to clear a previously installed handler and restore the
 /// default output behavior. The `context` pointer is stored by libssh2 and passed back to the handler unchanged.
 ///
-/// This function only has an effect when libssh2 was built with trace support. The underlying C API was added in
-/// libssh2 1.2.3.
+/// This function only has an effect when libssh2 was built with trace support.
 ///
 /// - Parameters:
 ///   - session: The session whose trace handler should be updated.

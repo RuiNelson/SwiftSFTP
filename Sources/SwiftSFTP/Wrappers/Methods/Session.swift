@@ -25,7 +25,7 @@ public func SessionInit() throws -> LibSSH2Session {
 ///
 /// To get the full list of compression algorithms, enable compression with
 /// ``SessionFlag(session:flag:value:)`` (`LIBSSH2_FLAG_COMPRESS`) before
-/// calling this; otherwise only `none` is returned. Added in libssh2 1.4.0.
+/// calling this; otherwise only `none` is returned.
 ///
 /// - Parameters:
 ///   - session: The session to query.
@@ -85,8 +85,7 @@ public func SessionCallbackSet2(
 
 /// Sets the SSH banner that the local client advertises during the handshake.
 ///
-/// This is optional; libssh2 sends a default banner containing the protocol and library version. Added in libssh2
-/// 1.4.0.
+/// This is optional; libssh2 sends a default banner containing the protocol and library version.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
@@ -100,8 +99,7 @@ public func SessionBannerSet(session: LibSSH2Session, banner: String) throws {
 
 /// Returns the server banner string received during the handshake.
 ///
-/// The result is owned by the session and is freed when the session is released with ``SessionFree(session:)``. Added
-/// in libssh2 1.4.0.
+/// The result is owned by the session and is freed when the session is released with ``SessionFree(session:)``.
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: The remote server's banner, or `nil` if it is not available or the handshake has not yet completed.
@@ -111,7 +109,7 @@ public func SessionBannerGet(session: LibSSH2Session) -> String? {
 
 /// Performs the SSH transport-layer handshake on an already-connected socket.
 ///
-/// Any reliable Berkeley-style socket works in practice, though TCP is the most common. Added in libssh2 1.2.8.
+/// Any reliable Berkeley-style socket works in practice, though TCP is the most common.
 ///
 /// - Parameters:
 ///   - session: The session that will perform the handshake.
@@ -272,7 +270,7 @@ public func SessionLastErrno(session: LibSSH2Session) -> Int {
 /// Overrides the session's last-error state.
 ///
 /// Provided for high-level language wrappers and other libraries that extend libssh2 but still want to reuse its error
-/// reporting. Added in libssh2 1.6.1.
+/// reporting.
 ///
 /// - Parameters:
 ///   - session: The session whose error state should be updated.
@@ -293,7 +291,7 @@ public func SessionSetLastError(
 /// Returns the I/O directions that a non-blocking session is currently waiting on.
 ///
 /// After a libssh2 call returns `LIBSSH2_ERROR_EAGAIN`, callers should wait for the appropriate direction on the
-/// underlying socket and then retry. Added in libssh2 1.0.
+/// underlying socket and then retry.
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: A bitmask of `LIBSSH2_SESSION_BLOCK_INBOUND` and
@@ -345,7 +343,6 @@ public func SessionGetBlocking(session: LibSSH2Session) -> Bool {
 ///
 /// When a blocking call waits longer than this value it returns
 /// `LIBSSH2_ERROR_TIMEOUT`. Pass `0` to disable the timeout (the default).
-/// Added in libssh2 1.2.9.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
@@ -356,7 +353,7 @@ public func SessionSetTimeout(session: LibSSH2Session, timeoutMilliseconds: Int)
 
 /// Returns the current blocking-call timeout, in milliseconds.
 ///
-/// Returns `0` when no timeout is set (the default). Added in libssh2 1.2.9.
+/// Returns `0` when no timeout is set (the default).
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: The current timeout in milliseconds.
@@ -368,7 +365,7 @@ public func SessionGetTimeout(session: LibSSH2Session) -> Int {
 ///
 /// The underlying libssh2 API measures this value in seconds despite the Swift parameter name. When a packet read call
 /// waits longer than this value it returns `LIBSSH2_ERROR_TIMEOUT`. The default is 60 seconds; pass `0` to keep the
-/// default. Added in libssh2 1.10.1.
+/// default.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
@@ -380,7 +377,7 @@ public func SessionSetReadTimeout(session: LibSSH2Session, timeoutMilliseconds: 
 
 /// Returns the current packet-read timeout, in seconds, for a session.
 ///
-/// The underlying libssh2 API measures this value in seconds; the default is 60 seconds. Added in libssh2 1.10.1.
+/// The underlying libssh2 API measures this value in seconds; the default is 60 seconds.
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: The current packet-read timeout in seconds.

@@ -251,8 +251,7 @@ public func UserAuthPassword(
 /// Loads the key pair from disk. When both `publicKeyPath` and
 /// `privateKeyPath` are supplied, the public key is used as-is and the
 /// private key is parsed for authentication. When `publicKeyPath` is
-/// `nil` (and libssh2 is built against OpenSSL) the public key is
-/// extracted from the private key file automatically.
+/// `nil` the public key is extracted from the private key file automatically.
 ///
 /// - Parameters:
 ///   - session: The session to authenticate.
@@ -347,9 +346,7 @@ public func UserAuthHostBasedFromFile(
 ///
 /// Loads the key pair from in-memory buffers instead of files. When both keys are supplied, the public key is used
 /// as-is. When
-/// `publicKeyFileData` is empty the public key is extracted from the
-/// private key data. Requires libssh2 ≥ 1.6.0 and a backend that supports the in-memory loader (OpenSSL, WinCNG,
-/// mbedTLS, OS/400).
+/// `publicKeyFileData` is empty the public key is extracted from the private key data.
 ///
 /// - Parameters:
 ///   - session: The session to authenticate.
@@ -479,8 +476,8 @@ public func UserAuthKeyboardInteractive(
 ///
 /// Performs FIDO2 (security key) authentication using the
 /// `sk-ssh-ed25519@openssh.com` or `sk-ecdsa-sha2-nistp256@openssh.com`
-/// key types. Requires libssh2 ≥ 1.10.0 and an OpenSSL-backed build. The callback is responsible for talking to the
-/// hardware authenticator; the Swift wrapper merely forwards the request and packages the response for libssh2.
+/// key types. The callback is responsible for talking to the hardware authenticator; the Swift wrapper merely forwards
+/// the request and packages the response for libssh2.
 ///
 /// - Parameters:
 ///   - session: The session to authenticate.

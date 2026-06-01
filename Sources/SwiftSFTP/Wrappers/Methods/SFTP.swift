@@ -156,8 +156,8 @@ public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Da
 ///   - maximumNameLength: Capacity of the name buffer; names longer than this are truncated.
 ///   - maximumLongEntryLength: Capacity of the long-entry buffer, or `0` to skip the long entry.
 /// - Returns: A tuple with the entry name, an optional long entry, and the entry's attributes.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.bufferTooSmall` (libssh2 ≥
-/// 1.2.8) when the supplied buffers cannot hold the result.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.bufferTooSmall` when the
+/// supplied buffers cannot hold the result.
 public func SFTPReadDir(
     handle: LibSSH2SFTPHandle,
     maximumNameLength: Int,
@@ -191,8 +191,8 @@ public func SFTPReadDir(
 ///
 /// Modelled on the POSIX `write(2)` function. The call may return fewer bytes than requested. libssh2 uses SFTP's 32
 /// KiB per-packet limit to its advantage: passing buffers of at least 32 KiB at a time yields the best throughput on
-/// high-latency links. As of libssh2 1.2.8 the call uses "write ahead" and may acknowledge data that has been sent but
-/// not yet confirmed by the server.
+/// high-latency links. The call uses "write ahead" and may acknowledge data that has been sent but not yet confirmed by
+/// the server.
 ///
 /// - Parameters:
 ///   - handle: The SFTP file handle to write to.
@@ -212,8 +212,8 @@ public func SFTPWrite(handle: LibSSH2SFTPHandle, data: Data) throws -> Int {
 
 /// Asks the remote server to fsync the file backing an SFTP handle.
 ///
-/// Requires the `fsync@openssh.com` extension on the server (added in libssh2 1.4.4 and OpenSSH 6.3). If the server
-/// does not support the extension this call returns `LIBSSH2_FX_OP_UNSUPPORTED`.
+/// Requires the `fsync@openssh.com` extension on the server (OpenSSH 6.3 or later). If the server does not support the
+/// extension this call returns `LIBSSH2_FX_OP_UNSUPPORTED`.
 ///
 /// - Parameter handle: The SFTP file handle to synchronize.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
@@ -478,7 +478,7 @@ public func SFTPUnlink(sftp: LibSSH2SFTP, filename: String) throws {
 
 /// Returns `statvfs`-style statistics for the filesystem backing an SFTP handle.
 ///
-/// Requires the `fstatvfs@openssh.com` extension on the server (added in libssh2 1.2.6).
+/// Requires the `fstatvfs@openssh.com` extension on the server.
 ///
 /// - Parameter handle: The SFTP file handle to inspect.
 /// - Returns: A ``LibSSH2SFTPStatVFS`` describing the filesystem that hosts the file.
@@ -491,7 +491,7 @@ public func SFTPFStatVFS(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPStatVFS
 
 /// Returns `statvfs`-style statistics for the filesystem containing a path.
 ///
-/// Requires the `statvfs@openssh.com` extension on the server (added in libssh2 1.2.6).
+/// Requires the `statvfs@openssh.com` extension on the server.
 ///
 /// - Parameters:
 ///   - sftp: The SFTP instance to use.
@@ -582,8 +582,8 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> L
 ///     `LIBSSH2_SFTP_SYMLINK`. Ignored for read and realpath operations.
 ///   - linkType: One of the `LIBSSH2_SFTP_SYMLINK`, `LIBSSH2_SFTP_READLINK`, or `LIBSSH2_SFTP_REALPATH` constants.
 /// - Returns: The resolved path for read or realpath operations, or `nil` when a symlink was successfully created.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.bufferTooSmall` (libssh2 ≥
-/// 1.2.8) when the output buffer cannot hold the result.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.bufferTooSmall` when the
+/// output buffer cannot hold the result.
 public func SFTPSymlink(
     sftp: LibSSH2SFTP,
     path: String,
