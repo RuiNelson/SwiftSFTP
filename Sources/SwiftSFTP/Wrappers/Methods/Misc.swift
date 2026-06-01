@@ -6,18 +6,24 @@ import libssh2
 /// and is not thread safe; callers must ensure it is not invoked
 /// concurrently. Pair with ``Exit()`` when finished.
 ///
-/// - Parameter flags: Reserved; pass `0`.
+/// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call
 ///   fails.
-public func Init(flags: Int = 0) throws {
-    try libssh2.libssh2_init(Int32(flags)).checkReturnValue()
+public func Init(noCrypto: Bool = false) throws {
+    try NotThreadSafe {
+        let flags: Int32 = noCrypto ? LIBSSH2_INIT_NO_CRYPTO : 0
+
+        try libssh2.libssh2_init(flags).checkReturnValue()
+    }
 }
 
 /// Releases global libssh2 state and frees all internal memory.
 ///
 /// Pair with a successful ``Init(flags:)`` call.
 public func Exit() {
-    libssh2.libssh2_exit()
+    NotThreadSafe {
+        libssh2.libssh2_exit()
+    }
 }
 
 /// Frees memory allocated by libssh2 for a session.

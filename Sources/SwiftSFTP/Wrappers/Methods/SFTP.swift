@@ -14,10 +14,12 @@ import libssh2
 ///   socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
 ///   non-blocking sessions).
 public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
-    guard let sftp = libssh2.libssh2_sftp_init(session.rawValue) else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+    return try NotThreadSafe {
+        guard let sftp = libssh2.libssh2_sftp_init(session.rawValue) else {
+            throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        }
+        return LibSSH2SFTP(rawValue: sftp)
     }
-    return LibSSH2SFTP(rawValue: sftp)
 }
 
 /// Destroys a previously initialized SFTP session and frees its resources.
@@ -26,7 +28,9 @@ public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func SFTPShutdown(sftp: LibSSH2SFTP) throws {
-    try libssh2.libssh2_sftp_shutdown(sftp.rawValue).checkReturnValue()
+    return try NotThreadSafe {
+        try libssh2.libssh2_sftp_shutdown(sftp.rawValue).checkReturnValue()
+    }
 }
 
 /// Returns the most recent SFTP-protocol error code.
@@ -83,8 +87,6 @@ public func SFTPOpen(
     guard let handle else { throw LibSSH2Error.sftp(statusCode: SFTPLastError(sftp: sftp)) }
     return LibSSH2SFTPHandle(rawValue: handle)
 }
-
-
 
 /// Opens a file or directory and reports the server-side attributes.
 ///
@@ -197,7 +199,6 @@ public func SFTPReadDir(
     return (name, longEntry, LibSSH2SFTPAttributes(rawAttributes))
 }
 
-
 /// Writes data to an SFTP file handle.
 ///
 /// Modelled on the POSIX `write(2)` function. The call may return fewer
@@ -248,8 +249,6 @@ public func SFTPCloseHandle(handle: LibSSH2SFTPHandle) throws {
     try libssh2.libssh2_sftp_close_handle(handle.rawValue).checkReturnValue()
 }
 
-
-
 /// Sets the read/write position indicator for an SFTP file handle.
 ///
 /// The libssh2 documentation marks this function as deprecated; prefer
@@ -279,7 +278,6 @@ public func SFTPSeek(handle: LibSSH2SFTPHandle, offset: Int) {
 public func SFTPSeek64(handle: LibSSH2SFTPHandle, offset: UInt64) {
     libssh2.libssh2_sftp_seek64(handle.rawValue, libssh2_uint64_t(offset))
 }
-
 
 /// Returns the current read/write position of an SFTP file handle.
 ///
@@ -421,7 +419,6 @@ public func SFTPSetUserAndGroupIDs(handle: LibSSH2SFTPHandle, uID: UInt, gID: UI
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
-
 /// Renames a filesystem object on the remote SFTP server.
 ///
 /// The rename may move an object between directories or across mount
@@ -459,7 +456,6 @@ public func SFTPRename(
     }
 }
 
-
 /// Renames an SFTP file using the `posix-rename@openssh.com` extension.
 ///
 /// Useful when moving files across filesystems on the remote server; the
@@ -492,7 +488,6 @@ public func SFTPPOSIXRename(sftp: LibSSH2SFTP, sourceFilename: String, destinati
     }
 }
 
-
 /// Deletes a file from the remote SFTP filesystem.
 ///
 /// Use ``SFTPRmdir(sftp:path:)`` to remove directories.
@@ -507,7 +502,6 @@ public func SFTPUnlink(sftp: LibSSH2SFTP, filename: String) throws {
         try libssh2.libssh2_sftp_unlink_ex(sftp.rawValue, $0, filename.uint32Length).checkReturnValue()
     }
 }
-
 
 /// Returns `statvfs`-style statistics for the filesystem backing an SFTP handle.
 ///
@@ -561,7 +555,6 @@ public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
     }
 }
 
-
 /// Removes a directory from the remote SFTP filesystem.
 ///
 /// Use ``SFTPUnlink(sftp:filename:)`` to remove regular files.
@@ -577,7 +570,6 @@ public func SFTPRmdir(sftp: LibSSH2SFTP, path: String) throws {
         try libssh2.libssh2_sftp_rmdir_ex(sftp.rawValue, $0, path.uint32Length).checkReturnValue()
     }
 }
-
 
 /// Gets or sets attributes for a remote SFTP path.
 ///
@@ -609,8 +601,6 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> L
     }
     return LibSSH2SFTPAttributes(rawAttributes)
 }
-
-
 
 /// Creates, reads, or resolves an SFTP symlink.
 ///
@@ -679,4 +669,3 @@ public func SFTPSymlink(
     }
     return nil
 }
-

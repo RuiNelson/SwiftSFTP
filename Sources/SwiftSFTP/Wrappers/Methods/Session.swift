@@ -13,10 +13,12 @@ public typealias LibSSH2SessionCallback = @convention(c) () -> Void
 /// - Throws: ``LibSSH2Error`` with `.nullPointer` if the underlying
 ///   `libssh2_session_init_ex` call fails.
 public func SessionInit() throws -> LibSSH2Session {
-    guard let session = libssh2.libssh2_session_init_ex(nil, nil, nil, nil) else {
-        throw LibSSH2Error.nullPointer(function: "SessionInit")
+    return try NotThreadSafe {
+        guard let session = libssh2.libssh2_session_init_ex(nil, nil, nil, nil) else {
+            throw LibSSH2Error.nullPointer(function: "SessionInit")
+        }
+        return LibSSH2Session(rawValue: session)
     }
-    return LibSSH2Session(rawValue: session)
 }
 
 /// Returns the list of algorithms supported by the local libssh2 build for a method type.
@@ -46,7 +48,7 @@ public func SessionSupportedAlgs(
         }
     }
     guard let algorithms else { return [] }
-    return (0..<count).compactMap { algorithms[$0].string }
+    return (0 ..< count).compactMap { algorithms[$0].string }
 }
 
 /// Returns a pointer to the session's abstract storage slot.
@@ -160,7 +162,6 @@ public func SessionDisconnectEx(
     }
 }
 
-
 /// Frees all resources associated with a session instance.
 ///
 /// Typically called after ``SessionDisconnectEx(session:reason:description:language:)``.
@@ -171,7 +172,9 @@ public func SessionDisconnectEx(
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func SessionFree(session: LibSSH2Session) throws {
-    try session.checkReturnValue(libssh2.libssh2_session_free(session.rawValue))
+    try NotThreadSafe {
+        try session.checkReturnValue(libssh2.libssh2_session_free(session.rawValue))
+    }
 }
 
 /// Returns a digest of the remote host key, suitable for fingerprinting.
