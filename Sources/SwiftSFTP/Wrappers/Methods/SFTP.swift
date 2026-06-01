@@ -334,9 +334,7 @@ public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttri
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func SFTPSetPermissions(handle: LibSSH2SFTPHandle, permissions: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS)
-    attrs.permissions = permissions
+    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS), permissions: permissions)
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
@@ -368,19 +366,6 @@ public func SFTPSetModificationTime(handle: LibSSH2SFTPHandle, modificationTime:
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
-/// Sets the flags on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - flags: The new flags value.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
-///   sessions.
-public func SFTPSetFlags(handle: LibSSH2SFTPHandle, flags: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = flags
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
 /// Sets the user ID on an SFTP file handle.
 ///
 /// - Parameters:
@@ -388,10 +373,10 @@ public func SFTPSetFlags(handle: LibSSH2SFTPHandle, flags: UInt) throws {
 ///   - uid: The new user ID.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
-public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uid: UInt) throws {
+public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uID: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
     attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID)
-    attrs.uid = uid
+    attrs.uid = uID
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
@@ -402,10 +387,23 @@ public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uid: UInt) throws {
 ///   - gid: The new group ID.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
-public func SFTPSetGroupID(handle: LibSSH2SFTPHandle, gid: UInt) throws {
+public func SFTPSetGroupID(handle: LibSSH2SFTPHandle, gID: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
     attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID)
-    attrs.gid = gid
+    attrs.gid = gID
+    try SFTPFSetStat(handle: handle, attributes: attrs)
+}
+
+/// Sets the user and group ID on an SFTP file handle.
+///
+/// - Parameters:
+///   - handle: The SFTP file handle to modify.
+///   - uid: The new user ID.
+///   - gid: The new group ID.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
+///   sessions.
+public func SFTPSetUserAndGroupIDs(handle: LibSSH2SFTPHandle, uID: UInt, gID: UInt) throws {
+    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID), uid: uID, gid: gID)
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
