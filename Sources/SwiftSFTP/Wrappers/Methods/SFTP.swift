@@ -350,6 +350,16 @@ public func SFTPSetModificationTime(handle: LibSSH2SFTPHandle, modificationTime:
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
+/// Sets the access and modification time on a SFTP file handle to the same value.
+public func SFTPSetAccessAndModificationTime(handle: LibSSH2SFTPHandle, time: UInt) throws {
+    let attrs = LibSSH2SFTPAttributes(
+        flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_ACMODTIME),
+        accessTime: time,
+        modificationTime: time
+    )
+    try SFTPFSetStat(handle: handle, attributes: attrs)
+}
+
 /// Sets the user ID on an SFTP file handle.
 ///
 /// - Parameters:
