@@ -61,7 +61,7 @@ public func KnownHostAdd(
 ) throws -> LibSSH2KnownHost? {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     try host.withCString { hostPointer in
-        try _withOptionalCString(salt) { saltPointer in
+        try salt.withCString { saltPointer in
             try key.withCString { keyPointer in
                 try CheckReturnValue(
                     libssh2.libssh2_knownhost_add(
@@ -112,9 +112,9 @@ public func KnownHostAdd(
 ) throws -> LibSSH2KnownHost? {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     try host.withCString { hostPointer in
-        try _withOptionalCString(salt) { saltPointer in
+        try salt.withCString { saltPointer in
             try key.withCString { keyPointer in
-                try _withOptionalCString(comment) { commentPointer in
+                try comment.withCString { commentPointer in
                     try CheckReturnValue(
                         libssh2.libssh2_knownhost_addc(
                             hosts.rawValue,

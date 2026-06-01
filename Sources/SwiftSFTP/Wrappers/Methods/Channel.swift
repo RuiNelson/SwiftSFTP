@@ -29,7 +29,7 @@ public func ChannelOpen(
     message: String? = nil
 ) throws -> LibSSH2Channel {
     let channel = channelType.withCString { typePointer in
-        _withOptionalCString(message) { messagePointer in
+        message.withCString { messagePointer in
             libssh2.libssh2_channel_open_ex(
                 session.rawValue,
                 typePointer,
@@ -152,7 +152,7 @@ public func ChannelForwardListen(
     queueMaxSize: Int = 16
 ) throws -> (listener: LibSSH2Listener, boundPort: Int) {
     var boundPort: Int32 = 0
-    let listener = _withOptionalCString(host) { hostPointer in
+    let listener = host.withCString { hostPointer in
         libssh2.libssh2_channel_forward_listen_ex(
             session.rawValue,
             hostPointer,
@@ -341,8 +341,8 @@ public func ChannelX11Request(
     authCookie: String? = nil,
     screenNumber: Int
 ) throws {
-    try _withOptionalCString(authProtocol) { authProtocolPointer in
-        try _withOptionalCString(authCookie) { authCookiePointer in
+    try authProtocol.withCString { authProtocolPointer in
+        try authCookie.withCString { authCookiePointer in
             try CheckReturnValue(
                 libssh2.libssh2_channel_x11_req_ex(
                     channel.rawValue,
@@ -390,7 +390,7 @@ public func ChannelSignal(channel: LibSSH2Channel, signalName: String) throws {
 ///   denied, or `EAGAIN` for non-blocking sessions).
 public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, message: String? = nil) throws {
     try request.withCString { requestPointer in
-        try _withOptionalCString(message) { messagePointer in
+        try message.withCString { messagePointer in
             try CheckReturnValue(
                 libssh2.libssh2_channel_process_startup(
                     channel.rawValue,

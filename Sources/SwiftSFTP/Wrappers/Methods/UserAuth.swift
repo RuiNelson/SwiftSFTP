@@ -284,9 +284,9 @@ public func UserAuthPublicKeyFromFile(
     passphrase: String?
 ) throws {
     try username.withCString { usernamePointer in
-        try _withOptionalCString(publicKeyPath) { publicKeyPointer in
+        try publicKeyPath.withCString { publicKeyPointer in
             try privateKeyPath.withCString { privateKeyPointer in
-                try _withOptionalCString(passphrase) { passphrasePointer in
+                try passphrase.withCString { passphrasePointer in
                     try CheckReturnValue(
                         libssh2.libssh2_userauth_publickey_fromfile_ex(
                             session.rawValue,
@@ -337,9 +337,9 @@ public func UserAuthHostBasedFromFile(
     localUsername: String
 ) throws {
     try username.withCString { usernamePointer in
-        try _withOptionalCString(publicKeyPath) { publicKeyPointer in
+        try publicKeyPath.withCString { publicKeyPointer in
             try privateKeyPath.withCString { privateKeyPointer in
-                try _withOptionalCString(passphrase) { passphrasePointer in
+                try passphrase.withCString { passphrasePointer in
                     try hostname.withCString { hostnamePointer in
                         try localUsername.withCString { localUsernamePointer in
                             try CheckReturnValue(
@@ -393,7 +393,7 @@ public func UserAuthPublicKeyFromMemory(
     try username.withCString { usernamePointer in
         try publicKeyFileData.withCString { publicKeyPointer in
             try privateKeyFileData.withCString { privateKeyPointer in
-                try _withOptionalCString(passphrase) { passphrasePointer in
+                try passphrase.withCString { passphrasePointer in
                     try CheckReturnValue(
                         libssh2.libssh2_userauth_publickey_frommemory(
                             session.rawValue,
@@ -554,7 +554,7 @@ public func UserAuthPublicKeySK(
     try username.withCString { usernamePointer in
         try publicKeyData.withUnsafeBytes { publicKeyBytes in
             try privateKeyData.withCString { privateKeyPointer in
-                try _withOptionalCString(passphrase) { passphrasePointer in
+                try passphrase.withCString { passphrasePointer in
                     let result = libssh2.libssh2_userauth_publickey_sk(
                         session.rawValue,
                         usernamePointer,
