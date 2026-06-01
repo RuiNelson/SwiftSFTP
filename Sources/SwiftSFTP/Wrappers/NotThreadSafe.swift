@@ -1,10 +1,3 @@
-//
-//  NotThreadSafe.swift
-//  SwiftSFTP
-//
-//  Created by Rui Nelson on 01/06/2026.
-//
-
 import Foundation
 
 private let queueForNotThreadSafeLibSSH2Methods =

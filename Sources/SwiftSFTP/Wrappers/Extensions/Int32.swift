@@ -1,10 +1,3 @@
-//
-//  Int32.swift
-//  SwiftSFTP
-//
-//  Created by Rui Nelson on 01/06/2026.
-//
-
 import Foundation
 import libssh2
 

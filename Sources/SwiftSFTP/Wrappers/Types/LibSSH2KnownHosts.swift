@@ -12,8 +12,7 @@ public struct LibSSH2KnownHosts {
 
     /// Creates a wrapper around an existing `LIBSSH2_KNOWNHOSTS` handle.
     ///
-    /// - Parameter rawValue: The handle returned by a libssh2 known-hosts
-    ///   call such as `libssh2_knownhost_init`.
+    /// - Parameter rawValue: The handle returned by a libssh2 known-hosts call such as `libssh2_knownhost_init`.
     public init(rawValue: OpaquePointer) {
         self.rawValue = rawValue
     }

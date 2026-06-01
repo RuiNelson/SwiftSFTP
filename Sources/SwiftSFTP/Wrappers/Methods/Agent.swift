@@ -3,8 +3,8 @@ import libssh2
 
 /// Initializes an ssh-agent handle bound to a session.
 ///
-/// After a successful call, the returned handle is used as input to all
-/// other ssh-agent functions. Connect it to a running agent with
+/// After a successful call, the returned handle is used as input to all other ssh-agent functions. Connect it to a
+/// running agent with
 /// ``AgentConnect(agent:)`` and release it with ``AgentFree(agent:)``.
 ///
 /// - Parameter session: The session that will own the agent handle.
@@ -20,8 +20,7 @@ public func AgentInit(session: LibSSH2Session) throws -> LibSSH2Agent {
 
 /// Connects to an ssh-agent running on the system.
 ///
-/// The agent's identity socket defaults to the path in the `SSH_AUTH_SOCK`
-/// environment variable, or the path set with
+/// The agent's identity socket defaults to the path in the `SSH_AUTH_SOCK` environment variable, or the path set with
 /// ``AgentSetIdentityPath(agent:path:)``. Close the connection with
 /// ``AgentDisconnect(agent:)``.
 ///
@@ -33,8 +32,8 @@ public func AgentConnect(agent: LibSSH2Agent) throws {
 
 /// Requests the ssh-agent to list its public keys.
 ///
-/// The keys are stored in the agent handle's internal collection. Iterate
-/// the collection by repeatedly calling ``AgentGetIdentity(agent:previous:)``.
+/// The keys are stored in the agent handle's internal collection. Iterate the collection by repeatedly calling
+/// ``AgentGetIdentity(agent:previous:)``.
 ///
 /// - Parameter agent: The agent handle returned by ``AgentInit(session:)``.
 /// - Throws: ``LibSSH2Error`` if the request fails.
@@ -49,10 +48,8 @@ public func AgentListIdentities(agent: LibSSH2Agent) throws {
 ///
 /// - Parameters:
 ///   - agent: The agent handle returned by ``AgentInit(session:)``.
-///   - previous: The identity returned by the previous call, or `nil` to
-///     fetch the first identity.
-/// - Returns: The next ``LibSSH2AgentIdentity``, or `nil` when the end of
-///   the collection is reached.
+///   - previous: The identity returned by the previous call, or `nil` to fetch the first identity.
+/// - Returns: The next ``LibSSH2AgentIdentity``, or `nil` when the end of the collection is reached.
 /// - Throws: ``LibSSH2Error`` if the underlying call fails.
 public func AgentGetIdentity(
     agent: LibSSH2Agent,
@@ -68,8 +65,8 @@ public func AgentGetIdentity(
 
 /// Authenticates a session using a public key held by ssh-agent.
 ///
-/// The session is identified by the session the agent handle was created
-/// from, while `username` is the remote user to authenticate as.
+/// The session is identified by the session the agent handle was created from, while `username` is the remote user to
+/// authenticate as.
 ///
 /// - Parameters:
 ///   - agent: The agent handle returned by ``AgentInit(session:)``.
@@ -89,8 +86,8 @@ public func AgentUserAuth(
 
 /// Signs data with an ssh-agent identity.
 ///
-/// This is typically used in a `LIBSSH2_CALLBACK_AUTHAGENT_SIGN` callback
-/// registered with `libssh2_session_callback_set2` to answer a
+/// This is typically used in a `LIBSSH2_CALLBACK_AUTHAGENT_SIGN` callback registered with
+/// `libssh2_session_callback_set2` to answer a
 /// `SSH2_AGENTC_SIGN_REQUEST` challenge from a server.
 ///
 /// - Parameters:
@@ -133,8 +130,7 @@ public func AgentSign(
 
 /// Closes a connection to an ssh-agent.
 ///
-/// The agent handle itself is not freed; call ``AgentFree(agent:)`` to
-/// release it.
+/// The agent handle itself is not freed; call ``AgentFree(agent:)`` to release it.
 ///
 /// - Parameter agent: The agent handle returned by ``AgentInit(session:)``.
 /// - Throws: ``LibSSH2Error`` if the disconnect fails.
@@ -151,8 +147,8 @@ public func AgentFree(agent: LibSSH2Agent) {
 
 /// Overrides the ssh-agent identity socket path for this handle.
 ///
-/// The default path comes from the `SSH_AUTH_SOCK` environment variable.
-/// Pass an empty string to clear a previously set custom path.
+/// The default path comes from the `SSH_AUTH_SOCK` environment variable. Pass an empty string to clear a previously set
+/// custom path.
 ///
 /// - Parameters:
 ///   - agent: The agent handle returned by ``AgentInit(session:)``.

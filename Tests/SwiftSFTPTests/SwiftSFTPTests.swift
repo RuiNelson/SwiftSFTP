@@ -1,5 +1,5 @@
-import Testing
 @testable import SwiftSFTP
+import Testing
 
 @Test func libSSH2VersionAndCryptoEngine() async throws {
     let version = Version() ?? ""

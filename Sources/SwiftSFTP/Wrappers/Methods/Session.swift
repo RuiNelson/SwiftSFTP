@@ -13,7 +13,7 @@ public typealias LibSSH2SessionCallback = @convention(c) () -> Void
 /// - Throws: ``LibSSH2Error`` with `.nullPointer` if the underlying
 ///   `libssh2_session_init_ex` call fails.
 public func SessionInit() throws -> LibSSH2Session {
-    return try NotThreadSafe {
+    try NotThreadSafe {
         guard let session = libssh2.libssh2_session_init_ex(nil, nil, nil, nil) else {
             throw LibSSH2Error.nullPointer(function: "SessionInit")
         }
@@ -29,11 +29,11 @@ public func SessionInit() throws -> LibSSH2Session {
 ///
 /// - Parameters:
 ///   - session: The session to query.
-///   - methodType: The method category to enumerate (key exchange, host
-///     key, cipher, MAC, compression, language, or signature algorithm).
+///   - methodType: The method category to enumerate (key exchange, host key, cipher, MAC, compression, language, or
+/// signature algorithm).
 /// - Returns: The supported algorithm names for the requested method type.
-/// - Throws: ``LibSSH2Error`` on failure (allocation, invalid method type,
-///   unknown method type, or `EAGAIN` for non-blocking sessions).
+/// - Throws: ``LibSSH2Error`` on failure (allocation, invalid method type, unknown method type, or `EAGAIN` for
+/// non-blocking sessions).
 public func SessionSupportedAlgs(
     session: LibSSH2Session,
     methodType: LibSSH2SessionMethodType
@@ -53,10 +53,9 @@ public func SessionSupportedAlgs(
 
 /// Returns a pointer to the session's abstract storage slot.
 ///
-/// The double indirection matches the C API: the returned pointer addresses
-/// a `void *` slot inside the session, which itself stores the abstract
-/// pointer that was associated with the session at initialization time
-/// (always `nil` with this Swift wrapper).
+/// The double indirection matches the C API: the returned pointer addresses a `void *` slot inside the session, which
+/// itself stores the abstract pointer that was associated with the session at initialization time (always `nil` with
+/// this Swift wrapper).
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: A pointer to the session's internal abstract slot.
@@ -66,9 +65,8 @@ public func SessionAbstract(session: LibSSH2Session) -> UnsafeMutablePointer<Uns
 
 /// Sets (or clears) a session-level callback and returns the previous one.
 ///
-/// The `callbackType` selects one of the `LIBSSH2_CALLBACK_*` constants.
-/// Pass `nil` to disable a previously registered callback. The most
-/// common values are `LIBSSH2_CALLBACK_AUTHAGENT` (used together with
+/// The `callbackType` selects one of the `LIBSSH2_CALLBACK_*` constants. Pass `nil` to disable a previously registered
+/// callback. The most common values are `LIBSSH2_CALLBACK_AUTHAGENT` (used together with
 /// ``ChannelRequestAuthAgent(channel:)``) and `LIBSSH2_CALLBACK_X11` (used
 /// with ``ChannelX11Request(channel:singleConnection:authProtocol:authCookie:screenNumber:)``).
 ///
@@ -76,8 +74,7 @@ public func SessionAbstract(session: LibSSH2Session) -> UnsafeMutablePointer<Uns
 ///   - session: The session to configure.
 ///   - callbackType: One of the `LIBSSH2_CALLBACK_*` constants.
 ///   - callback: New callback, or `nil` to clear the existing one.
-/// - Returns: The previously registered callback, or `nil` if none was set
-///   or `callbackType` was unknown.
+/// - Returns: The previously registered callback, or `nil` if none was set or `callbackType` was unknown.
 public func SessionCallbackSet2(
     session: LibSSH2Session,
     callbackType: Int,
@@ -88,14 +85,13 @@ public func SessionCallbackSet2(
 
 /// Sets the SSH banner that the local client advertises during the handshake.
 ///
-/// This is optional; libssh2 sends a default banner containing the protocol
-/// and library version. Added in libssh2 1.4.0.
+/// This is optional; libssh2 sends a default banner containing the protocol and library version. Added in libssh2
+/// 1.4.0.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
 ///   - banner: Zero-terminated string to send to the remote host.
-/// - Throws: ``LibSSH2Error`` on failure (allocation or `EAGAIN` for
-///   non-blocking sessions).
+/// - Throws: ``LibSSH2Error`` on failure (allocation or `EAGAIN` for non-blocking sessions).
 public func SessionBannerSet(session: LibSSH2Session, banner: String) throws {
     try banner.withCString {
         try session.checkReturnValue(libssh2.libssh2_session_banner_set(session.rawValue, $0))
@@ -104,26 +100,24 @@ public func SessionBannerSet(session: LibSSH2Session, banner: String) throws {
 
 /// Returns the server banner string received during the handshake.
 ///
-/// The result is owned by the session and is freed when the session is
-/// released with ``SessionFree(session:)``. Added in libssh2 1.4.0.
+/// The result is owned by the session and is freed when the session is released with ``SessionFree(session:)``. Added
+/// in libssh2 1.4.0.
 ///
 /// - Parameter session: The session to inspect.
-/// - Returns: The remote server's banner, or `nil` if it is not available
-///   or the handshake has not yet completed.
+/// - Returns: The remote server's banner, or `nil` if it is not available or the handshake has not yet completed.
 public func SessionBannerGet(session: LibSSH2Session) -> String? {
     libssh2.libssh2_session_banner_get(session.rawValue).string
 }
 
 /// Performs the SSH transport-layer handshake on an already-connected socket.
 ///
-/// Any reliable Berkeley-style socket works in practice, though TCP is the
-/// most common. Added in libssh2 1.2.8.
+/// Any reliable Berkeley-style socket works in practice, though TCP is the most common. Added in libssh2 1.2.8.
 ///
 /// - Parameters:
 ///   - session: The session that will perform the handshake.
 ///   - socket: Connected file descriptor to drive the protocol over.
-/// - Throws: ``LibSSH2Error`` on failure (invalid socket, banner send,
-///   key exchange failure, socket send, disconnect, protocol error, or
+/// - Throws: ``LibSSH2Error`` on failure (invalid socket, banner send, key exchange failure, socket send, disconnect,
+/// protocol error, or
 ///   `EAGAIN` for non-blocking sessions).
 public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
     try session.checkReturnValue(libssh2.libssh2_session_handshake(session.rawValue, socket))
@@ -131,17 +125,15 @@ public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
 
 /// Sends a disconnect message to the remote host and tears down the transport layer.
 ///
-/// The default `reason` of `11` corresponds to `SSH_DISCONNECT_BY_APPLICATION`.
-/// The `language` tag follows the IETF `RFC 5646` style (for example `en-US`);
-/// pass an empty string when localization is not relevant.
+/// The default `reason` of `11` corresponds to `SSH_DISCONNECT_BY_APPLICATION`. The `language` tag follows the IETF
+/// `RFC 5646` style (for example `en-US`); pass an empty string when localization is not relevant.
 ///
 /// - Parameters:
 ///   - session: The session to disconnect.
 ///   - reason: One of the `SSH_DISCONNECT_*` reason codes.
 ///   - description: Human-readable reason sent to the peer.
 ///   - language: Localization tag for `description`.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
-///   sessions.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SessionDisconnectEx(
     session: LibSSH2Session,
     reason: Int = 11,
@@ -164,13 +156,11 @@ public func SessionDisconnectEx(
 
 /// Frees all resources associated with a session instance.
 ///
-/// Typically called after ``SessionDisconnectEx(session:reason:description:language:)``.
-/// The ``LibSSH2Session`` handle is no longer usable after a successful
-/// return.
+/// Typically called after ``SessionDisconnectEx(session:reason:description:language:)``. The ``LibSSH2Session`` handle
+/// is no longer usable after a successful return.
 ///
 /// - Parameter session: The session to free.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
-///   sessions.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SessionFree(session: LibSSH2Session) throws {
     try NotThreadSafe {
         try session.checkReturnValue(libssh2.libssh2_session_free(session.rawValue))
@@ -182,15 +172,13 @@ public func SessionFree(session: LibSSH2Session) throws {
 /// `hashType` selects the algorithm; the Swift wrapper maps the libssh2
 /// `LIBSSH2_HOSTKEY_HASH_*` constants to their corresponding digest sizes:
 /// `1` = MD5 (16 bytes), `2` = SHA-1 (20 bytes), `3` = SHA-256 (32 bytes).
-/// The returned ``Data`` contains raw binary bytes, not a printable hex
-/// string.
+/// The returned ``Data`` contains raw binary bytes, not a printable hex string.
 ///
 /// - Parameters:
 ///   - session: The session to inspect.
 ///   - hashType: One of the `LIBSSH2_HOSTKEY_HASH_*` constants.
-/// - Returns: The host-key digest, or `nil` if the information is not yet
-///   available (the handshake has not completed or the requested hash
-///   algorithm is unavailable).
+/// - Returns: The host-key digest, or `nil` if the information is not yet available (the handshake has not completed or
+/// the requested hash algorithm is unavailable).
 public func HostKeyHash(session: LibSSH2Session, hashType: Int) -> Data? {
     guard let pointer = libssh2.libssh2_hostkey_hash(session.rawValue, Int32(hashType)) else { return nil }
     let length: Int
@@ -209,8 +197,7 @@ public func HostKeyHash(session: LibSSH2Session, hashType: Int) -> Data? {
 /// `DSS` (deprecated), or `UNKNOWN`).
 ///
 /// - Parameter session: The session to inspect.
-/// - Returns: A tuple with the raw key bytes and the key type, or `nil` if
-///   the host key is not available.
+/// - Returns: A tuple with the raw key bytes and the key type, or `nil` if the host key is not available.
 public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: Int)? {
     var length = 0
     var type: Int32 = 0
@@ -227,12 +214,11 @@ public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: Int)? {
 ///
 /// - Parameters:
 ///   - session: The session to configure.
-///   - methodType: One of the `LIBSSH2_METHOD_*` constants (key exchange,
-///     host key, cipher, MAC, compression, language, or signature
-///     algorithm).
+///   - methodType: One of the `LIBSSH2_METHOD_*` constants (key exchange, host key, cipher, MAC, compression, language,
+/// or signature algorithm).
 ///   - preferences: Comma-separated list of preferred algorithm names.
-/// - Throws: ``LibSSH2Error`` on failure (invalid method type, allocation,
-///   unsupported method, or `EAGAIN` for non-blocking sessions).
+/// - Throws: ``LibSSH2Error`` on failure (invalid method type, allocation, unsupported method, or `EAGAIN` for
+/// non-blocking sessions).
 public func SessionMethodPreference(
     session: LibSSH2Session,
     methodType: LibSSH2SessionMethodType,
@@ -250,8 +236,8 @@ public func SessionMethodPreference(
 /// - Parameters:
 ///   - session: The session to inspect.
 ///   - methodType: One of the `LIBSSH2_METHOD_*` constants.
-/// - Returns: The negotiated algorithm, or `nil` if the session has not
-///   been started yet or the requested method is not available.
+/// - Returns: The negotiated algorithm, or `nil` if the session has not been started yet or the requested method is not
+/// available.
 public func SessionMethods(session: LibSSH2Session, methodType: LibSSH2SessionMethodType) -> String? {
     libssh2.libssh2_session_methods(session.rawValue, methodType.libssh2Value).string
 }
@@ -260,10 +246,9 @@ public func SessionMethods(session: LibSSH2Session, methodType: LibSSH2SessionMe
 ///
 /// - Parameters:
 ///   - session: The session to inspect.
-///   - wantsBuffer: If `true`, ownership of the message buffer is given to
-///     the caller; libssh2 will duplicate it if needed.
-/// - Returns: A tuple containing the numeric error code and an optional
-///   error message.
+///   - wantsBuffer: If `true`, ownership of the message buffer is given to the caller; libssh2 will duplicate it if
+/// needed.
+/// - Returns: A tuple containing the numeric error code and an optional error message.
 public func SessionLastError(session: LibSSH2Session, wantsBuffer: Bool = false) -> (code: Int, message: String?) {
     var messagePointer: UnsafeMutablePointer<CChar>?
     var messageLength: Int32 = 0
@@ -286,15 +271,13 @@ public func SessionLastErrno(session: LibSSH2Session) -> Int {
 
 /// Overrides the session's last-error state.
 ///
-/// Provided for high-level language wrappers and other libraries that
-/// extend libssh2 but still want to reuse its error reporting. Added in
-/// libssh2 1.6.1.
+/// Provided for high-level language wrappers and other libraries that extend libssh2 but still want to reuse its error
+/// reporting. Added in libssh2 1.6.1.
 ///
 /// - Parameters:
 ///   - session: The session whose error state should be updated.
 ///   - code: One of the `LIBSSH2_ERROR_*` constants.
-///   - message: Description to associate with `code`. The string is copied
-///     into the session.
+///   - message: Description to associate with `code`. The string is copied into the session.
 /// - Returns: The numeric error code that was stored.
 @discardableResult
 public func SessionSetLastError(
@@ -309,9 +292,8 @@ public func SessionSetLastError(
 
 /// Returns the I/O directions that a non-blocking session is currently waiting on.
 ///
-/// After a libssh2 call returns `LIBSSH2_ERROR_EAGAIN`, callers should
-/// wait for the appropriate direction on the underlying socket and then
-/// retry. Added in libssh2 1.0.
+/// After a libssh2 call returns `LIBSSH2_ERROR_EAGAIN`, callers should wait for the appropriate direction on the
+/// underlying socket and then retry. Added in libssh2 1.0.
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: A bitmask of `LIBSSH2_SESSION_BLOCK_INBOUND` and
@@ -323,8 +305,8 @@ public func SessionBlockDirections(session: LibSSH2Session) -> Int {
 
 /// Sets or clears a session option.
 ///
-/// The two most common flags are `LIBSSH2_FLAG_SIGPIPE` (control whether
-/// libssh2 suppresses `SIGPIPE` from the underlying socket layer) and
+/// The two most common flags are `LIBSSH2_FLAG_SIGPIPE` (control whether libssh2 suppresses `SIGPIPE` from the
+/// underlying socket layer) and
 /// `LIBSSH2_FLAG_COMPRESS` (negotiate SSH transport compression during the
 /// handshake; must be set before ``SessionHandshake(session:socket:)``).
 ///
@@ -341,15 +323,12 @@ public func SessionFlag(session: LibSSH2Session, flag: Int, value: Bool) throws 
 
 /// Sets or clears blocking mode for a session.
 ///
-/// The change applies to the session and every channel attached to it.
-/// In blocking mode I/O calls wait for data; in non-blocking mode they
-/// return `LIBSSH2_ERROR_EAGAIN` immediately when no data is available or
-/// the socket is full.
+/// The change applies to the session and every channel attached to it. In blocking mode I/O calls wait for data; in
+/// non-blocking mode they return `LIBSSH2_ERROR_EAGAIN` immediately when no data is available or the socket is full.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
-///   - blocking: If `true`, block on I/O; if `false`, return `EAGAIN`
-///     instead of blocking.
+///   - blocking: If `true`, block on I/O; if `false`, return `EAGAIN` instead of blocking.
 public func SessionSetBlocking(session: LibSSH2Session, blocking: Bool) {
     libssh2.libssh2_session_set_blocking(session.rawValue, blocking ? 1 : 0)
 }
@@ -357,8 +336,7 @@ public func SessionSetBlocking(session: LibSSH2Session, blocking: Bool) {
 /// Returns whether a session is currently in blocking mode.
 ///
 /// - Parameter session: The session to inspect.
-/// - Returns: `true` if the session is blocking, `false` if it is
-///   non-blocking.
+/// - Returns: `true` if the session is blocking, `false` if it is non-blocking.
 public func SessionGetBlocking(session: LibSSH2Session) -> Bool {
     libssh2.libssh2_session_get_blocking(session.rawValue) != 0
 }
@@ -388,10 +366,9 @@ public func SessionGetTimeout(session: LibSSH2Session) -> Int {
 
 /// Sets the timeout, in seconds, used by packet read functions on a session.
 ///
-/// The underlying libssh2 API measures this value in seconds despite the
-/// Swift parameter name. When a packet read call waits longer than this
-/// value it returns `LIBSSH2_ERROR_TIMEOUT`. The default is 60 seconds;
-/// pass `0` to keep the default. Added in libssh2 1.10.1.
+/// The underlying libssh2 API measures this value in seconds despite the Swift parameter name. When a packet read call
+/// waits longer than this value it returns `LIBSSH2_ERROR_TIMEOUT`. The default is 60 seconds; pass `0` to keep the
+/// default. Added in libssh2 1.10.1.
 ///
 /// - Parameters:
 ///   - session: The session to configure.
@@ -403,8 +380,7 @@ public func SessionSetReadTimeout(session: LibSSH2Session, timeoutMilliseconds: 
 
 /// Returns the current packet-read timeout, in seconds, for a session.
 ///
-/// The underlying libssh2 API measures this value in seconds; the default
-/// is 60 seconds. Added in libssh2 1.10.1.
+/// The underlying libssh2 API measures this value in seconds; the default is 60 seconds. Added in libssh2 1.10.1.
 ///
 /// - Parameter session: The session to inspect.
 /// - Returns: The current packet-read timeout in seconds.

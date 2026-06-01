@@ -6,8 +6,7 @@ private let _traceLogger = Logger(subsystem: "com.ruinelson.SwiftSFTP", category
 
 private let _traceLoggerHandler: LibSSH2TraceHandler = { _, _, data, length in
     guard
-        let data
-    else {
+        let data else {
         return
     }
 
@@ -24,11 +23,10 @@ public typealias LibSSH2TraceHandler = libssh2_trace_handler_func
 
 /// Configures libssh2 tracing for a session.
 ///
-/// Pass one or more ``LibSSH2TraceOptions`` values to select which categories
-/// of libssh2 debug output should be emitted, or pass an empty option set to
-/// disable tracing. Tracing only produces output when libssh2 was built with
-/// trace support; typical release builds may ignore this call. Without a custom
-/// handler, libssh2 writes enabled trace output to `stderr`.
+/// Pass one or more ``LibSSH2TraceOptions`` values to select which categories of libssh2 debug output should be
+/// emitted, or pass an empty option set to disable tracing. Tracing only produces output when libssh2 was built with
+/// trace support; typical release builds may ignore this call. Without a custom handler, libssh2 writes enabled trace
+/// output to `stderr`.
 ///
 /// - Parameters:
 ///   - session: The session to configure tracing on.
@@ -43,11 +41,10 @@ public func Trace(session: LibSSH2Session, options: LibSSH2TraceOptions) throws 
 /// When tracing is enabled with ``Trace(session:options:)``, libssh2 invokes
 /// `handler` as trace output is generated instead of writing that output to
 /// `stderr`. Pass `nil` to clear a previously installed handler and restore the
-/// default output behavior. The `context` pointer is stored by libssh2 and
-/// passed back to the handler unchanged.
+/// default output behavior. The `context` pointer is stored by libssh2 and passed back to the handler unchanged.
 ///
-/// This function only has an effect when libssh2 was built with trace support.
-/// The underlying C API was added in libssh2 1.2.3.
+/// This function only has an effect when libssh2 was built with trace support. The underlying C API was added in
+/// libssh2 1.2.3.
 ///
 /// - Parameters:
 ///   - session: The session whose trace handler should be updated.

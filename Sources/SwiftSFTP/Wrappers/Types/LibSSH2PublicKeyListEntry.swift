@@ -16,8 +16,9 @@ public struct LibSSH2PublicKeyListEntry: Sendable, Codable, Equatable {
         self.name = rawValue.name.data(count: Int(rawValue.name_len))
         self.blob = rawValue.blob.data(count: Int(rawValue.blob_len))
         if let attrs = rawValue.attrs {
-            self.attributes = (0..<Int(rawValue.num_attrs)).map { LibSSH2PublicKeyAttribute(attrs[$0]) }
-        } else {
+            self.attributes = (0 ..< Int(rawValue.num_attrs)).map { LibSSH2PublicKeyAttribute(attrs[$0]) }
+        }
+        else {
             self.attributes = []
         }
     }

@@ -14,14 +14,13 @@ public enum LibSSH2KnownHostCheckResult: Int32, Sendable {
 
 /// Initializes a known-hosts collection for a session.
 ///
-/// The returned handle is used as input to all other known-hosts
-/// functions. Free the collection with ``KnownHostFree(hosts:)``.
+/// The returned handle is used as input to all other known-hosts functions. Free the collection with
+/// ``KnownHostFree(hosts:)``.
 ///
-/// - Parameter session: The session that will own the known-hosts
-///   collection.
+/// - Parameter session: The session that will own the known-hosts collection.
 /// - Returns: A ``LibSSH2KnownHosts`` handle for the collection.
-/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/nullPointer(function:)``
-///   if the underlying `libssh2_knownhost_init` call fails.
+/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/nullPointer(function:)`` if the underlying `libssh2_knownhost_init`
+/// call fails.
 public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
     guard let hosts = libssh2.libssh2_knownhost_init(session.rawValue) else {
         throw LibSSH2Error.nullPointer(function: "KnownHostInit")
@@ -32,8 +31,8 @@ public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
 /// Adds a host key to a known-hosts collection.
 ///
 /// `host` may be the IP numerical address or full name, in plain text or
-/// hashed. If hashed, it must be base64 encoded and `salt` must be
-/// supplied as a base64-encoded trailing-zero-terminated buffer. If
+/// hashed. If hashed, it must be base64 encoded and `salt` must be supplied as a base64-encoded
+/// trailing-zero-terminated buffer. If
 /// `host` is plain text, `salt` is ignored and may be `nil`.
 ///
 /// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
@@ -43,15 +42,12 @@ public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
 /// - Parameters:
 ///   - hosts: The collection to add the entry to.
 ///   - host: The host name in plain text or base64-encoded hashed form.
-///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for
-///     plain-text hosts.
+///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for plain-text hosts.
 ///   - key: The host key.
-///   - typeMask: A bitmask describing the host format, key encoding, and
-///     key algorithm.
+///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
 /// - Returns: A ``LibSSH2KnownHost`` referencing the added entry, or
 ///   `nil` if `store` was not filled in.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_add`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_add` call fails.
 public func KnownHostAdd(
     hosts: LibSSH2KnownHosts,
     host: String,
@@ -92,16 +88,13 @@ public func KnownHostAdd(
 /// - Parameters:
 ///   - hosts: The collection to add the entry to.
 ///   - host: The host name in plain text or base64-encoded hashed form.
-///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for
-///     plain-text hosts.
+///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for plain-text hosts.
 ///   - key: The host key.
 ///   - comment: A comment to associate with the entry, or `nil`.
-///   - typeMask: A bitmask describing the host format, key encoding, and
-///     key algorithm.
+///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
 /// - Returns: A ``LibSSH2KnownHost`` referencing the added entry, or
 ///   `nil` if `store` was not filled in.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_addc`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_addc` call fails.
 public func KnownHostAdd(
     hosts: LibSSH2KnownHosts,
     host: String,
@@ -137,8 +130,7 @@ public func KnownHostAdd(
 
 /// Checks a host key against a known-hosts collection.
 ///
-/// The match is performed against the plain host name without a port
-/// qualifier. To check against a specific port, use
+/// The match is performed against the plain host name without a port qualifier. To check against a specific port, use
 /// ``KnownHostCheckPort(hosts:host:port:key:typeMask:)``.
 ///
 /// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
@@ -149,13 +141,10 @@ public func KnownHostAdd(
 ///   - hosts: The collection to check against.
 ///   - host: The host name in plain text.
 ///   - key: The host key to check.
-///   - typeMask: A bitmask describing the host format, key encoding, and
-///     key algorithm.
-/// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and
-///   the matched ``LibSSH2KnownHost`` (if any).
-/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if
-///   the check could not be performed, or ``LibSSH2Error/unknown(code:message:)``
-///   for an unrecognized raw result.
+///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+/// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and the matched ``LibSSH2KnownHost`` (if any).
+/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if the check could not be performed, or
+/// ``LibSSH2Error/unknown(code:message:)`` for an unrecognized raw result.
 public func KnownHostCheck(
     hosts: LibSSH2KnownHosts,
     host: String,
@@ -185,9 +174,8 @@ public func KnownHostCheck(
 /// Checks a host key and port against a known-hosts collection.
 ///
 /// `port` is the port number the host is reached on, or a negative value
-/// to check the generic host without a port qualifier. When `port` is
-/// given, libssh2 checks the host-and-port combination in addition to
-/// the plain host name.
+/// to check the generic host without a port qualifier. When `port` is given, libssh2 checks the host-and-port
+/// combination in addition to the plain host name.
 ///
 /// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
 /// `LIBSSH2_KNOWNHOST_KEYENC_*`, and `LIBSSH2_KNOWNHOST_KEY_*` values
@@ -198,13 +186,10 @@ public func KnownHostCheck(
 ///   - host: The host name in plain text.
 ///   - port: The port number, or a negative value to ignore the port.
 ///   - key: The host key to check.
-///   - typeMask: A bitmask describing the host format, key encoding, and
-///     key algorithm.
-/// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and
-///   the matched ``LibSSH2KnownHost`` (if any).
-/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if
-///   the check could not be performed, or ``LibSSH2Error/unknown(code:message:)``
-///   for an unrecognized raw result.
+///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+/// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and the matched ``LibSSH2KnownHost`` (if any).
+/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if the check could not be performed, or
+/// ``LibSSH2Error/unknown(code:message:)`` for an unrecognized raw result.
 public func KnownHostCheckPort(
     hosts: LibSSH2KnownHosts,
     host: String,
@@ -244,8 +229,7 @@ public func KnownHostCheckPort(
 /// - Parameters:
 ///   - hosts: The collection that owns the entry.
 ///   - rawEntry: The entry to remove.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_del`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_del` call fails.
 public func KnownHostDelete(hosts: LibSSH2KnownHosts, rawEntry: UnsafeMutablePointer<libssh2_knownhost>) throws {
     try libssh2.libssh2_knownhost_del(hosts.rawValue, rawEntry).checkReturnValue()
 }
@@ -267,8 +251,7 @@ public func KnownHostFree(hosts: LibSSH2KnownHosts) {
 ///   - hosts: The collection to append the parsed entry to.
 ///   - line: One line from a known-hosts file.
 ///   - type: The file format identifier.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readline`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readline` call fails.
 public func KnownHostReadLine(hosts: LibSSH2KnownHosts, line: String, type: Int = 1) throws {
     try line.withCString {
         try libssh2.libssh2_knownhost_readline(hosts.rawValue, $0, line.utf8.count, Int32(type)).checkReturnValue()
@@ -287,8 +270,7 @@ public func KnownHostReadLine(hosts: LibSSH2KnownHosts, line: String, type: Int 
 ///   - filename: Path to the known-hosts file to read.
 ///   - type: The file format identifier.
 /// - Returns: The number of entries parsed from the file.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readfile`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readfile` call fails.
 public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws -> Int {
     try filename.withCString {
         let result = libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, Int32(type))
@@ -301,8 +283,7 @@ public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: 
 ///
 /// `type` selects the file format and should normally be
 /// `libssh2.LIBSSH2_KNOWNHOST_FILE_OPENSSH`. If `maximumLength` is too
-/// small, ``LibSSH2Error/bufferTooSmall(_:)`` is thrown and a larger
-/// buffer should be supplied.
+/// small, ``LibSSH2Error/bufferTooSmall(_:)`` is thrown and a larger buffer should be supplied.
 ///
 /// - Parameters:
 ///   - hosts: The collection that owns the entry.
@@ -310,9 +291,8 @@ public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: 
 ///   - maximumLength: Size of the output buffer in bytes.
 ///   - type: The file format identifier.
 /// - Returns: The serialized line, excluding the trailing NUL.
-/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/bufferTooSmall(_:)``
-///   when the buffer is too small, or any other ``LibSSH2Error`` raised
-///   by the underlying call.
+/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/bufferTooSmall(_:)`` when the buffer is too small, or any other
+/// ``LibSSH2Error`` raised by the underlying call.
 public func KnownHostWriteLine(
     hosts: LibSSH2KnownHosts,
     rawKnownHost: UnsafeMutablePointer<libssh2_knownhost>,
@@ -346,8 +326,7 @@ public func KnownHostWriteLine(
 ///   - hosts: The collection to write.
 ///   - filename: Path of the file to create.
 ///   - type: The file format identifier.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_writefile`
-///   call fails.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_writefile` call fails.
 public func KnownHostWriteFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws {
     try filename.withCString {
         try libssh2.libssh2_knownhost_writefile(hosts.rawValue, $0, Int32(type)).checkReturnValue()
@@ -356,19 +335,15 @@ public func KnownHostWriteFile(hosts: LibSSH2KnownHosts, filename: String, type:
 
 /// Returns the next known-hosts entry from a collection.
 ///
-/// Call this repeatedly to iterate every entry. Pass `nil` for `previous`
-/// on the first call and the entry returned by the previous call on each
-/// subsequent call. Iteration ends when this function returns `nil`.
+/// Call this repeatedly to iterate every entry. Pass `nil` for `previous` on the first call and the entry returned by
+/// the previous call on each subsequent call. Iteration ends when this function returns `nil`.
 ///
 /// - Parameters:
 ///   - hosts: The collection to iterate.
-///   - previous: The entry returned by the previous call, or `nil` to
-///     fetch the first entry.
-/// - Returns: A tuple containing the ``LibSSH2KnownHost`` value and its
-///   raw `libssh2_knownhost` pointer, or `nil` when the end of the
-///   collection is reached.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_get`
-///   call fails.
+///   - previous: The entry returned by the previous call, or `nil` to fetch the first entry.
+/// - Returns: A tuple containing the ``LibSSH2KnownHost`` value and its raw `libssh2_knownhost` pointer, or `nil` when
+/// the end of the collection is reached.
+/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_get` call fails.
 public func KnownHostGet(
     hosts: LibSSH2KnownHosts,
     previous: UnsafeMutablePointer<libssh2_knownhost>? = nil

@@ -1,10 +1,3 @@
-//
-//  Untitled.swift
-//  SwiftSFTP
-//
-//  Created by Rui Nelson on 01/06/2026.
-//
-
 import libssh2
 
 public enum LibSSH2SessionMethodType: Int32 {
