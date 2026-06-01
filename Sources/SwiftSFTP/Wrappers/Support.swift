@@ -29,9 +29,17 @@ func _libssh2LastErrorMessage(session: LibSSH2Session) -> String? {
     return String(cString: messagePointer)
 }
 
-func _libssh2String(_ pointer: UnsafePointer<CChar>?) -> String? {
-    guard let pointer else { return nil }
-    return String(cString: pointer)
+extension UnsafePointer<CChar> {
+    var string: String {
+        String(cString: self)
+    }
+}
+
+extension Optional where Wrapped == UnsafePointer<CChar> {
+    var string: String? {
+        guard let self else { return nil }
+        return String(cString: self)
+    }
 }
 
 extension String? {

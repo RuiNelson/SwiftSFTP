@@ -45,7 +45,7 @@ public func Free(session: LibSSH2Session, pointer: UnsafeMutableRawPointer?) {
 /// - Returns: The libssh2 version string, or `nil` if the required
 ///   version is not fulfilled.
 public func Version(_ requiredVersionNumber: Int = 0) -> String? {
-    _libssh2String(libssh2.libssh2_version(Int32(requiredVersionNumber)))
+    libssh2.libssh2_version(Int32(requiredVersionNumber)).string
 }
 
 /// Returns the crypto backend used by the linked libssh2.

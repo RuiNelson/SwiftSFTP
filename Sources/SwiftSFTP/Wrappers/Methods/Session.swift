@@ -47,7 +47,7 @@ public func SessionSupportedAlgs(
         }
     }
     guard let algorithms else { return [] }
-    return (0..<count).compactMap { _libssh2String(algorithms[$0]) }
+    return (0..<count).compactMap { algorithms[$0].string }
 }
 
 /// Returns a pointer to the session's abstract storage slot.
@@ -110,7 +110,7 @@ public func SessionBannerSet(session: LibSSH2Session, banner: String) throws {
 /// - Returns: The remote server's banner, or `nil` if it is not available
 ///   or the handshake has not yet completed.
 public func SessionBannerGet(session: LibSSH2Session) -> String? {
-    _libssh2String(libssh2.libssh2_session_banner_get(session.rawValue))
+    libssh2.libssh2_session_banner_get(session.rawValue).string
 }
 
 /// Performs the SSH transport-layer handshake on an already-connected socket.
@@ -253,7 +253,7 @@ public func SessionMethodPreference(
 /// - Returns: The negotiated algorithm, or `nil` if the session has not
 ///   been started yet or the requested method is not available.
 public func SessionMethods(session: LibSSH2Session, methodType: LibSSH2SessionMethodType) -> String? {
-    _libssh2String(libssh2.libssh2_session_methods(session.rawValue, methodType.libssh2Value))
+    libssh2.libssh2_session_methods(session.rawValue, methodType.libssh2Value).string
 }
 
 /// Returns the most recent session error code and human-readable message.

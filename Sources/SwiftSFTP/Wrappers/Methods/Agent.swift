@@ -170,5 +170,5 @@ public func AgentSetIdentityPath(agent: LibSSH2Agent, path: String) {
 ///   ``AgentSetIdentityPath(agent:path:)``, or `nil` if no custom path was
 ///   set.
 public func AgentGetIdentityPath(agent: LibSSH2Agent) -> String? {
-    _libssh2String(libssh2.libssh2_agent_get_identity_path(agent.rawValue))
+    libssh2.libssh2_agent_get_identity_path(agent.rawValue).string
 }

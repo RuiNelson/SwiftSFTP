@@ -16,8 +16,8 @@ public struct LibSSH2KnownHost: Sendable, Codable, Equatable {
 
     public init(_ rawValue: libssh2_knownhost) {
         self.magic = rawValue.magic
-        self.name = _libssh2String(UnsafePointer(rawValue.name))
-        self.key = _libssh2String(UnsafePointer(rawValue.key))
+        self.name = UnsafePointer(rawValue.name).string
+        self.key = UnsafePointer(rawValue.key).string
         self.typeMask = rawValue.typemask
     }
 }
