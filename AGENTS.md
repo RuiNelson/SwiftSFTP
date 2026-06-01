@@ -48,3 +48,8 @@ swift test --scratch-path /private/tmp/SwiftSFTP-NG-test
 
 - The worktree may contain user changes. Do not revert changes you did not make.
 - Use Conventional Commits for commit messages.
+
+
+## Versioning
+
+Use Semantic Versioning, use `etc/Release Template.md` for release templates for GitHub.
