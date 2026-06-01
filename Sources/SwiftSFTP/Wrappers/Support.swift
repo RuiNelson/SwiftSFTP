@@ -31,13 +31,59 @@ extension String? {
     }
 }
 
-func _uint32Length(_ string: String) -> UInt32 {
-    UInt32(clamping: string.utf8.count)
+extension String {
+    var uint32Length: UInt32 {
+        UInt32(clamping: self.utf8.count)
+    }
 }
 
-func _data(from pointer: UnsafeRawPointer?, count: Int) -> Data {
-    guard let pointer, count > 0 else { return Data() }
-    return Data(bytes: pointer, count: count)
+extension UnsafePointer {
+    func data(count: Int) -> Data {
+        guard count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafePointer<CChar>? {
+    func data(count: Int) -> Data {
+        guard let self, count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafePointer<UInt8>? {
+    func data(count: Int) -> Data {
+        guard let self, count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafeMutablePointer {
+    func data(count: Int) -> Data {
+        guard count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafeMutablePointer<CChar>? {
+    func data(count: Int) -> Data {
+        guard let self, count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafeMutablePointer<UInt8>? {
+    func data(count: Int) -> Data {
+        guard let self, count > 0 else { return Data() }
+        return Data(bytes: self, count: count)
+    }
+}
+
+extension UnsafeRawPointer? {
+    func data(count: Int) -> Data {
+        guard let pointer = self, count > 0 else { return Data() }
+        return Data(bytes: pointer, count: count)
+    }
 }
 
 public typealias LibSSH2PublicKeySignHandler = (LibSSH2Session, Data) throws -> Data

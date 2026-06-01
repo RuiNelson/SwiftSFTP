@@ -11,7 +11,7 @@ public struct LibSSH2KeyboardInteractivePrompt: Sendable, Equatable {
     }
 
     public init(_ rawValue: LIBSSH2_USERAUTH_KBDINT_PROMPT) {
-        self.text = _data(from: rawValue.text, count: Int(rawValue.length))
+        self.text = rawValue.text.data(count: Int(rawValue.length))
         self.echo = rawValue.echo != 0
     }
 }

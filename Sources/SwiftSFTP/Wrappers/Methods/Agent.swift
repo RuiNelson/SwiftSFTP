@@ -123,12 +123,12 @@ public func AgentSign(
                     bytes,
                     data.count,
                     methodPointer,
-                    _uint32Length(method)
+                    method.uint32Length
                 )
             ).checkReturnValue()
         }
     }
-    return _data(from: signature, count: signatureLength)
+    return signature.data(count: signatureLength)
 }
 
 /// Closes a connection to an ssh-agent.

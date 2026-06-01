@@ -74,7 +74,7 @@ public func SFTPOpen(
         libssh2.libssh2_sftp_open_ex(
             sftp.rawValue,
             $0,
-            _uint32Length(filename),
+            filename.uint32Length,
             CUnsignedLong(flags),
             CLong(mode),
             Int32(openType)
@@ -437,9 +437,9 @@ public func SFTPRename(
                 libssh2.libssh2_sftp_rename_ex(
                     sftp.rawValue,
                     sourcePointer,
-                    _uint32Length(sourceFilename),
+                    sourceFilename.uint32Length,
                     destinationPointer,
-                    _uint32Length(destinationFilename),
+                    destinationFilename.uint32Length,
                     CLong(flags)
                 )
             ).checkReturnValue()
@@ -492,7 +492,7 @@ public func SFTPPOSIXRename(sftp: LibSSH2SFTP, sourceFilename: String, destinati
 ///   sessions.
 public func SFTPUnlink(sftp: LibSSH2SFTP, filename: String) throws {
     try filename.withCString {
-        try libssh2.libssh2_sftp_unlink_ex(sftp.rawValue, $0, _uint32Length(filename)).checkReturnValue()
+        try libssh2.libssh2_sftp_unlink_ex(sftp.rawValue, $0, filename.uint32Length).checkReturnValue()
     }
 }
 
@@ -545,7 +545,7 @@ public func SFTPStatVFS(sftp: LibSSH2SFTP, path: String) throws -> LibSSH2SFTPSt
 ///   sessions.
 public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
     try path.withCString {
-        try libssh2.libssh2_sftp_mkdir_ex(sftp.rawValue, $0, _uint32Length(path), CLong(mode)).checkReturnValue()
+        try libssh2.libssh2_sftp_mkdir_ex(sftp.rawValue, $0, path.uint32Length, CLong(mode)).checkReturnValue()
     }
 }
 
@@ -562,7 +562,7 @@ public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
 ///   sessions.
 public func SFTPRmdir(sftp: LibSSH2SFTP, path: String) throws {
     try path.withCString {
-        try libssh2.libssh2_sftp_rmdir_ex(sftp.rawValue, $0, _uint32Length(path)).checkReturnValue()
+        try libssh2.libssh2_sftp_rmdir_ex(sftp.rawValue, $0, path.uint32Length).checkReturnValue()
     }
 }
 
@@ -589,7 +589,7 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> L
             libssh2.libssh2_sftp_stat_ex(
                 sftp.rawValue,
                 $0,
-                _uint32Length(path),
+                path.uint32Length,
                 Int32(statType),
                 &rawAttributes
             )
@@ -638,7 +638,7 @@ public func SFTPSymlink(
                 libssh2.libssh2_sftp_symlink_ex(
                     sftp.rawValue,
                     pathPointer,
-                    _uint32Length(path),
+                    path.uint32Length,
                     $0.baseAddress,
                     UInt32(clamping: targetMaximumLength),
                     Int32(linkType)
@@ -657,9 +657,9 @@ public func SFTPSymlink(
                 libssh2.libssh2_sftp_symlink_ex(
                     sftp.rawValue,
                     pathPointer,
-                    _uint32Length(path),
+                    path.uint32Length,
                     UnsafeMutablePointer(mutating: targetPointer),
-                    _uint32Length(target),
+                    target.uint32Length,
                     Int32(linkType)
                 )
             ).checkReturnValue()

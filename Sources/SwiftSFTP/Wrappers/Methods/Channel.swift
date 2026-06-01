@@ -33,11 +33,11 @@ public func ChannelOpen(
             libssh2.libssh2_channel_open_ex(
                 session.rawValue,
                 typePointer,
-                _uint32Length(channelType),
+                channelType.uint32Length,
                 UInt32(clamping: windowSize),
                 UInt32(clamping: packetSize),
                 messagePointer,
-                message.map(_uint32Length) ?? 0
+                message.map(\.uint32Length) ?? 0
             )
         }
     }
@@ -217,9 +217,9 @@ public func ChannelSetEnv(channel: LibSSH2Channel, variableName: String, value: 
                 libssh2.libssh2_channel_setenv_ex(
                     channel.rawValue,
                     variablePointer,
-                    _uint32Length(variableName),
+                    variableName.uint32Length,
                     valuePointer,
-                    _uint32Length(value)
+                    value.uint32Length
                 )
             ).checkReturnValue()
         }
@@ -272,7 +272,7 @@ public func ChannelRequestPTY(
                 libssh2.libssh2_channel_request_pty_ex(
                     channel.rawValue,
                     terminalPointer,
-                    _uint32Length(terminal),
+                    terminal.uint32Length,
                     rawModes.bindMemory(to: CChar.self).baseAddress,
                     UInt32(clamping: modes.count),
                     Int32(width),
@@ -395,9 +395,9 @@ public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, mess
                 libssh2.libssh2_channel_process_startup(
                     channel.rawValue,
                     requestPointer,
-                    _uint32Length(request),
+                    request.uint32Length,
                     messagePointer,
-                    message.map(_uint32Length) ?? 0
+                    message.map(\.uint32Length) ?? 0
                 )
             ).checkReturnValue()
         }

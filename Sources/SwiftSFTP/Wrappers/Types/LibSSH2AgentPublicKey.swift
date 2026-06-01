@@ -14,7 +14,7 @@ public struct LibSSH2AgentPublicKey: Sendable, Codable, Equatable {
 
     public init(_ rawValue: libssh2_agent_publickey) {
         self.magic = rawValue.magic
-        self.blob = _data(from: rawValue.blob, count: rawValue.blob_len)
+        self.blob = rawValue.blob.data(count: rawValue.blob_len)
         self.comment = UnsafePointer(rawValue.comment).string
     }
 }

@@ -11,7 +11,7 @@ private let _traceLoggerHandler: LibSSH2TraceHandler = { _, _, data, length in
         return
     }
 
-    let message = String(decoding: _data(from: data, count: length), as: UTF8.self)
+    let message = String(decoding: data.data(count: length), as: UTF8.self)
     _traceLogger.trace("\(message, privacy: .public)")
 }
 

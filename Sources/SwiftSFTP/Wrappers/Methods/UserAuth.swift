@@ -37,7 +37,7 @@ private let _userAuthPublicKeySignCallback: @convention(c) (
     do {
         let signedData = try box.handler(
             LibSSH2Session(rawValue: sessionPointer),
-            _data(from: data, count: dataLength)
+            data.data(count: dataLength)
         )
         signatureLength?.pointee = signedData.count
         guard !signedData.isEmpty else {
@@ -71,8 +71,8 @@ private let _userAuthKeyboardInteractiveCallback: @convention(c) (
 
     let promptTotal = max(Int(promptCount), 0)
     let challenge = LibSSH2KeyboardInteractiveChallenge(
-        name: String(data: _data(from: name, count: Int(nameLength)), encoding: .utf8) ?? "",
-        instruction: String(data: _data(from: instruction, count: Int(instructionLength)), encoding: .utf8) ?? "",
+        name: String(data: name.data(count: Int(nameLength)), encoding: .utf8) ?? "",
+        instruction: String(data: instruction.data(count: Int(instructionLength)), encoding: .utf8) ?? "",
         prompts: (0..<promptTotal).map { index in
             guard let prompts else {
                 return LibSSH2KeyboardInteractivePrompt(text: Data(), echo: false)
@@ -111,11 +111,11 @@ private let _userAuthSecurityKeySignCallback: @convention(c) (
 
     do {
         let request = LibSSH2SecurityKeySigningRequest(
-            data: _data(from: data, count: dataLength),
+            data: data.data(count: dataLength),
             algorithm: Int(algorithm),
             flags: flags,
             application: application.string,
-            keyHandle: _data(from: keyHandle, count: keyHandleLength)
+            keyHandle: keyHandle.data(count: keyHandleLength)
         )
         let signedInfo = try box.handler(LibSSH2Session(rawValue: sessionPointer), request)
         signatureInfo.pointee.flags = signedInfo.flags
@@ -161,7 +161,7 @@ public func UserAuthList(session: LibSSH2Session, username: String) -> [String]?
         guard let methods = libssh2.libssh2_userauth_list(
             session.rawValue,
             usernamePointer,
-            _uint32Length(username)
+            username.uint32Length
         ) else {
             return nil
         }
@@ -246,9 +246,9 @@ public func UserAuthPassword(
                 libssh2.libssh2_userauth_password_ex(
                     session.rawValue,
                     usernamePointer,
-                    _uint32Length(username),
+                    username.uint32Length,
                     passwordPointer,
-                    _uint32Length(password),
+                    password.uint32Length,
                     changeHandler == nil ? nil : _userAuthPasswordChangeCallback
                 )
             )
@@ -290,7 +290,7 @@ public func UserAuthPublicKeyFromFile(
                         libssh2.libssh2_userauth_publickey_fromfile_ex(
                             session.rawValue,
                             usernamePointer,
-                            _uint32Length(username),
+                            username.uint32Length,
                             publicKeyPointer,
                             privateKeyPointer,
                             passphrasePointer
@@ -344,14 +344,14 @@ public func UserAuthHostBasedFromFile(
                                 libssh2.libssh2_userauth_hostbased_fromfile_ex(
                                     session.rawValue,
                                     usernamePointer,
-                                    _uint32Length(username),
+                                    username.uint32Length,
                                     publicKeyPointer,
                                     privateKeyPointer,
                                     passphrasePointer,
                                     hostnamePointer,
-                                    _uint32Length(hostname),
+                                    hostname.uint32Length,
                                     localUsernamePointer,
-                                    _uint32Length(localUsername)
+                                    localUsername.uint32Length
                                 )
                             )
                         }
@@ -498,7 +498,7 @@ public func UserAuthKeyboardInteractive(
             libssh2.libssh2_userauth_keyboard_interactive_ex(
                 session.rawValue,
                 usernamePointer,
-                _uint32Length(username),
+                username.uint32Length,
                 _userAuthKeyboardInteractiveCallback
             )
         )
@@ -613,5 +613,5 @@ public func SignSK(
             libssh2.libssh2_free(session.rawValue, signature)
         }
     }
-    return _data(from: signature, count: signatureLength)
+    return signature.data(count: signatureLength)
 }

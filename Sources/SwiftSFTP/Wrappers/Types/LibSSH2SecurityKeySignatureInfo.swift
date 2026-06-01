@@ -17,7 +17,7 @@ public struct LibSSH2SecurityKeySignatureInfo: Sendable, Codable, Equatable {
     public init(_ rawValue: LIBSSH2_SK_SIG_INFO) {
         self.flags = rawValue.flags
         self.counter = rawValue.counter
-        self.r = _data(from: rawValue.sig_r, count: rawValue.sig_r_len)
-        self.s = _data(from: rawValue.sig_s, count: rawValue.sig_s_len)
+        self.r = rawValue.sig_r.data(count: rawValue.sig_r_len)
+        self.s = rawValue.sig_s.data(count: rawValue.sig_s_len)
     }
 }
