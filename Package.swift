@@ -19,16 +19,17 @@ let package = Package(
         ),
     ],
     targets: [
-        .systemLibrary(
-            name: "OpenSSL",
-            pkgConfig: "openssl",
-            providers: [
-                .brew(["openssl@3"]),
-            ]
+        .binaryTarget(
+            name: "OpenSSLCrypto",
+            path: "Artifacts/OpenSSL/OpenSSLCrypto.xcframework"
+        ),
+        .binaryTarget(
+            name: "OpenSSLSSL",
+            path: "Artifacts/OpenSSL/OpenSSLSSL.xcframework"
         ),
         .target(
             name: "libssh2",
-            dependencies: ["OpenSSL"],
+            dependencies: ["OpenSSLCrypto"],
             path: "vendor/libssh2",
             exclude: [
                 ".github",
@@ -94,9 +95,6 @@ let package = Package(
                 .define("HAVE_SYS_UIO_H"),
                 .define("HAVE_UNISTD_H"),
                 .define("LIBSSH2_OPENSSL"),
-            ],
-            linkerSettings: [
-                .linkedLibrary("crypto"),
             ]
         ),
         .target(

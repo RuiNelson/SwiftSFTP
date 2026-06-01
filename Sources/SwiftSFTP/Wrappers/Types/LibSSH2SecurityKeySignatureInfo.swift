@@ -1,7 +1,7 @@
 import Foundation
 import libssh2
 
-public struct LibSSH2SecurityKeySignatureInfo: Sendable, Equatable {
+public struct LibSSH2SecurityKeySignatureInfo: Sendable, Codable, Equatable {
     public let flags: UInt8
     public let counter: UInt32
     public let r: Data

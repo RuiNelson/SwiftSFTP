@@ -167,7 +167,7 @@ public func UserAuthAuthenticated(session: LibSSH2Session) -> Bool {
 }
 
 /// Authenticates with a username and password.
-public func UserAuthPasswordEx(
+public func UserAuthPassword(
     session: LibSSH2Session,
     username: String,
     password: String,
@@ -208,7 +208,7 @@ public func UserAuthPasswordEx(
 }
 
 /// Authenticates with public and private key files.
-public func UserAuthPublicKeyFromFileEx(
+public func UserAuthPublicKeyFromFile(
     session: LibSSH2Session,
     username: String,
     publicKeyPath: String?,
@@ -237,7 +237,7 @@ public func UserAuthPublicKeyFromFileEx(
 }
 
 /// Authenticates with host-based key files.
-public func UserAuthHostBasedFromFileEx(
+public func UserAuthHostBasedFromFile(
     session: LibSSH2Session,
     username: String,
     publicKeyPath: String?,
@@ -337,7 +337,7 @@ public func UserAuthPublicKey(
 }
 
 /// Authenticates with keyboard-interactive prompts handled by a Swift callback.
-public func UserAuthKeyboardInteractiveEx(
+public func UserAuthKeyboardInteractive(
     session: LibSSH2Session,
     username: String,
     handler: @escaping LibSSH2KeyboardInteractiveHandler

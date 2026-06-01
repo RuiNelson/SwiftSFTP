@@ -14,11 +14,11 @@ public func SessionInit() throws -> LibSSH2Session {
 /// Returns the supported algorithms for a session method type.
 public func SessionSupportedAlgs(
     session: LibSSH2Session,
-    methodType: Int
+    methodType: LibSSH2SessionMethodType
 ) throws -> [String] {
     var algorithms: UnsafeMutablePointer<UnsafePointer<CChar>?>?
     let count = try _libssh2CheckCount(
-        libssh2.libssh2_session_supported_algs(session.rawValue, Int32(methodType), &algorithms),
+        libssh2.libssh2_session_supported_algs(session.rawValue, methodType.libssh2Value, &algorithms),
         session: session
     )
     defer {
@@ -111,22 +111,22 @@ public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: Int)? {
 }
 
 /// Sets preferred algorithms for a session method type.
-public func SessionMethodPref(
+public func SessionMethodPreference(
     session: LibSSH2Session,
-    methodType: Int,
+    methodType: LibSSH2SessionMethodType,
     preferences: String
 ) throws {
     try preferences.withCString {
         try CheckReturnValue(
-            libssh2.libssh2_session_method_pref(session.rawValue, Int32(methodType), $0),
+            libssh2.libssh2_session_method_pref(session.rawValue, methodType.libssh2Value, $0),
             session: session
         )
     }
 }
 
 /// Returns the negotiated algorithm for a session method type.
-public func SessionMethods(session: LibSSH2Session, methodType: Int) -> String? {
-    _libssh2String(libssh2.libssh2_session_methods(session.rawValue, Int32(methodType)))
+public func SessionMethods(session: LibSSH2Session, methodType: LibSSH2SessionMethodType) -> String? {
+    _libssh2String(libssh2.libssh2_session_methods(session.rawValue, methodType.libssh2Value))
 }
 
 /// Returns the last session error code and message.

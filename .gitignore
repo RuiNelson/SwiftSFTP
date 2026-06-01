@@ -63,3 +63,5 @@ fastlane/test_output
 /.swiftpm
 /build
 .DS_Store
+.openssl-build/
+/Artifacts

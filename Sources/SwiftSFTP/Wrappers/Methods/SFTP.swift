@@ -25,7 +25,7 @@ public func SFTPGetChannel(sftp: LibSSH2SFTP) -> LibSSH2Channel? {
 }
 
 /// Opens an SFTP path with explicit flags, mode, and open type.
-public func SFTPOpenEx(
+public func SFTPOpen(
     sftp: LibSSH2SFTP,
     filename: String,
     flags: UInt,
@@ -49,7 +49,7 @@ public func SFTPOpenEx(
 
 
 /// Opens an SFTP path and returns attributes from the server.
-public func SFTPOpenExR(
+public func SFTPOpen(
     sftp: LibSSH2SFTP,
     filename: String,
     flags: UInt,
@@ -85,7 +85,7 @@ public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Da
 }
 
 /// Reads a directory entry and optional long entry from an SFTP directory handle.
-public func SFTPReadDirEx(
+public func SFTPReadDir(
     handle: LibSSH2SFTPHandle,
     maximumNameLength: Int,
     maximumLongEntryLength: Int = 0
@@ -157,7 +157,7 @@ public func SFTPTell64(handle: LibSSH2SFTPHandle) -> UInt64 {
 }
 
 /// Gets or sets attributes on an SFTP handle.
-public func SFTPFStatEx(handle: LibSSH2SFTPHandle, setStat: Bool = false) throws -> LibSSH2SFTPAttributes {
+public func SFTPFStat(handle: LibSSH2SFTPHandle, setStat: Bool = false) throws -> LibSSH2SFTPAttributes {
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
     try CheckReturnValue(libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, setStat ? 1 : 0))
     return LibSSH2SFTPAttributes(rawAttributes)
@@ -165,7 +165,7 @@ public func SFTPFStatEx(handle: LibSSH2SFTPHandle, setStat: Bool = false) throws
 
 
 /// Renames an SFTP path with explicit flags.
-public func SFTPRenameEx(
+public func SFTPRename(
     sftp: LibSSH2SFTP,
     sourceFilename: String,
     destinationFilename: String,
@@ -189,7 +189,7 @@ public func SFTPRenameEx(
 
 
 /// Renames an SFTP path using the POSIX rename extension.
-public func SFTPPOSIXRenameEx(sftp: LibSSH2SFTP, sourceFilename: String, destinationFilename: String) throws {
+public func SFTPPOSIXRename(sftp: LibSSH2SFTP, sourceFilename: String, destinationFilename: String) throws {
     try sourceFilename.withCString { sourcePointer in
         try destinationFilename.withCString { destinationPointer in
             try CheckReturnValue(
@@ -207,7 +207,7 @@ public func SFTPPOSIXRenameEx(sftp: LibSSH2SFTP, sourceFilename: String, destina
 
 
 /// Removes an SFTP file path.
-public func SFTPUnlinkEx(sftp: LibSSH2SFTP, filename: String) throws {
+public func SFTPUnlink(sftp: LibSSH2SFTP, filename: String) throws {
     try filename.withCString {
         try CheckReturnValue(libssh2.libssh2_sftp_unlink_ex(sftp.rawValue, $0, _uint32Length(filename)))
     }
@@ -231,7 +231,7 @@ public func SFTPStatVFS(sftp: LibSSH2SFTP, path: String) throws -> LibSSH2SFTPSt
 }
 
 /// Creates an SFTP directory with a mode.
-public func SFTPMkdirEx(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
+public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
     try path.withCString {
         try CheckReturnValue(libssh2.libssh2_sftp_mkdir_ex(sftp.rawValue, $0, _uint32Length(path), CLong(mode)))
     }
@@ -239,7 +239,7 @@ public func SFTPMkdirEx(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
 
 
 /// Removes an SFTP directory path.
-public func SFTPRmdirEx(sftp: LibSSH2SFTP, path: String) throws {
+public func SFTPRmdir(sftp: LibSSH2SFTP, path: String) throws {
     try path.withCString {
         try CheckReturnValue(libssh2.libssh2_sftp_rmdir_ex(sftp.rawValue, $0, _uint32Length(path)))
     }
@@ -247,7 +247,7 @@ public func SFTPRmdirEx(sftp: LibSSH2SFTP, path: String) throws {
 
 
 /// Returns or sets attributes for an SFTP path.
-public func SFTPStatEx(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> LibSSH2SFTPAttributes {
+public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> LibSSH2SFTPAttributes {
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
     try path.withCString {
         try CheckReturnValue(
@@ -266,7 +266,7 @@ public func SFTPStatEx(sftp: LibSSH2SFTP, path: String, statType: Int) throws ->
 
 
 /// Creates, reads, or resolves an SFTP symlink operation.
-public func SFTPSymlinkEx(
+public func SFTPSymlink(
     sftp: LibSSH2SFTP,
     path: String,
     targetMaximumLength: Int = 4096,

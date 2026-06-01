@@ -45,7 +45,7 @@ public func KnownHostAdd(
 }
 
 /// Adds a host key with a comment to a known-hosts collection.
-public func KnownHostAddC(
+public func KnownHostAdd(
     hosts: LibSSH2KnownHosts,
     host: String,
     salt: String? = nil,
@@ -106,7 +106,7 @@ public func KnownHostCheck(
 }
 
 /// Checks a host key and port against a known-hosts collection.
-public func KnownHostCheckP(
+public func KnownHostCheckPort(
     hosts: LibSSH2KnownHosts,
     host: String,
     port: Int,
@@ -135,7 +135,7 @@ public func KnownHostCheckP(
 }
 
 /// Deletes a known-hosts entry.
-public func KnownHostDel(hosts: LibSSH2KnownHosts, rawEntry: UnsafeMutablePointer<libssh2_knownhost>) throws {
+public func KnownHostDelete(hosts: LibSSH2KnownHosts, rawEntry: UnsafeMutablePointer<libssh2_knownhost>) throws {
     try CheckReturnValue(libssh2.libssh2_knownhost_del(hosts.rawValue, rawEntry))
 }
 

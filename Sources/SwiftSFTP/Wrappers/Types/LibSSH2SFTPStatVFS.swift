@@ -1,6 +1,6 @@
 import libssh2
 
-public struct LibSSH2SFTPStatVFS: Sendable, Equatable {
+public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
     public let blockSize: UInt64
     public let fragmentSize: UInt64
     public let blocks: UInt64

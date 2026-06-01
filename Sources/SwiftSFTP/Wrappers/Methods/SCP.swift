@@ -1,4 +1,4 @@
-import Darwin
+import Foundation
 import libssh2
 
 /// Receives a remote file over SCP with file metadata.

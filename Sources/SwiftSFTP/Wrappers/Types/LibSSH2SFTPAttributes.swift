@@ -1,7 +1,7 @@
 import Foundation
 import libssh2
 
-public struct LibSSH2SFTPAttributes: Sendable, Equatable {
+public struct LibSSH2SFTPAttributes: Sendable, Codable, Equatable {
     public var flags: UInt
     public var fileSize: UInt64
     public var uid: UInt

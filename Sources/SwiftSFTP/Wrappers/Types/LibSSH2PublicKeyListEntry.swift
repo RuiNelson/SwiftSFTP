@@ -1,7 +1,7 @@
 import Foundation
 import libssh2
 
-public struct LibSSH2PublicKeyListEntry: Sendable, Equatable {
+public struct LibSSH2PublicKeyListEntry: Sendable, Codable, Equatable {
     public let name: Data
     public let blob: Data
     public let attributes: [LibSSH2PublicKeyAttribute]

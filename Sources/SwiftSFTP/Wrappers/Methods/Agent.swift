@@ -22,31 +22,31 @@ public func AgentListIdentities(agent: LibSSH2Agent) throws {
 /// Returns the next identity from an SSH agent.
 public func AgentGetIdentity(
     agent: LibSSH2Agent,
-    previous: UnsafeMutablePointer<libssh2_agent_publickey>? = nil
-) throws -> (identity: LibSSH2AgentPublicKey, rawPointer: UnsafeMutablePointer<libssh2_agent_publickey>)? {
+    previous: LibSSH2AgentIdentity? = nil
+) throws -> LibSSH2AgentIdentity? {
     var store: UnsafeMutablePointer<libssh2_agent_publickey>?
-    let result = libssh2.libssh2_agent_get_identity(agent.rawValue, &store, previous)
+    let result = libssh2.libssh2_agent_get_identity(agent.rawValue, &store, previous?.rawValue)
     if result == 1 { return nil }
     try CheckReturnValue(result)
     guard let store else { return nil }
-    return (LibSSH2AgentPublicKey(store.pointee), store)
+    return LibSSH2AgentIdentity(rawValue: store)
 }
 
 /// Authenticates with an SSH agent identity.
 public func AgentUserAuth(
     agent: LibSSH2Agent,
     username: String,
-    identity: UnsafeMutablePointer<libssh2_agent_publickey>
+    identity: borrowing LibSSH2AgentIdentity
 ) throws {
     try username.withCString {
-        try CheckReturnValue(libssh2.libssh2_agent_userauth(agent.rawValue, $0, identity))
+        try CheckReturnValue(libssh2.libssh2_agent_userauth(agent.rawValue, $0, identity.rawValue))
     }
 }
 
 /// Signs data with an SSH agent identity.
 public func AgentSign(
     agent: LibSSH2Agent,
-    identity: UnsafeMutablePointer<libssh2_agent_publickey>,
+    identity: borrowing LibSSH2AgentIdentity,
     data: Data,
     method: String
 ) throws -> Data {
@@ -58,7 +58,7 @@ public func AgentSign(
             try CheckReturnValue(
                 libssh2.libssh2_agent_sign(
                     agent.rawValue,
-                    identity,
+                    identity.rawValue,
                     &signature,
                     &signatureLength,
                     bytes,

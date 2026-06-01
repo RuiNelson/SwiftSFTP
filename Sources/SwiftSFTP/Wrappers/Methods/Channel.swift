@@ -2,7 +2,7 @@ import Foundation
 import libssh2
 
 /// Opens an SSH channel with explicit channel parameters.
-public func ChannelOpenEx(
+public func ChannelOpen(
     session: LibSSH2Session,
     channelType: String,
     windowSize: UInt = 2 * 1024 * 1024,
@@ -30,7 +30,7 @@ public func ChannelOpenEx(
 
 
 /// Opens a direct TCP/IP channel with explicit source details.
-public func ChannelDirectTCPIPEx(
+public func ChannelDirectTCPIP(
     session: LibSSH2Session,
     host: String,
     port: Int,
@@ -56,7 +56,7 @@ public func ChannelDirectTCPIPEx(
 
 
 /// Opens a direct stream-local channel.
-public func ChannelDirectStreamLocalEx(
+public func ChannelDirectStreamLocal(
     session: LibSSH2Session,
     socketPath: String,
     sourceHost: String,
@@ -79,7 +79,7 @@ public func ChannelDirectStreamLocalEx(
 }
 
 /// Starts listening for forwarded TCP/IP connections.
-public func ChannelForwardListenEx(
+public func ChannelForwardListen(
     session: LibSSH2Session,
     host: String? = nil,
     port: Int,
@@ -116,7 +116,7 @@ public func ChannelForwardAccept(listener: LibSSH2Listener) throws -> LibSSH2Cha
 }
 
 /// Sets an environment variable on a channel.
-public func ChannelSetEnvEx(channel: LibSSH2Channel, variableName: String, value: String) throws {
+public func ChannelSetEnv(channel: LibSSH2Channel, variableName: String, value: String) throws {
     try variableName.withCString { variablePointer in
         try value.withCString { valuePointer in
             try CheckReturnValue(
@@ -139,7 +139,7 @@ public func ChannelRequestAuthAgent(channel: LibSSH2Channel) throws {
 }
 
 /// Requests a pseudo-terminal with explicit settings.
-public func ChannelRequestPTYEx(
+public func ChannelRequestPTY(
     channel: LibSSH2Channel,
     terminal: String,
     modes: Data = Data(),
@@ -169,7 +169,7 @@ public func ChannelRequestPTYEx(
 
 
 /// Resizes a channel pseudo-terminal with pixel dimensions.
-public func ChannelRequestPTYSizeEx(
+public func ChannelRequestPTYSize(
     channel: LibSSH2Channel,
     width: Int,
     height: Int,
@@ -189,7 +189,7 @@ public func ChannelRequestPTYSizeEx(
 
 
 /// Requests X11 forwarding for a channel.
-public func ChannelX11ReqEx(
+public func ChannelX11Request(
     channel: LibSSH2Channel,
     singleConnection: Bool,
     authProtocol: String? = nil,
@@ -213,7 +213,7 @@ public func ChannelX11ReqEx(
 
 
 /// Sends a signal to a remote process on a channel.
-public func ChannelSignalEx(channel: LibSSH2Channel, signalName: String) throws {
+public func ChannelSignal(channel: LibSSH2Channel, signalName: String) throws {
     try signalName.withCString {
         try CheckReturnValue(libssh2.libssh2_channel_signal_ex(channel.rawValue, $0, signalName.utf8.count))
     }
@@ -241,7 +241,7 @@ public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, mess
 
 
 /// Reads bytes from a channel stream.
-public func ChannelReadEx(channel: LibSSH2Channel, streamID: Int = 0, maximumLength: Int) throws -> Data {
+public func ChannelRead(channel: LibSSH2Channel, streamID: Int = 0, maximumLength: Int) throws -> Data {
     var buffer = [CChar](repeating: 0, count: maximumLength)
     let count = try _libssh2CheckSize(
         buffer.withUnsafeMutableBufferPointer {
@@ -259,7 +259,7 @@ public func PollChannelRead(channel: LibSSH2Channel, extended: Bool) throws -> I
 }
 
 /// Returns read-window information for a channel.
-public func ChannelWindowReadEx(channel: LibSSH2Channel) -> (windowSize: UInt, readAvailable: UInt, initialWindowSize: UInt) {
+public func ChannelWindowRead(channel: LibSSH2Channel) -> (windowSize: UInt, readAvailable: UInt, initialWindowSize: UInt) {
     var readAvailable: CUnsignedLong = 0
     var initialWindowSize: CUnsignedLong = 0
     let windowSize = libssh2.libssh2_channel_window_read_ex(channel.rawValue, &readAvailable, &initialWindowSize)
@@ -285,7 +285,7 @@ public func ChannelReceiveWindowAdjust2(
 }
 
 /// Writes bytes to a channel stream.
-public func ChannelWriteEx(channel: LibSSH2Channel, streamID: Int = 0, data: Data) throws -> Int {
+public func ChannelWrite(channel: LibSSH2Channel, streamID: Int = 0, data: Data) throws -> Int {
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
         return try _libssh2CheckSize(
@@ -297,7 +297,7 @@ public func ChannelWriteEx(channel: LibSSH2Channel, streamID: Int = 0, data: Dat
 
 
 /// Returns write-window information for a channel.
-public func ChannelWindowWriteEx(channel: LibSSH2Channel) -> (windowSize: UInt, initialWindowSize: UInt) {
+public func ChannelWindowWrite(channel: LibSSH2Channel) -> (windowSize: UInt, initialWindowSize: UInt) {
     var initialWindowSize: CUnsignedLong = 0
     let windowSize = libssh2.libssh2_channel_window_write_ex(channel.rawValue, &initialWindowSize)
     return (UInt(windowSize), UInt(initialWindowSize))
@@ -314,7 +314,7 @@ public func ChannelHandleExtendedData2(channel: LibSSH2Channel, ignoreMode: Int)
 }
 
 /// Flushes a channel stream.
-public func ChannelFlushEx(channel: LibSSH2Channel, streamID: Int = 0) throws {
+public func ChannelFlush(channel: LibSSH2Channel, streamID: Int = 0) throws {
     try CheckReturnValue(libssh2.libssh2_channel_flush_ex(channel.rawValue, Int32(streamID)))
 }
 

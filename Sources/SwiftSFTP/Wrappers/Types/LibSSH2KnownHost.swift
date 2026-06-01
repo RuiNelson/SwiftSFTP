@@ -1,7 +1,7 @@
 import Foundation
 import libssh2
 
-public struct LibSSH2KnownHost: Sendable, Equatable {
+public struct LibSSH2KnownHost: Sendable, Codable, Equatable {
     public let magic: UInt32
     public let name: String?
     public let key: String?

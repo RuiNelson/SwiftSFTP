@@ -1,6 +1,6 @@
 import libssh2
 
-public struct LibSSH2PublicKeyAttribute: Sendable, Equatable {
+public struct LibSSH2PublicKeyAttribute: Sendable, Codable, Equatable {
     public var name: String
     public var value: String
     public var isMandatory: Bool

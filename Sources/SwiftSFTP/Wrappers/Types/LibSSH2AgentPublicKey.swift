@@ -1,7 +1,7 @@
 import Foundation
 import libssh2
 
-public struct LibSSH2AgentPublicKey: Sendable, Equatable {
+public struct LibSSH2AgentPublicKey: Sendable, Codable, Equatable {
     public let magic: UInt32
     public let blob: Data
     public let comment: String?
