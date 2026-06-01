@@ -28,7 +28,7 @@ public func AgentInit(session: LibSSH2Session) throws -> LibSSH2Agent {
 /// - Parameter agent: The agent handle returned by ``AgentInit(session:)``.
 /// - Throws: ``LibSSH2Error`` if the connection attempt fails.
 public func AgentConnect(agent: LibSSH2Agent) throws {
-    try CheckReturnValue(libssh2.libssh2_agent_connect(agent.rawValue))
+    try libssh2.libssh2_agent_connect(agent.rawValue).checkReturnValue()
 }
 
 /// Requests the ssh-agent to list its public keys.
@@ -39,7 +39,7 @@ public func AgentConnect(agent: LibSSH2Agent) throws {
 /// - Parameter agent: The agent handle returned by ``AgentInit(session:)``.
 /// - Throws: ``LibSSH2Error`` if the request fails.
 public func AgentListIdentities(agent: LibSSH2Agent) throws {
-    try CheckReturnValue(libssh2.libssh2_agent_list_identities(agent.rawValue))
+    try libssh2.libssh2_agent_list_identities(agent.rawValue).checkReturnValue()
 }
 
 /// Returns the next identity from the agent's identity collection.
@@ -61,7 +61,7 @@ public func AgentGetIdentity(
     var store: UnsafeMutablePointer<libssh2_agent_publickey>?
     let result = libssh2.libssh2_agent_get_identity(agent.rawValue, &store, previous?.rawValue)
     if result == 1 { return nil }
-    try CheckReturnValue(result)
+    try result.checkReturnValue()
     guard let store else { return nil }
     return LibSSH2AgentIdentity(rawValue: store)
 }
@@ -83,7 +83,7 @@ public func AgentUserAuth(
     identity: borrowing LibSSH2AgentIdentity
 ) throws {
     try username.withCString {
-        try CheckReturnValue(libssh2.libssh2_agent_userauth(agent.rawValue, $0, identity.rawValue))
+        try libssh2.libssh2_agent_userauth(agent.rawValue, $0, identity.rawValue).checkReturnValue()
     }
 }
 
@@ -114,7 +114,7 @@ public func AgentSign(
     try method.withCString { methodPointer in
         try data.withUnsafeBytes { rawBuffer in
             let bytes = rawBuffer.bindMemory(to: CUnsignedChar.self).baseAddress
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_agent_sign(
                     agent.rawValue,
                     identity.rawValue,
@@ -125,7 +125,7 @@ public func AgentSign(
                     methodPointer,
                     _uint32Length(method)
                 )
-            )
+            ).checkReturnValue()
         }
     }
     return _data(from: signature, count: signatureLength)
@@ -139,7 +139,7 @@ public func AgentSign(
 /// - Parameter agent: The agent handle returned by ``AgentInit(session:)``.
 /// - Throws: ``LibSSH2Error`` if the disconnect fails.
 public func AgentDisconnect(agent: LibSSH2Agent) throws {
-    try CheckReturnValue(libssh2.libssh2_agent_disconnect(agent.rawValue))
+    try libssh2.libssh2_agent_disconnect(agent.rawValue).checkReturnValue()
 }
 
 /// Frees an ssh-agent handle and its internal collection of public keys.

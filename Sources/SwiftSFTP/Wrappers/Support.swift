@@ -1,13 +1,21 @@
 import Foundation
 import libssh2
 
-func CheckReturnValue(_ code: Int32, session: LibSSH2Session? = nil) throws {
-    if code < 0 {
-        throw LibSSH2Error(code: code, message: session?.lastErrorMessage)
+extension Int32 {
+    func checkReturnValue() throws {
+        if self < 0 {
+            throw LibSSH2Error(code: self, message: nil)
+        }
     }
 }
 
 extension LibSSH2Session {
+    func checkReturnValue(_ code: Int32) throws {
+        if code < 0 {
+            throw LibSSH2Error(code: code, message: lastErrorMessage)
+        }
+    }
+    
     func checkCount(_ code: Int32) throws -> Int {
         if code < 0 {
             throw LibSSH2Error(code: code, message: lastErrorMessage)

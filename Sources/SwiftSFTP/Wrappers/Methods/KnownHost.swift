@@ -63,7 +63,7 @@ public func KnownHostAdd(
     try host.withCString { hostPointer in
         try salt.withCString { saltPointer in
             try key.withCString { keyPointer in
-                try CheckReturnValue(
+                try (
                     libssh2.libssh2_knownhost_add(
                         hosts.rawValue,
                         hostPointer,
@@ -73,7 +73,7 @@ public func KnownHostAdd(
                         Int32(typeMask),
                         &store
                     )
-                )
+                ).checkReturnValue()
             }
         }
     }
@@ -115,7 +115,7 @@ public func KnownHostAdd(
         try salt.withCString { saltPointer in
             try key.withCString { keyPointer in
                 try comment.withCString { commentPointer in
-                    try CheckReturnValue(
+                    try (
                         libssh2.libssh2_knownhost_addc(
                             hosts.rawValue,
                             hostPointer,
@@ -127,7 +127,7 @@ public func KnownHostAdd(
                             Int32(typeMask),
                             &store
                         )
-                    )
+                    ).checkReturnValue()
                 }
             }
         }
@@ -247,7 +247,7 @@ public func KnownHostCheckPort(
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_del`
 ///   call fails.
 public func KnownHostDelete(hosts: LibSSH2KnownHosts, rawEntry: UnsafeMutablePointer<libssh2_knownhost>) throws {
-    try CheckReturnValue(libssh2.libssh2_knownhost_del(hosts.rawValue, rawEntry))
+    try libssh2.libssh2_knownhost_del(hosts.rawValue, rawEntry).checkReturnValue()
 }
 
 /// Frees a known-hosts collection and releases its memory.
@@ -271,7 +271,7 @@ public func KnownHostFree(hosts: LibSSH2KnownHosts) {
 ///   call fails.
 public func KnownHostReadLine(hosts: LibSSH2KnownHosts, line: String, type: Int = 1) throws {
     try line.withCString {
-        try CheckReturnValue(libssh2.libssh2_knownhost_readline(hosts.rawValue, $0, line.utf8.count, Int32(type)))
+        try libssh2.libssh2_knownhost_readline(hosts.rawValue, $0, line.utf8.count, Int32(type)).checkReturnValue()
     }
 }
 
@@ -321,7 +321,7 @@ public func KnownHostWriteLine(
 ) throws -> String {
     var buffer = [CChar](repeating: 0, count: maximumLength)
     var outputLength = 0
-    try CheckReturnValue(
+    try (
         buffer.withUnsafeMutableBufferPointer {
             libssh2.libssh2_knownhost_writeline(
                 hosts.rawValue,
@@ -332,7 +332,7 @@ public func KnownHostWriteLine(
                 Int32(type)
             )
         }
-    )
+    ).checkReturnValue()
     return String(decoding: buffer.prefix(outputLength).map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
@@ -350,7 +350,7 @@ public func KnownHostWriteLine(
 ///   call fails.
 public func KnownHostWriteFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws {
     try filename.withCString {
-        try CheckReturnValue(libssh2.libssh2_knownhost_writefile(hosts.rawValue, $0, Int32(type)))
+        try libssh2.libssh2_knownhost_writefile(hosts.rawValue, $0, Int32(type)).checkReturnValue()
     }
 }
 
@@ -376,7 +376,7 @@ public func KnownHostGet(
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     let result = libssh2.libssh2_knownhost_get(hosts.rawValue, &store, previous)
     if result == 1 { return nil }
-    try CheckReturnValue(result)
+    try result.checkReturnValue()
     guard let store else { return nil }
     return (LibSSH2KnownHost(store.pointee), store)
 }

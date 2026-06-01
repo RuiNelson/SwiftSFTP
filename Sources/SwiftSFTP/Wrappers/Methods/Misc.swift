@@ -10,7 +10,7 @@ import libssh2
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call
 ///   fails.
 public func Init(flags: Int = 0) throws {
-    try CheckReturnValue(libssh2.libssh2_init(Int32(flags)))
+    try libssh2.libssh2_init(Int32(flags)).checkReturnValue()
 }
 
 /// Releases global libssh2 state and frees all internal memory.

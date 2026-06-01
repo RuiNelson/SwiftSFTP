@@ -32,6 +32,6 @@ public func KeepAliveConfig(session: LibSSH2Session, wantsReply: Bool, intervalS
 ///   I/O errors.
 public func KeepAliveSend(session: LibSSH2Session) throws -> Int {
     var secondsToNext: Int32 = 0
-    try CheckReturnValue(libssh2.libssh2_keepalive_send(session.rawValue, &secondsToNext), session: session)
+    try session.checkReturnValue(libssh2.libssh2_keepalive_send(session.rawValue, &secondsToNext))
     return Int(secondsToNext)
 }

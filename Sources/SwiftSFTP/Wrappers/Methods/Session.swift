@@ -96,7 +96,7 @@ public func SessionCallbackSet2(
 ///   non-blocking sessions).
 public func SessionBannerSet(session: LibSSH2Session, banner: String) throws {
     try banner.withCString {
-        try CheckReturnValue(libssh2.libssh2_session_banner_set(session.rawValue, $0), session: session)
+        try session.checkReturnValue(libssh2.libssh2_session_banner_set(session.rawValue, $0))
     }
 }
 
@@ -124,7 +124,7 @@ public func SessionBannerGet(session: LibSSH2Session) -> String? {
 ///   key exchange failure, socket send, disconnect, protocol error, or
 ///   `EAGAIN` for non-blocking sessions).
 public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
-    try CheckReturnValue(libssh2.libssh2_session_handshake(session.rawValue, socket), session: session)
+    try session.checkReturnValue(libssh2.libssh2_session_handshake(session.rawValue, socket))
 }
 
 /// Sends a disconnect message to the remote host and tears down the transport layer.
@@ -148,14 +148,13 @@ public func SessionDisconnectEx(
 ) throws {
     try description.withCString { descriptionPointer in
         try language.withCString { languagePointer in
-            try CheckReturnValue(
+            try session.checkReturnValue(
                 libssh2.libssh2_session_disconnect_ex(
                     session.rawValue,
                     Int32(reason),
                     descriptionPointer,
                     languagePointer
-                ),
-                session: session
+                )
             )
         }
     }
@@ -172,7 +171,7 @@ public func SessionDisconnectEx(
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func SessionFree(session: LibSSH2Session) throws {
-    try CheckReturnValue(libssh2.libssh2_session_free(session.rawValue), session: session)
+    try session.checkReturnValue(libssh2.libssh2_session_free(session.rawValue))
 }
 
 /// Returns a digest of the remote host key, suitable for fingerprinting.
@@ -237,9 +236,8 @@ public func SessionMethodPreference(
     preferences: String
 ) throws {
     try preferences.withCString {
-        try CheckReturnValue(
-            libssh2.libssh2_session_method_pref(session.rawValue, methodType.libssh2Value, $0),
-            session: session
+        try session.checkReturnValue(
+            libssh2.libssh2_session_method_pref(session.rawValue, methodType.libssh2Value, $0)
         )
     }
 }
@@ -333,9 +331,8 @@ public func SessionBlockDirections(session: LibSSH2Session) -> Int {
 ///   - value: `true` to enable the flag, `false` to disable it.
 /// - Throws: ``LibSSH2Error`` on failure.
 public func SessionFlag(session: LibSSH2Session, flag: Int, value: Bool) throws {
-    try CheckReturnValue(
-        libssh2.libssh2_session_flag(session.rawValue, Int32(flag), value ? 1 : 0),
-        session: session
+    try session.checkReturnValue(
+        libssh2.libssh2_session_flag(session.rawValue, Int32(flag), value ? 1 : 0)
     )
 }
 

@@ -178,7 +178,7 @@ public func ChannelForwardListen(
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelForwardCancel(listener: LibSSH2Listener) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_forward_cancel(listener.rawValue))
+    try libssh2.libssh2_channel_forward_cancel(listener.rawValue).checkReturnValue()
 }
 
 /// Accepts an inbound forwarded connection from a listener's pending queue.
@@ -213,7 +213,7 @@ public func ChannelForwardAccept(listener: LibSSH2Listener) throws -> LibSSH2Cha
 public func ChannelSetEnv(channel: LibSSH2Channel, variableName: String, value: String) throws {
     try variableName.withCString { variablePointer in
         try value.withCString { valuePointer in
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_channel_setenv_ex(
                     channel.rawValue,
                     variablePointer,
@@ -221,7 +221,7 @@ public func ChannelSetEnv(channel: LibSSH2Channel, variableName: String, value: 
                     valuePointer,
                     _uint32Length(value)
                 )
-            )
+            ).checkReturnValue()
         }
     }
 }
@@ -238,7 +238,7 @@ public func ChannelSetEnv(channel: LibSSH2Channel, variableName: String, value: 
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelRequestAuthAgent(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_request_auth_agent(channel.rawValue))
+    try libssh2.libssh2_channel_request_auth_agent(channel.rawValue).checkReturnValue()
 }
 
 /// Requests a pseudo-terminal on an established channel.
@@ -268,7 +268,7 @@ public func ChannelRequestPTY(
 ) throws {
     try terminal.withCString { terminalPointer in
         try modes.withUnsafeBytes { rawModes in
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_channel_request_pty_ex(
                     channel.rawValue,
                     terminalPointer,
@@ -280,7 +280,7 @@ public func ChannelRequestPTY(
                     Int32(widthPixels),
                     Int32(heightPixels)
                 )
-            )
+            ).checkReturnValue()
         }
     }
 }
@@ -306,7 +306,7 @@ public func ChannelRequestPTYSize(
     widthPixels: Int = 0,
     heightPixels: Int = 0
 ) throws {
-    try CheckReturnValue(
+    try (
         libssh2.libssh2_channel_request_pty_size_ex(
             channel.rawValue,
             Int32(width),
@@ -314,7 +314,7 @@ public func ChannelRequestPTYSize(
             Int32(widthPixels),
             Int32(heightPixels)
         )
-    )
+    ).checkReturnValue()
 }
 
 
@@ -343,7 +343,7 @@ public func ChannelX11Request(
 ) throws {
     try authProtocol.withCString { authProtocolPointer in
         try authCookie.withCString { authCookiePointer in
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_channel_x11_req_ex(
                     channel.rawValue,
                     singleConnection ? 1 : 0,
@@ -351,7 +351,7 @@ public func ChannelX11Request(
                     authCookiePointer,
                     Int32(screenNumber)
                 )
-            )
+            ).checkReturnValue()
         }
     }
 }
@@ -370,7 +370,7 @@ public func ChannelX11Request(
 ///   sessions.
 public func ChannelSignal(channel: LibSSH2Channel, signalName: String) throws {
     try signalName.withCString {
-        try CheckReturnValue(libssh2.libssh2_channel_signal_ex(channel.rawValue, $0, signalName.utf8.count))
+        try libssh2.libssh2_channel_signal_ex(channel.rawValue, $0, signalName.utf8.count).checkReturnValue()
     }
 }
 
@@ -391,7 +391,7 @@ public func ChannelSignal(channel: LibSSH2Channel, signalName: String) throws {
 public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, message: String? = nil) throws {
     try request.withCString { requestPointer in
         try message.withCString { messagePointer in
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_channel_process_startup(
                     channel.rawValue,
                     requestPointer,
@@ -399,7 +399,7 @@ public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, mess
                     messagePointer,
                     message.map(_uint32Length) ?? 0
                 )
-            )
+            ).checkReturnValue()
         }
     }
 }
@@ -491,14 +491,14 @@ public func ChannelReceiveWindowAdjust2(
     force: Bool
 ) throws -> UInt {
     var storeWindow: UInt32 = 0
-    try CheckReturnValue(
+    try (
         libssh2.libssh2_channel_receive_window_adjust2(
             channel.rawValue,
             CUnsignedLong(adjustment),
             force ? 1 : 0,
             &storeWindow
         )
-    )
+    ).checkReturnValue()
     return UInt(storeWindow)
 }
 
@@ -572,7 +572,7 @@ public func ChannelSetBlocking(channel: LibSSH2Channel, blocking: Bool) {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelHandleExtendedData2(channel: LibSSH2Channel, ignoreMode: Int) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_handle_extended_data2(channel.rawValue, Int32(ignoreMode)))
+    try libssh2.libssh2_channel_handle_extended_data2(channel.rawValue, Int32(ignoreMode)).checkReturnValue()
 }
 
 /// Flushes the read buffer for a channel substream.
@@ -589,7 +589,7 @@ public func ChannelHandleExtendedData2(channel: LibSSH2Channel, ignoreMode: Int)
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelFlush(channel: LibSSH2Channel, streamID: Int = 0) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_flush_ex(channel.rawValue, Int32(streamID)))
+    try libssh2.libssh2_channel_flush_ex(channel.rawValue, Int32(streamID)).checkReturnValue()
 }
 
 
@@ -628,7 +628,7 @@ public func ChannelGetExitSignal(channel: LibSSH2Channel) throws -> (exitSignal:
     var errorMessageLength = 0
     var languageTag: UnsafeMutablePointer<CChar>?
     var languageTagLength = 0
-    try CheckReturnValue(
+    try (
         libssh2.libssh2_channel_get_exit_signal(
             channel.rawValue,
             &exitSignal,
@@ -638,7 +638,7 @@ public func ChannelGetExitSignal(channel: LibSSH2Channel) throws -> (exitSignal:
             &languageTag,
             &languageTagLength
         )
-    )
+    ).checkReturnValue()
     return (
         exitSignal.map { String(cString: $0) },
         errorMessage.map { String(cString: $0) },
@@ -656,7 +656,7 @@ public func ChannelGetExitSignal(channel: LibSSH2Channel) throws -> (exitSignal:
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelSendEOF(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_send_eof(channel.rawValue))
+    try libssh2.libssh2_channel_send_eof(channel.rawValue).checkReturnValue()
 }
 
 /// Returns whether the remote host has sent EOF for a channel.
@@ -673,7 +673,7 @@ public func ChannelEOF(channel: LibSSH2Channel) -> Bool {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelWaitEOF(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_wait_eof(channel.rawValue))
+    try libssh2.libssh2_channel_wait_eof(channel.rawValue).checkReturnValue()
 }
 
 /// Closes an active data channel.
@@ -687,7 +687,7 @@ public func ChannelWaitEOF(channel: LibSSH2Channel) throws {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelClose(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_close(channel.rawValue))
+    try libssh2.libssh2_channel_close(channel.rawValue).checkReturnValue()
 }
 
 /// Blocks until the remote host closes a channel.
@@ -700,7 +700,7 @@ public func ChannelClose(channel: LibSSH2Channel) throws {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelWaitClosed(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_wait_closed(channel.rawValue))
+    try libssh2.libssh2_channel_wait_closed(channel.rawValue).checkReturnValue()
 }
 
 /// Releases all resources associated with a channel.
@@ -714,5 +714,5 @@ public func ChannelWaitClosed(channel: LibSSH2Channel) throws {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking
 ///   sessions.
 public func ChannelFree(channel: LibSSH2Channel) throws {
-    try CheckReturnValue(libssh2.libssh2_channel_free(channel.rawValue))
+    try libssh2.libssh2_channel_free(channel.rawValue).checkReturnValue()
 }

@@ -72,7 +72,7 @@ public func PublicKeyAdd(
         try blob.withUnsafeBytes { rawBlob in
             let blobPointer = rawBlob.bindMemory(to: CUnsignedChar.self).baseAddress
             try rawAttributes.withUnsafeBufferPointer { attributePointer in
-                try CheckReturnValue(
+                try (
                     libssh2.libssh2_publickey_add_ex(
                         publicKey.rawValue,
                         UnsafePointer<CUnsignedChar>(OpaquePointer(namePointer)),
@@ -83,7 +83,7 @@ public func PublicKeyAdd(
                         CUnsignedLong(attributes.count),
                         attributePointer.baseAddress
                     )
-                )
+                ).checkReturnValue()
             }
         }
     }
@@ -105,7 +105,7 @@ public func PublicKeyAdd(
 public func PublicKeyRemove(publicKey: LibSSH2PublicKey, name: String, blob: Data) throws {
     try name.withCString { namePointer in
         try blob.withUnsafeBytes { rawBlob in
-            try CheckReturnValue(
+            try (
                 libssh2.libssh2_publickey_remove_ex(
                     publicKey.rawValue,
                     UnsafePointer<CUnsignedChar>(OpaquePointer(namePointer)),
@@ -113,7 +113,7 @@ public func PublicKeyRemove(publicKey: LibSSH2PublicKey, name: String, blob: Dat
                     rawBlob.bindMemory(to: CUnsignedChar.self).baseAddress,
                     CUnsignedLong(blob.count)
                 )
-            )
+            ).checkReturnValue()
         }
     }
 }
@@ -136,7 +136,7 @@ public func PublicKeyRemove(publicKey: LibSSH2PublicKey, name: String, blob: Dat
 public func PublicKeyListFetch(publicKey: LibSSH2PublicKey) throws -> [LibSSH2PublicKeyListEntry] {
     var count: CUnsignedLong = 0
     var list: UnsafeMutablePointer<libssh2_publickey_list>?
-    try CheckReturnValue(libssh2.libssh2_publickey_list_fetch(publicKey.rawValue, &count, &list))
+    try libssh2.libssh2_publickey_list_fetch(publicKey.rawValue, &count, &list).checkReturnValue()
     guard let list else { return [] }
     defer { libssh2.libssh2_publickey_list_free(publicKey.rawValue, list) }
     return (0..<Int(count)).map { LibSSH2PublicKeyListEntry(list[$0]) }
@@ -170,5 +170,5 @@ public func PublicKeyListFree(
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for
 ///   non-blocking sessions.
 public func PublicKeyShutdown(publicKey: LibSSH2PublicKey) throws {
-    try CheckReturnValue(libssh2.libssh2_publickey_shutdown(publicKey.rawValue))
+    try libssh2.libssh2_publickey_shutdown(publicKey.rawValue).checkReturnValue()
 }

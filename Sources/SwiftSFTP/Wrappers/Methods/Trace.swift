@@ -35,7 +35,7 @@ public typealias LibSSH2TraceHandler = libssh2_trace_handler_func
 ///   - options: The trace categories to enable.
 /// - Throws: ``LibSSH2Error`` if libssh2 reports a negative return value.
 public func Trace(session: LibSSH2Session, options: LibSSH2TraceOptions) throws {
-    try CheckReturnValue(libssh2.libssh2_trace(session.rawValue, options.rawValue), session: session)
+    try session.checkReturnValue(libssh2.libssh2_trace(session.rawValue, options.rawValue))
 }
 
 /// Sets the trace callback for a session.
@@ -59,9 +59,8 @@ public func TraceSetHandler(
     context: UnsafeMutableRawPointer? = nil,
     handler: LibSSH2TraceHandler?
 ) throws {
-    try CheckReturnValue(
-        libssh2.libssh2_trace_sethandler(session.rawValue, context, handler),
-        session: session
+    try session.checkReturnValue(
+        libssh2.libssh2_trace_sethandler(session.rawValue, context, handler)
     )
 }
 

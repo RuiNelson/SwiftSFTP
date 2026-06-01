@@ -185,7 +185,7 @@ public func UserAuthList(session: LibSSH2Session, username: String) -> [String]?
 ///   send a banner.
 public func UserAuthBanner(session: LibSSH2Session) throws -> String {
     var banner: UnsafeMutablePointer<CChar>?
-    try CheckReturnValue(libssh2.libssh2_userauth_banner(session.rawValue, &banner), session: session)
+    try session.checkReturnValue(libssh2.libssh2_userauth_banner(session.rawValue, &banner))
     return banner.map { String(cString: $0) } ?? ""
 }
 
@@ -242,7 +242,7 @@ public func UserAuthPassword(
 
     try username.withCString { usernamePointer in
         try password.withCString { passwordPointer in
-            try CheckReturnValue(
+            try session.checkReturnValue(
                 libssh2.libssh2_userauth_password_ex(
                     session.rawValue,
                     usernamePointer,
@@ -250,8 +250,7 @@ public func UserAuthPassword(
                     passwordPointer,
                     _uint32Length(password),
                     changeHandler == nil ? nil : _userAuthPasswordChangeCallback
-                ),
-                session: session
+                )
             )
         }
     }
@@ -287,7 +286,7 @@ public func UserAuthPublicKeyFromFile(
         try publicKeyPath.withCString { publicKeyPointer in
             try privateKeyPath.withCString { privateKeyPointer in
                 try passphrase.withCString { passphrasePointer in
-                    try CheckReturnValue(
+                    try session.checkReturnValue(
                         libssh2.libssh2_userauth_publickey_fromfile_ex(
                             session.rawValue,
                             usernamePointer,
@@ -295,8 +294,7 @@ public func UserAuthPublicKeyFromFile(
                             publicKeyPointer,
                             privateKeyPointer,
                             passphrasePointer
-                        ),
-                        session: session
+                        )
                     )
                 }
             }
@@ -342,7 +340,7 @@ public func UserAuthHostBasedFromFile(
                 try passphrase.withCString { passphrasePointer in
                     try hostname.withCString { hostnamePointer in
                         try localUsername.withCString { localUsernamePointer in
-                            try CheckReturnValue(
+                            try session.checkReturnValue(
                                 libssh2.libssh2_userauth_hostbased_fromfile_ex(
                                     session.rawValue,
                                     usernamePointer,
@@ -354,8 +352,7 @@ public func UserAuthHostBasedFromFile(
                                     _uint32Length(hostname),
                                     localUsernamePointer,
                                     _uint32Length(localUsername)
-                                ),
-                                session: session
+                                )
                             )
                         }
                     }
@@ -394,7 +391,7 @@ public func UserAuthPublicKeyFromMemory(
         try publicKeyFileData.withCString { publicKeyPointer in
             try privateKeyFileData.withCString { privateKeyPointer in
                 try passphrase.withCString { passphrasePointer in
-                    try CheckReturnValue(
+                    try session.checkReturnValue(
                         libssh2.libssh2_userauth_publickey_frommemory(
                             session.rawValue,
                             usernamePointer,
@@ -404,8 +401,7 @@ public func UserAuthPublicKeyFromMemory(
                             privateKeyPointer,
                             privateKeyFileData.utf8.count,
                             passphrasePointer
-                        ),
-                        session: session
+                        )
                     )
                 }
             }
@@ -458,7 +454,7 @@ public func UserAuthPublicKey(
             if let error = box.error {
                 throw error
             }
-            try CheckReturnValue(result, session: session)
+            try session.checkReturnValue(result)
         }
     }
 }
@@ -498,14 +494,13 @@ public func UserAuthKeyboardInteractive(
     }
 
     try username.withCString { usernamePointer in
-        try CheckReturnValue(
+        try session.checkReturnValue(
             libssh2.libssh2_userauth_keyboard_interactive_ex(
                 session.rawValue,
                 usernamePointer,
                 _uint32Length(username),
                 _userAuthKeyboardInteractiveCallback
-            ),
-            session: session
+            )
         )
     }
 }
@@ -570,7 +565,7 @@ public func UserAuthPublicKeySK(
                     if let error = box.error {
                         throw error
                     }
-                    try CheckReturnValue(result, session: session)
+                    try session.checkReturnValue(result)
                 }
             }
         }
@@ -612,7 +607,7 @@ public func SignSK(
             abstract
         )
     }
-    try CheckReturnValue(result, session: session)
+    try session.checkReturnValue(result)
     defer {
         if let signature {
             libssh2.libssh2_free(session.rawValue, signature)
