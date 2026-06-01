@@ -1,6 +1,6 @@
 import libssh2
 
-public enum LibSSH2SessionMethodType: Int32 {
+public enum LibSSH2SessionMethodType {
     /// Key exchange algorithms.
     case keyExchange
     /// Server host key algorithms.
@@ -24,7 +24,7 @@ public enum LibSSH2SessionMethodType: Int32 {
     /// Signature algorithms.
     case signatureAlgorithm
     
-    var libssh2Value: CInt {
+    var libssh2Value: Int32 {
         switch self {
         case .keyExchange:
             libssh2.LIBSSH2_METHOD_KEX
