@@ -8,7 +8,7 @@ import libssh2
 /// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call fails.
 public func Init(noCrypto: Bool = false) throws {
-    try NotThreadSafe {
+    try SynchronousExecution {
         let flags: Int32 = noCrypto ? LIBSSH2_INIT_NO_CRYPTO : 0
 
         try libssh2.libssh2_init(flags).checkReturnValue()
@@ -19,7 +19,7 @@ public func Init(noCrypto: Bool = false) throws {
 ///
 /// Pair with a successful ``Init(flags:)`` call.
 public func Exit() {
-    NotThreadSafe {
+    SynchronousExecution {
         libssh2.libssh2_exit()
     }
 }

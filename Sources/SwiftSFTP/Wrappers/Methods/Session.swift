@@ -13,7 +13,7 @@ public typealias LibSSH2SessionCallback = @convention(c) () -> Void
 /// - Throws: ``LibSSH2Error`` with `.nullPointer` if the underlying
 ///   `libssh2_session_init_ex` call fails.
 public func SessionInit() throws -> LibSSH2Session {
-    try NotThreadSafe {
+    try SynchronousExecution {
         guard let session = libssh2.libssh2_session_init_ex(nil, nil, nil, nil) else {
             throw LibSSH2Error.nullPointer(function: "SessionInit")
         }
@@ -160,7 +160,7 @@ public func SessionDisconnectEx(
 /// - Parameter session: The session to free.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SessionFree(session: LibSSH2Session) throws {
-    try NotThreadSafe {
+    try SynchronousExecution {
         try session.checkReturnValue(libssh2.libssh2_session_free(session.rawValue))
     }
 }

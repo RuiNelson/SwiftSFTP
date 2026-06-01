@@ -13,7 +13,7 @@ import libssh2
 /// - Throws: ``LibSSH2Error`` if the underlying call fails (allocation, socket send, socket timeout, SFTP protocol
 /// error, or `EAGAIN` for non-blocking sessions).
 public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
-    try NotThreadSafe {
+    try SynchronousExecution {
         guard let sftp = libssh2.libssh2_sftp_init(session.rawValue) else {
             throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
         }
@@ -26,7 +26,7 @@ public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
 /// - Parameter sftp: The SFTP instance to shut down.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPShutdown(sftp: LibSSH2SFTP) throws {
-    try NotThreadSafe {
+    try SynchronousExecution {
         try libssh2.libssh2_sftp_shutdown(sftp.rawValue).checkReturnValue()
     }
 }
