@@ -1,0 +1,19 @@
+module OpenSSLCrypto {
+    header "openssl/opensslconf.h"
+    header "openssl/ossl_typ.h"
+    header "openssl/obj_mac.h"
+    header "openssl/bio.h"
+    header "openssl/evp.h"
+    header "openssl/pem.h"
+    header "openssl/err.h"
+    header "openssl/crypto.h"
+    header "openssl/core.h"
+    header "openssl/core_names.h"
+    header "openssl/params.h"
+    header "openssl/types.h"
+    header "openssl/asn1.h"
+    header "openssl/x509.h"
+    header "openssl/rsa.h"
+    header "openssl/ec.h"
+    export *
+}
