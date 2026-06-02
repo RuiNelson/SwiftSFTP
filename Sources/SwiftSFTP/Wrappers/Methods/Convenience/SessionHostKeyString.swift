@@ -10,15 +10,17 @@ import Foundation
 /// - Parameter hostname: Host name to include in the serialized known-hosts line, or `nil` to omit the host field.
 /// - Returns: The remote host key in OpenSSH public-key or known-hosts format.
 /// - Throws: ``LibSSH2Error`` if no host key is available or the negotiated key type cannot be represented.
-public func SessionHostKeyString(session: LibSSH2Session, hostname: String? = nil) throws -> String {
+public func SessionHostKeyString(session: LibSSH2Session, host _host: String? = nil) throws -> String {
     guard let hostKey = SessionHostKey(session: session) else {
         throw LibSSH2Error.nullPointer(function: "SessionHostKey")
     }
 
-    let host = hostname ?? "swift-sftp-host-key"
+    let placeHolderHost = "[placeholder.com]"
+    let host = _host ?? placeHolderHost
+    
     let hosts = try KnownHostInit(session: session)
     defer { KnownHostFree(hosts: hosts) }
-
+    
     _ = try KnownHostAdd(
         hosts: hosts,
         host: host,
@@ -31,12 +33,20 @@ public func SessionHostKeyString(session: LibSSH2Session, hostname: String? = ni
     }
 
     let line = try KnownHostWriteLine(hosts: hosts, rawKnownHost: entry.rawPointer)
-        .trimmingCharacters(in: .newlines)
-    guard hostname == nil else { return line }
-
-    let fields = line.split(separator: " ", maxSplits: 2).map(String.init)
-    guard fields.count == 3, fields[0] == host else { return line }
-    return "\(fields[1]) \(fields[2])"
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    
+    var lineFields = line.split(separator: " ").map(String.init)
+    
+    let hostField = lineFields.removeFirst()
+    let algoField = lineFields.removeFirst()
+    let b64Field = lineFields.removeFirst()
+        
+    if _host == nil {
+        return [algoField,b64Field].joined(separator: " ")
+    }
+    else {
+        return [hostField, algoField, b64Field].joined(separator: " ")
+    }
 }
 
 private func knownHostTypeMask(for type: LibSSH2HostKeyType) throws -> LibSSH2KnownHostTypeMask {

@@ -12,16 +12,10 @@ import Foundation
 /// - Throws: ``LibSSH2Error`` if the string cannot be parsed or the underlying add call fails.
 public func KnownHostsAddString(
     hosts: LibSSH2KnownHosts,
-    hostname: String,
+    host: String,
     keyString: String
 ) throws -> LibSSH2KnownHost? {
-    let parsed = try parseKnownHostPublicKeyString(keyString)
-    return try KnownHostAdd(
-        hosts: hosts,
-        host: hostname,
-        key: parsed.key,
-        typeMask: [.plain, .base64Key, parsed.typeMask]
-    )
+    return try KnownHostsAddString(hosts: hosts, keyString: "\(host) \(keyString)")
 }
 
 /// Adds a host key string to a known-hosts collection, reading the host name from the string.
@@ -40,33 +34,25 @@ public func KnownHostsAddString(
     let parsed = try parseKnownHostsLine(keyString)
     return try KnownHostAdd(
         hosts: hosts,
-        host: parsed.hostname,
+        host: parsed.host,
         key: parsed.key,
         typeMask: [.plain, .base64Key, parsed.typeMask]
     )
 }
 
-private func parseKnownHostPublicKeyString(_ string: String) throws
--> (key: String, typeMask: LibSSH2KnownHostTypeMask) {
-    let fields = string.split(separator: " ", maxSplits: 1).map(String.init)
-    guard fields.count == 2 else {
-        throw LibSSH2Error.invalidArgument("Expected '<algorithm> <base64-key>'")
+private func parseKnownHostsLine(_ string: String) throws
+-> (host: String, key: String, typeMask: LibSSH2KnownHostTypeMask) {
+    var fields = string.split(separator: " ").map(String.init)
+    
+    guard fields.count >= 3 else {
+        throw LibSSH2Error.invalidKnownHostsLine(string)
     }
+    
+    let host = fields.removeFirst()
+    let algo = fields.removeFirst()
+    let key = fields.removeFirst()
 
-    return try (fields[1], knownHostTypeMask(forAlgorithm: fields[0]))
-}
-
-private func parseKnownHostsLine(_ string: String) throws -> (
-    hostname: String,
-    key: String,
-    typeMask: LibSSH2KnownHostTypeMask
-) {
-    let fields = string.split(separator: " ", maxSplits: 2).map(String.init)
-    guard fields.count == 3 else {
-        throw LibSSH2Error.invalidArgument("Expected '<hostname> <algorithm> <base64-key>'")
-    }
-
-    return try (fields[0], fields[2], knownHostTypeMask(forAlgorithm: fields[1]))
+    return try (host, key, knownHostTypeMask(forAlgorithm: algo))
 }
 
 private func knownHostTypeMask(forAlgorithm algorithm: String) throws -> LibSSH2KnownHostTypeMask {

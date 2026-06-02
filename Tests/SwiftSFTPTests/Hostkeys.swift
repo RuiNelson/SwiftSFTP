@@ -16,7 +16,7 @@ struct Hostkeys {
         defer { firstConnection.close() }
 
         let publicKeyString = try SessionHostKeyString(session: firstConnection.session)
-        let knownHostsLine = try SessionHostKeyString(session: firstConnection.session, hostname: TS.host)
+        let knownHostsLine = try SessionHostKeyString(session: firstConnection.session, host: TS.host)
 
         #expect(publicKeyString.split(separator: " ").count == 2)
         #expect(knownHostsLine.split(separator: " ").count == 3)
@@ -31,7 +31,7 @@ struct Hostkeys {
 
         let addedExplicitKnownHost = try KnownHostsAddString(
             hosts: explicitHosts,
-            hostname: TS.host,
+            host: TS.host,
             keyString: publicKeyString
         )
         let explicitKnownHost = try #require(addedExplicitKnownHost)

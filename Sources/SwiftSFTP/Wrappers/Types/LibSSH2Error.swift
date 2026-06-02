@@ -60,6 +60,7 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
     case nullPointer(function: String)
     case sftp(statusCode: UInt)
     case unknown(code: Int32, message: String?)
+    case invalidKnownHostsLine(String?)
 
     public var description: String {
         switch self {
@@ -120,6 +121,7 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
         case let .nullPointer(function): "\(function) returned NULL"
         case let .sftp(statusCode): "SFTP status code \(statusCode)"
         case let .unknown(code, message): Self.describe("libssh2 error \(code)", message)
+        case let .invalidKnownHostsLine(line): Self.describe("Invalid Known Hosts Line", line)
         }
     }
 
