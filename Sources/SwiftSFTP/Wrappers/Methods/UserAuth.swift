@@ -113,12 +113,12 @@ private let _userAuthSecurityKeySignCallback: @convention(c) (
             let request = LibSSH2SecurityKeySigningRequest(
                 data: data.data(count: dataLength),
                 algorithm: Int(algorithm),
-                flags: flags,
+                flags: LibSSH2SecurityKeyFlags(rawValue: flags),
                 application: application.string,
                 keyHandle: keyHandle.data(count: keyHandleLength)
             )
             let signedInfo = try box.handler(LibSSH2Session(rawValue: sessionPointer), request)
-            signatureInfo.pointee.flags = signedInfo.flags
+            signatureInfo.pointee.flags = signedInfo.flags.rawValue
             signatureInfo.pointee.counter = signedInfo.counter
             signatureInfo.pointee.sig_r_len = signedInfo.r.count
             signatureInfo.pointee.sig_s_len = signedInfo.s.count

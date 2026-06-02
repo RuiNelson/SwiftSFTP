@@ -79,9 +79,9 @@ struct Authentication {
         let directory = try SFTPOpen(
             sftp: sftp,
             filename: "KeyPairs",
-            flags: UInt(libssh2.LIBSSH2_FXF_READ),
-            mode: 0,
-            openType: Int(libssh2.LIBSSH2_SFTP_OPENDIR)
+            flags: .read,
+            mode: [],
+            openType: .directory
         )
         defer { try? SFTPCloseHandle(handle: directory) }
         var entries: [String] = []
@@ -317,9 +317,9 @@ private func readSFTPFile(sftp: LibSSH2SFTP, path: String) throws -> Data {
     let handle = try SFTPOpen(
         sftp: sftp,
         filename: path,
-        flags: UInt(libssh2.LIBSSH2_FXF_READ),
-        mode: 0,
-        openType: Int(libssh2.LIBSSH2_SFTP_OPENFILE)
+        flags: .read,
+        mode: [],
+        openType: .file
     )
     defer { try? SFTPCloseHandle(handle: handle) }
 

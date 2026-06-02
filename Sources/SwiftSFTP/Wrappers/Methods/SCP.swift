@@ -8,7 +8,7 @@ public func SCPRecv2(session: LibSSH2Session, path: String) throws -> (channel: 
         libssh2.libssh2_scp_recv2(session.rawValue, $0, &fileStat)
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return (LibSSH2Channel(rawValue: channel), fileStat)
 }
@@ -17,7 +17,7 @@ public func SCPRecv2(session: LibSSH2Session, path: String) throws -> (channel: 
 public func SCPSend64(
     session: LibSSH2Session,
     path: String,
-    mode: Int,
+    mode: LibSSH2SFTPPOSIXPermissions,
     size: Int64,
     modificationTime: Int = 0,
     accessTime: Int = 0
@@ -26,14 +26,14 @@ public func SCPSend64(
         libssh2.libssh2_scp_send64(
             session.rawValue,
             $0,
-            Int32(mode),
+            Int32(mode.rawValue),
             libssh2_int64_t(size),
             time_t(modificationTime),
             time_t(accessTime)
         )
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return LibSSH2Channel(rawValue: channel)
 }

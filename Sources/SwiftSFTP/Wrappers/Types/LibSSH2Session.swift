@@ -37,7 +37,7 @@ extension LibSSH2Session {
         return String(cString: messagePointer)
     }
     
-    var lastErrorNo: Int {
+    var lastError: LibSSH2Error {
         SessionLastErrno(session: self)
     }
 }

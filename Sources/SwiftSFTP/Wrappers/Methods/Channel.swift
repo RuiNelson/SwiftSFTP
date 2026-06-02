@@ -38,7 +38,7 @@ public func ChannelOpen(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -77,7 +77,7 @@ public func ChannelDirectTCPIP(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -113,7 +113,7 @@ public func ChannelDirectStreamLocal(
         }
     }
     guard let channel else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return LibSSH2Channel(rawValue: channel)
 }
@@ -151,7 +151,7 @@ public func ChannelForwardListen(
         )
     }
     guard let listener else {
-        throw LibSSH2Error(code: Int32(SessionLastErrno(session: session)), message: session.lastErrorMessage)
+        throw SessionLastErrno(session: session)
     }
     return (LibSSH2Listener(rawValue: listener), Int(boundPort))
 }
@@ -384,15 +384,19 @@ public func ChannelProcessStartup(channel: LibSSH2Channel, request: String, mess
 ///
 /// - Parameters:
 ///   - channel: The channel to read from.
-///   - streamID: Substream identifier (`0` for stdout, `1` for stderr).
+///   - stream: ``LibSSH2ChannelStream/standard`` for stdout or ``LibSSH2ChannelStream/extended`` for stderr.
 ///   - maximumLength: Maximum number of bytes to read into the buffer.
 /// - Returns: The bytes read. An empty ``Data`` value means no payload was available at this time, not an error.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.channelClosed` if the
 /// channel has been closed.
-public func ChannelRead(channel: LibSSH2Channel, streamID: Int = 0, maximumLength: Int) throws -> Data {
+public func ChannelRead(
+    channel: LibSSH2Channel,
+    stream: LibSSH2ChannelStream = .standard,
+    maximumLength: Int
+) throws -> Data {
     var buffer = [CChar](repeating: 0, count: maximumLength)
     let size = buffer.withUnsafeMutableBufferPointer {
-        libssh2.libssh2_channel_read_ex(channel.rawValue, Int32(streamID), $0.baseAddress, maximumLength)
+        libssh2.libssh2_channel_read_ex(channel.rawValue, stream.libssh2Value, $0.baseAddress, maximumLength)
     }
     if size < 0 { throw LibSSH2Error(code: Int32(size)) }
     let count = size
@@ -461,22 +465,20 @@ public func ChannelReceiveWindowAdjust2(
 
 /// Writes data to a channel stream.
 ///
-/// The SSH2 protocol currently defines `streamID == 1` (the value of
-/// `SSH_EXTENDED_DATA_STDERR`) as the stderr substream. For maximum
-/// throughput on large payloads, pass buffers of at least 32 KiB so the call can pack them into single SSH protocol
-/// packets.
+/// The SSH2 protocol defines the extended substream as stderr. For maximum throughput on large payloads, pass buffers
+/// of at least 32 KiB so the call can pack them into single SSH protocol packets.
 ///
 /// - Parameters:
 ///   - channel: The channel to write to.
-///   - streamID: Substream identifier (`0` for stdin, `1` for stderr).
+///   - stream: ``LibSSH2ChannelStream/standard`` for stdin or ``LibSSH2ChannelStream/extended`` for stderr.
 ///   - data: Bytes to write.
 /// - Returns: The number of bytes actually written.
 /// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, channel closed, EOF sent, or `EAGAIN` for
 /// non-blocking sessions).
-public func ChannelWrite(channel: LibSSH2Channel, streamID: Int = 0, data: Data) throws -> Int {
+public func ChannelWrite(channel: LibSSH2Channel, stream: LibSSH2ChannelStream = .standard, data: Data) throws -> Int {
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
-        let size = libssh2.libssh2_channel_write_ex(channel.rawValue, Int32(streamID), bytes, data.count)
+        let size = libssh2.libssh2_channel_write_ex(channel.rawValue, stream.libssh2Value, bytes, data.count)
         if size < 0 { throw LibSSH2Error(code: Int32(size)) }
         return size
     }
@@ -508,34 +510,24 @@ public func ChannelSetBlocking(channel: LibSSH2Channel, blocking: Bool) {
 
 /// Sets how a channel handles extended-data packets.
 ///
-/// Pass one of the `LIBSSH2_CHANNEL_EXTENDED_DATA_*` constants for
-/// `ignoreMode`:
-/// - `LIBSSH2_CHANNEL_EXTENDED_DATA_NORMAL` (`0`): queue extended data for reading,
-/// - `LIBSSH2_CHANNEL_EXTENDED_DATA_MERGE` (`2`): merge extended data with ordinary data so reads pull from all
-/// substreams in FIFO order,
-/// - `LIBSSH2_CHANNEL_EXTENDED_DATA_IGNORE` (`1`): discard extended data as it arrives.
-///
 /// - Parameters:
 ///   - channel: The channel to configure.
-///   - ignoreMode: One of the `LIBSSH2_CHANNEL_EXTENDED_DATA_*` constants.
+///   - mode: ``LibSSH2ChannelExtendedDataMode/normal``, ``LibSSH2ChannelExtendedDataMode/ignore``, or
+/// ``LibSSH2ChannelExtendedDataMode/merge``.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func ChannelHandleExtendedData2(channel: LibSSH2Channel, ignoreMode: Int) throws {
-    try libssh2.libssh2_channel_handle_extended_data2(channel.rawValue, Int32(ignoreMode)).checkReturnValue()
+public func ChannelHandleExtendedData2(channel: LibSSH2Channel, mode: LibSSH2ChannelExtendedDataMode) throws {
+    try libssh2.libssh2_channel_handle_extended_data2(channel.rawValue, mode.libssh2Value).checkReturnValue()
 }
 
 /// Flushes the read buffer for a channel substream.
 ///
-/// Pass `streamID == 0` for the standard I/O substream or `1` for stderr. The libssh2 constants
-/// `LIBSSH2_CHANNEL_FLUSH_EXTENDED_DATA` (`-1`) and
-/// `LIBSSH2_CHANNEL_FLUSH_ALL` (`-2`) flush all extended-data substreams
-/// or every substream at once.
-///
 /// - Parameters:
 ///   - channel: The channel to flush.
-///   - streamID: Substream to flush, or one of the `LIBSSH2_CHANNEL_FLUSH_*` constants to flush multiple substreams.
+///   - target: ``LibSSH2ChannelFlushTarget/standard``, ``LibSSH2ChannelFlushTarget/extended``,
+/// ``LibSSH2ChannelFlushTarget/allExtendedData``, or ``LibSSH2ChannelFlushTarget/all``.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func ChannelFlush(channel: LibSSH2Channel, streamID: Int = 0) throws {
-    try libssh2.libssh2_channel_flush_ex(channel.rawValue, Int32(streamID)).checkReturnValue()
+public func ChannelFlush(channel: LibSSH2Channel, target: LibSSH2ChannelFlushTarget = .standard) throws {
+    try libssh2.libssh2_channel_flush_ex(channel.rawValue, target.libssh2Value).checkReturnValue()
 }
 
 /// Returns the exit status reported by the remote process on a channel.

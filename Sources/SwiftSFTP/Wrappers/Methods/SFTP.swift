@@ -15,10 +15,7 @@ import libssh2
 public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
     let sftpRaw = libssh2.libssh2_sftp_init(session.rawValue)
     guard let sftpRaw else {
-        throw LibSSH2Error(
-            code: session.lastErrorNo,
-            message: session.lastErrorMessage
-        )
+        throw SessionLastErrno(session: session)
     }
     return LibSSH2SFTP(rawValue: sftpRaw)
 }
@@ -39,9 +36,9 @@ public func SFTPShutdown(sftp: LibSSH2SFTP) throws {
 /// `LIBSSH2_ERROR_SFTP_PROTOCOL`. Otherwise the value is unspecified.
 ///
 /// - Parameter sftp: The SFTP instance to inspect.
-/// - Returns: The current SFTP error code, as an unsigned integer.
-public func SFTPLastError(sftp: LibSSH2SFTP) -> UInt {
-    UInt(libssh2.libssh2_sftp_last_error(sftp.rawValue))
+/// - Returns: The current SFTP protocol status.
+public func SFTPLastError(sftp: LibSSH2SFTP) -> LibSSH2SFTPStatus {
+    LibSSH2SFTPStatus(rawValue: UInt(libssh2.libssh2_sftp_last_error(sftp.rawValue)))
 }
 
 /// Returns the SSH channel that backs an SFTP session.
@@ -57,32 +54,31 @@ public func SFTPGetChannel(sftp: LibSSH2SFTP) -> LibSSH2Channel? {
 /// - Parameters:
 ///   - sftp: The SFTP instance that will own the handle.
 ///   - filename: Remote path of the file or directory to open.
-///   - flags: Bitwise combination of `LIBSSH2_FXF_*` flags (`READ`, `WRITE`,
-///     `APPEND`, `CREAT`, `TRUNC`, `EXCL`).
-///   - mode: POSIX permissions to apply when creating a new file. Ignored unless `flags` includes `LIBSSH2_FXF_CREAT`.
-///   - openType: Either `LIBSSH2_SFTP_OPENFILE` to open a regular file or
-///     `LIBSSH2_SFTP_OPENDIR` to open a directory.
+///   - flags: SFTP open flags such as ``LibSSH2SFTPFileOpenFlags/read`` and ``LibSSH2SFTPFileOpenFlags/write``.
+///   - mode: POSIX mode passed when creating a file, for example `[.regularFile, .ownerRead, .ownerWrite]`. Ignored
+/// unless `flags` contains ``LibSSH2SFTPFileOpenFlags/create``; use `[]` when not creating.
+///   - openType: ``LibSSH2SFTPOpenType/file`` or ``LibSSH2SFTPOpenType/directory``.
 /// - Returns: A new ``LibSSH2SFTPHandle`` for the opened resource.
 /// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
 /// non-blocking sessions).
 public func SFTPOpen(
     sftp: LibSSH2SFTP,
     filename: String,
-    flags: UInt,
-    mode: Int,
-    openType: Int
+    flags: LibSSH2SFTPFileOpenFlags,
+    mode: LibSSH2SFTPPOSIXPermissions,
+    openType: LibSSH2SFTPOpenType
 ) throws -> LibSSH2SFTPHandle {
     let handle = filename.withCString {
         libssh2.libssh2_sftp_open_ex(
             sftp.rawValue,
             $0,
             filename.uint32Length,
-            CUnsignedLong(flags),
-            CLong(mode),
-            Int32(openType)
+            CUnsignedLong(flags.rawValue),
+            mode.rawValue,
+            openType.libssh2Value
         )
     }
-    guard let handle else { throw LibSSH2Error.sftp(statusCode: SFTPLastError(sftp: sftp)) }
+    guard let handle else { throw LibSSH2Error.sftp(status: SFTPLastError(sftp: sftp)) }
     return LibSSH2SFTPHandle(rawValue: handle)
 }
 
@@ -94,19 +90,19 @@ public func SFTPOpen(
 /// - Parameters:
 ///   - sftp: The SFTP instance that will own the handle.
 ///   - filename: Remote path of the file or directory to open.
-///   - flags: Bitwise combination of `LIBSSH2_FXF_*` flags.
-///   - mode: POSIX permissions to apply when creating a new file.
-///   - openType: Either `LIBSSH2_SFTP_OPENFILE` or `LIBSSH2_SFTP_OPENDIR`.
-///   - attributes: Attributes structure that will be populated by the server with the resource's metadata.
+///   - flags: SFTP open flags such as ``LibSSH2SFTPFileOpenFlags/read``.
+///   - mode: POSIX mode passed when creating a file; use `[]` when not creating.
+///   - openType: ``LibSSH2SFTPOpenType/file`` or ``LibSSH2SFTPOpenType/directory``.
+///   - attributes: ``LibSSH2SFTPAttributes`` populated by the server with the resource's metadata.
 /// - Returns: A new ``LibSSH2SFTPHandle`` for the opened resource.
 /// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
 /// non-blocking sessions).
 public func SFTPOpen(
     sftp: LibSSH2SFTP,
     filename: String,
-    flags: UInt,
-    mode: Int,
-    openType: Int,
+    flags: LibSSH2SFTPFileOpenFlags,
+    mode: LibSSH2SFTPPOSIXPermissions,
+    openType: LibSSH2SFTPOpenType,
     attributes: LibSSH2SFTPAttributes
 ) throws -> LibSSH2SFTPHandle {
     var rawAttributes = attributes.rawValue
@@ -115,13 +111,13 @@ public func SFTPOpen(
             sftp.rawValue,
             $0,
             filename.utf8.count,
-            CUnsignedLong(flags),
-            CLong(mode),
-            Int32(openType),
+            CUnsignedLong(flags.rawValue),
+            mode.rawValue,
+            openType.libssh2Value,
             &rawAttributes
         )
     }
-    guard let handle else { throw LibSSH2Error.sftp(statusCode: SFTPLastError(sftp: sftp)) }
+    guard let handle else { throw LibSSH2Error.sftp(status: SFTPLastError(sftp: sftp)) }
     return LibSSH2SFTPHandle(rawValue: handle)
 }
 
@@ -153,8 +149,9 @@ public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Da
 /// `maximumLongEntryLength` of `0` to skip populating it.
 ///
 /// - Parameters:
-///   - handle: The SFTP directory handle returned by ``SFTPOpen(sftp:filename:flags:mode:openType:)`` with `openType ==
-/// LIBSSH2_SFTP_OPENDIR`.
+///   - handle: The SFTP directory handle returned by ``SFTPOpen(sftp:filename:flags:mode:openType:)`` with `openType`
+/// set to
+/// ``LibSSH2SFTPOpenType/directory``.
 ///   - maximumNameLength: Capacity of the name buffer; names longer than this are truncated.
 ///   - maximumLongEntryLength: Capacity of the long-entry buffer, or `0` to skip the long entry.
 /// - Returns: A tuple with the entry name, an optional long entry, and the entry's attributes.
@@ -215,7 +212,7 @@ public func SFTPWrite(handle: LibSSH2SFTPHandle, data: Data) throws -> Int {
 /// Asks the remote server to fsync the file backing an SFTP handle.
 ///
 /// Requires the `fsync@openssh.com` extension on the server (OpenSSH 6.3 or later). If the server does not support the
-/// extension this call returns `LIBSSH2_FX_OP_UNSUPPORTED`.
+/// extension this call surfaces ``LibSSH2Error/sftp(status:)`` with ``LibSSH2SFTPStatus/operationUnsupported``.
 ///
 /// - Parameter handle: The SFTP file handle to synchronize.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
@@ -293,11 +290,11 @@ public func SFTPFStat(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPAttributes
 
 /// Writes attributes back to the server for an SFTP file handle (`fsetstat`).
 ///
-/// Only the fields whose corresponding flag bits are set in `attributes.flags` are sent to the server.
+/// Only the fields selected in ``LibSSH2SFTPAttributes/flags`` are sent to the server.
 ///
 /// - Parameters:
 ///   - handle: The SFTP file handle to modify.
-///   - attributes: The attributes to write. The `flags` field controls which fields are honoured.
+///   - attributes: The attributes to write. ``LibSSH2SFTPAttributes/flags`` controls which fields are honoured.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttributes) throws {
     var rawAttributes = attributes.rawValue
@@ -311,7 +308,7 @@ public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttri
 ///   - fileSize: The new file size in bytes.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetFileSize(handle: LibSSH2SFTPHandle, fileSize: UInt64) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_SIZE), fileSize: fileSize)
+    let attrs = LibSSH2SFTPAttributes(flags: .size, fileSize: fileSize)
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
@@ -319,10 +316,11 @@ public func SFTPSetFileSize(handle: LibSSH2SFTPHandle, fileSize: UInt64) throws 
 ///
 /// - Parameters:
 ///   - handle: The SFTP file handle to modify.
-///   - permissions: The new POSIX permissions (e.g. `0o755`).
+///   - permissions: The new POSIX mode, for example `[.regularFile, .ownerRead, .ownerWrite, .ownerExecute, .groupRead,
+/// .otherRead]`.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetPermissions(handle: LibSSH2SFTPHandle, permissions: UInt) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS), permissions: permissions)
+public func SFTPSetPermissions(handle: LibSSH2SFTPHandle, permissions: LibSSH2SFTPPOSIXPermissions) throws {
+    let attrs = LibSSH2SFTPAttributes(flags: .permissions, permissions: permissions)
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
@@ -334,7 +332,7 @@ public func SFTPSetPermissions(handle: LibSSH2SFTPHandle, permissions: UInt) thr
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetAccessTime(handle: LibSSH2SFTPHandle, accessTime: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_ACMODTIME)
+    attrs.flags = .accessModificationTime
     attrs.accessTime = accessTime
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
@@ -347,7 +345,7 @@ public func SFTPSetAccessTime(handle: LibSSH2SFTPHandle, accessTime: UInt) throw
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetModificationTime(handle: LibSSH2SFTPHandle, modificationTime: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_ACMODTIME)
+    attrs.flags = .accessModificationTime
     attrs.modificationTime = modificationTime
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
@@ -355,7 +353,7 @@ public func SFTPSetModificationTime(handle: LibSSH2SFTPHandle, modificationTime:
 /// Sets the access and modification time on a SFTP file handle to the same value.
 public func SFTPSetAccessAndModificationTime(handle: LibSSH2SFTPHandle, time: UInt) throws {
     let attrs = LibSSH2SFTPAttributes(
-        flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_ACMODTIME),
+        flags: .accessModificationTime,
         accessTime: time,
         modificationTime: time
     )
@@ -370,7 +368,7 @@ public func SFTPSetAccessAndModificationTime(handle: LibSSH2SFTPHandle, time: UI
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uID: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID)
+    attrs.flags = .uidGID
     attrs.uid = uID
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
@@ -383,7 +381,7 @@ public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uID: UInt) throws {
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetGroupID(handle: LibSSH2SFTPHandle, gID: UInt) throws {
     var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID)
+    attrs.flags = .uidGID
     attrs.gid = gID
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
@@ -396,27 +394,27 @@ public func SFTPSetGroupID(handle: LibSSH2SFTPHandle, gID: UInt) throws {
 ///   - gid: The new group ID.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPSetUserAndGroupIDs(handle: LibSSH2SFTPHandle, uID: UInt, gID: UInt) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: UInt(libssh2.LIBSSH2_SFTP_ATTR_UIDGID), uid: uID, gid: gID)
+    let attrs = LibSSH2SFTPAttributes(flags: .uidGID, uid: uID, gid: gID)
     try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
 /// Renames a filesystem object on the remote SFTP server.
 ///
 /// The rename may move an object between directories or across mount points, depending on server support. When the
-/// `LIBSSH2_SFTP_RENAME_OVERWRITE` flag is not set and the destination already exists, the operation fails; the
-/// remaining `LIBSSH2_SFTP_RENAME_*` flags express preferences for atomic rename or native rename semantics.
+/// ``LibSSH2SFTPRenameFlags/overwrite`` is not set and the destination already exists, the operation fails; the
+/// remaining rename flags express preferences for atomic rename or native rename semantics.
 ///
 /// - Parameters:
 ///   - sftp: The SFTP instance that will perform the rename.
 ///   - sourceFilename: Path of the existing filesystem entry.
 ///   - destinationFilename: Path of the target filesystem entry.
-///   - flags: Bitwise combination of `LIBSSH2_SFTP_RENAME_*` flags.
+///   - flags: Rename flags such as ``LibSSH2SFTPRenameFlags/overwrite``.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
 public func SFTPRename(
     sftp: LibSSH2SFTP,
     sourceFilename: String,
     destinationFilename: String,
-    flags: Int
+    flags: LibSSH2SFTPRenameFlags
 ) throws {
     try sourceFilename.withCString { sourcePointer in
         try destinationFilename.withCString { destinationPointer in
@@ -427,7 +425,7 @@ public func SFTPRename(
                     sourceFilename.uint32Length,
                     destinationPointer,
                     destinationFilename.uint32Length,
-                    CLong(flags)
+                    CLong(flags.rawValue)
                 )
             ).checkReturnValue()
         }
@@ -438,8 +436,7 @@ public func SFTPRename(
 ///
 /// Useful when moving files across filesystems on the remote server; the plain `SSH_FXP_RENAME` may attempt hard links
 /// that span mounts, whereas POSIX rename simply moves the file. If the server does not support the extension,
-/// ``LibSSH2Error/sftp(statusCode:)`` returns
-/// `LIBSSH2_FX_OP_UNSUPPORTED`; fall back to
+/// ``LibSSH2Error/sftp(status:)`` with ``LibSSH2SFTPStatus/operationUnsupported``; fall back to
 /// ``SFTPRename(sftp:sourceFilename:destinationFilename:flags:)`` in that
 /// case.
 ///
@@ -515,11 +512,12 @@ public func SFTPStatVFS(sftp: LibSSH2SFTP, path: String) throws -> LibSSH2SFTPSt
 /// - Parameters:
 ///   - sftp: The SFTP instance that will perform the create.
 ///   - path: Full path of the new directory.
-///   - mode: POSIX permissions to apply to the new directory (e.g. `0o755`).
+///   - mode: POSIX mode for the new directory, for example `[.directory, .ownerRead, .ownerWrite, .ownerExecute,
+/// .groupRead, .otherRead]`, or ``LibSSH2SFTPPOSIXPermissions/serverDefault``.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: Int) throws {
+public func SFTPMkdir(sftp: LibSSH2SFTP, path: String, mode: LibSSH2SFTPPOSIXPermissions) throws {
     try path.withCString {
-        try libssh2.libssh2_sftp_mkdir_ex(sftp.rawValue, $0, path.uint32Length, CLong(mode)).checkReturnValue()
+        try libssh2.libssh2_sftp_mkdir_ex(sftp.rawValue, $0, path.uint32Length, mode.rawValue).checkReturnValue()
     }
 }
 
@@ -540,17 +538,17 @@ public func SFTPRmdir(sftp: LibSSH2SFTP, path: String) throws {
 /// Gets or sets attributes for a remote SFTP path.
 ///
 /// `statType` selects the operation:
-/// - `LIBSSH2_SFTP_STAT` (`stat(2)`): follow symlinks,
-/// - `LIBSSH2_SFTP_LSTAT` (`lstat(2)`): return data about the symlink itself, not its target,
-/// - `LIBSSH2_SFTP_SETSTAT`: write the supplied attributes to the file.
+/// - ``LibSSH2SFTPStatType/stat`` (`stat(2)`): follow symlinks,
+/// - ``LibSSH2SFTPStatType/linkStat`` (`lstat(2)`): return data about the symlink itself, not its target,
+/// - ``LibSSH2SFTPStatType/setStat``: write the supplied attributes to the file.
 ///
 /// - Parameters:
 ///   - sftp: The SFTP instance to use.
 ///   - path: Remote filesystem object to inspect or modify.
-///   - statType: One of the `LIBSSH2_SFTP_*STAT` constants.
+///   - statType: The stat operation to perform.
 /// - Returns: A ``LibSSH2SFTPAttributes`` populated by the server.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> LibSSH2SFTPAttributes {
+public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: LibSSH2SFTPStatType) throws -> LibSSH2SFTPAttributes {
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
     try path.withCString {
         try (
@@ -558,7 +556,7 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> L
                 sftp.rawValue,
                 $0,
                 path.uint32Length,
-                Int32(statType),
+                statType.libssh2Value,
                 &rawAttributes
             )
         ).checkReturnValue()
@@ -569,20 +567,20 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: Int) throws -> L
 /// Creates, reads, or resolves an SFTP symlink.
 ///
 /// `linkType` selects the operation:
-/// - `LIBSSH2_SFTP_SYMLINK`: create a symbolic link from `path` to `target`. The `target` argument is required; no
-/// output is returned.
-/// - `LIBSSH2_SFTP_READLINK`: resolve `path` one hop; the result is returned as a string.
-/// - `LIBSSH2_SFTP_REALPATH`: resolve `path` to its effective target, following any symlinks; the result is returned as
-/// a string.
+/// - ``LibSSH2SFTPLinkType/symlink``: create a symbolic link from `path` to `target`. The `target` argument is
+/// required; no output is returned.
+/// - ``LibSSH2SFTPLinkType/readLink``: resolve `path` one hop; the result is returned as a string.
+/// - ``LibSSH2SFTPLinkType/realPath``: resolve `path` to its effective target, following any symlinks; the result is
+/// returned as a string.
 ///
 /// - Parameters:
 ///   - sftp: The SFTP instance to use.
 ///   - path: Path of the symlink to create, read, or resolve.
 ///   - targetMaximumLength: Capacity of the output buffer used by
-///     `LIBSSH2_SFTP_READLINK` and `LIBSSH2_SFTP_REALPATH`.
+///     ``LibSSH2SFTPLinkType/readLink`` and ``LibSSH2SFTPLinkType/realPath``.
 ///   - target: Target of the symlink when creating one with
-///     `LIBSSH2_SFTP_SYMLINK`. Ignored for read and realpath operations.
-///   - linkType: One of the `LIBSSH2_SFTP_SYMLINK`, `LIBSSH2_SFTP_READLINK`, or `LIBSSH2_SFTP_REALPATH` constants.
+///     ``LibSSH2SFTPLinkType/symlink``. Ignored for read and realpath operations.
+///   - linkType: The symlink operation to perform.
 /// - Returns: The resolved path for read or realpath operations, or `nil` when a symlink was successfully created.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions and `.bufferTooSmall` when the
 /// output buffer cannot hold the result.
@@ -591,9 +589,10 @@ public func SFTPSymlink(
     path: String,
     targetMaximumLength: Int = 4096,
     target: String? = nil,
-    linkType: Int
+    linkType: LibSSH2SFTPLinkType
 ) throws -> String? {
-    if linkType == 1 || linkType == 2 {
+    switch linkType {
+    case .readLink, .realPath:
         var targetBuffer = [CChar](repeating: 0, count: targetMaximumLength)
         let count = try path.withCString { pathPointer in
             let rawCount = targetBuffer.withUnsafeMutableBufferPointer {
@@ -603,29 +602,30 @@ public func SFTPSymlink(
                     path.uint32Length,
                     $0.baseAddress,
                     UInt32(clamping: targetMaximumLength),
-                    Int32(linkType)
+                    linkType.libssh2Value
                 )
             }
             if rawCount < 0 { throw LibSSH2Error(code: rawCount) }
             return Int(rawCount)
         }
         return String(decoding: targetBuffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    }
 
-    guard let target else { throw LibSSH2Error.invalidArgument("target is required for symlink creation") }
-    try path.withCString { pathPointer in
-        try target.withCString { targetPointer in
-            try (
-                libssh2.libssh2_sftp_symlink_ex(
-                    sftp.rawValue,
-                    pathPointer,
-                    path.uint32Length,
-                    UnsafeMutablePointer(mutating: targetPointer),
-                    target.uint32Length,
-                    Int32(linkType)
-                )
-            ).checkReturnValue()
+    case .symlink:
+        guard let target else { throw LibSSH2Error.invalidArgument("target is required for symlink creation") }
+        try path.withCString { pathPointer in
+            try target.withCString { targetPointer in
+                try (
+                    libssh2.libssh2_sftp_symlink_ex(
+                        sftp.rawValue,
+                        pathPointer,
+                        path.uint32Length,
+                        UnsafeMutablePointer(mutating: targetPointer),
+                        target.uint32Length,
+                        linkType.libssh2Value
+                    )
+                ).checkReturnValue()
+            }
         }
+        return nil
     }
-    return nil
 }

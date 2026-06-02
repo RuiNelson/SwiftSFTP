@@ -58,7 +58,7 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
     case hashCalculation(String?)
     case storeOverflow(String?)
     case nullPointer(function: String)
-    case sftp(statusCode: UInt)
+    case sftp(status: LibSSH2SFTPStatus)
     case unknown(code: Int32, message: String?)
     case invalidKnownHostsLine(String?)
     case couldNotResolveHostname(hostname: String?, message: String?)
@@ -120,7 +120,7 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
         case let .hashCalculation(message): Self.describe("hash calculation", message)
         case let .storeOverflow(message): Self.describe("store overflow", message)
         case let .nullPointer(function): "\(function) returned NULL"
-        case let .sftp(statusCode): "SFTP status code \(statusCode)"
+        case let .sftp(status): "SFTP status \(status)"
         case let .unknown(code, message): Self.describe("libssh2 error \(code)", message)
         case let .invalidKnownHostsLine(line): Self.describe("Invalid Known Hosts Line", line)
         case let .couldNotResolveHostname(hostname: hostname, message: message): Self.describe(
@@ -198,5 +198,70 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
     private static func describe(_ name: String, _ message: String?) -> String {
         guard let message, !message.isEmpty else { return name }
         return "\(name): \(message)"
+    }
+
+    /// libssh2 session error code corresponding to this error, when applicable.
+    public var libssh2Code: Int32 {
+        switch self {
+        case .socketNone: libssh2.LIBSSH2_ERROR_SOCKET_NONE
+        case .bannerReceive: libssh2.LIBSSH2_ERROR_BANNER_RECV
+        case .bannerSend: libssh2.LIBSSH2_ERROR_BANNER_SEND
+        case .invalidMAC: libssh2.LIBSSH2_ERROR_INVALID_MAC
+        case .keyExchangeFailure: libssh2.LIBSSH2_ERROR_KEY_EXCHANGE_FAILURE
+        case .allocationFailure: libssh2.LIBSSH2_ERROR_ALLOC
+        case .socketSend: libssh2.LIBSSH2_ERROR_SOCKET_SEND
+        case .timeout: libssh2.LIBSSH2_ERROR_TIMEOUT
+        case .hostKeyInitialization: libssh2.LIBSSH2_ERROR_HOSTKEY_INIT
+        case .hostKeySigning: libssh2.LIBSSH2_ERROR_HOSTKEY_SIGN
+        case .decrypt: libssh2.LIBSSH2_ERROR_DECRYPT
+        case .socketDisconnect: libssh2.LIBSSH2_ERROR_SOCKET_DISCONNECT
+        case .protocolError: libssh2.LIBSSH2_ERROR_PROTO
+        case .passwordExpired: libssh2.LIBSSH2_ERROR_PASSWORD_EXPIRED
+        case .file: libssh2.LIBSSH2_ERROR_FILE
+        case .methodNone: libssh2.LIBSSH2_ERROR_METHOD_NONE
+        case .authenticationFailed: libssh2.LIBSSH2_ERROR_AUTHENTICATION_FAILED
+        case .publicKeyUnverified: libssh2.LIBSSH2_ERROR_PUBLICKEY_UNVERIFIED
+        case .channelOutOfOrder: libssh2.LIBSSH2_ERROR_CHANNEL_OUTOFORDER
+        case .channelFailure: libssh2.LIBSSH2_ERROR_CHANNEL_FAILURE
+        case .channelRequestDenied: libssh2.LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED
+        case .channelUnknown: libssh2.LIBSSH2_ERROR_CHANNEL_UNKNOWN
+        case .channelWindowExceeded: libssh2.LIBSSH2_ERROR_CHANNEL_WINDOW_EXCEEDED
+        case .channelPacketExceeded: libssh2.LIBSSH2_ERROR_CHANNEL_PACKET_EXCEEDED
+        case .channelClosed: libssh2.LIBSSH2_ERROR_CHANNEL_CLOSED
+        case .channelEOFSent: libssh2.LIBSSH2_ERROR_CHANNEL_EOF_SENT
+        case .scpProtocol: libssh2.LIBSSH2_ERROR_SCP_PROTOCOL
+        case .zlib: libssh2.LIBSSH2_ERROR_ZLIB
+        case .socketTimeout: libssh2.LIBSSH2_ERROR_SOCKET_TIMEOUT
+        case .sftpProtocol: libssh2.LIBSSH2_ERROR_SFTP_PROTOCOL
+        case .requestDenied: libssh2.LIBSSH2_ERROR_REQUEST_DENIED
+        case .methodNotSupported: libssh2.LIBSSH2_ERROR_METHOD_NOT_SUPPORTED
+        case .invalidArgument: libssh2.LIBSSH2_ERROR_INVAL
+        case .invalidPollType: libssh2.LIBSSH2_ERROR_INVALID_POLL_TYPE
+        case .publicKeyProtocol: libssh2.LIBSSH2_ERROR_PUBLICKEY_PROTOCOL
+        case .wouldBlock: libssh2.LIBSSH2_ERROR_EAGAIN
+        case .bufferTooSmall: libssh2.LIBSSH2_ERROR_BUFFER_TOO_SMALL
+        case .badUse: libssh2.LIBSSH2_ERROR_BAD_USE
+        case .compress: libssh2.LIBSSH2_ERROR_COMPRESS
+        case .outOfBoundary: libssh2.LIBSSH2_ERROR_OUT_OF_BOUNDARY
+        case .agentProtocol: libssh2.LIBSSH2_ERROR_AGENT_PROTOCOL
+        case .socketReceive: libssh2.LIBSSH2_ERROR_SOCKET_RECV
+        case .encrypt: libssh2.LIBSSH2_ERROR_ENCRYPT
+        case .badSocket: libssh2.LIBSSH2_ERROR_BAD_SOCKET
+        case .knownHosts: libssh2.LIBSSH2_ERROR_KNOWN_HOSTS
+        case .channelWindowFull: libssh2.LIBSSH2_ERROR_CHANNEL_WINDOW_FULL
+        case .keyFileAuthFailed: libssh2.LIBSSH2_ERROR_KEYFILE_AUTH_FAILED
+        case .randomGenerator: libssh2.LIBSSH2_ERROR_RANDGEN
+        case .missingUserAuthBanner: libssh2.LIBSSH2_ERROR_MISSING_USERAUTH_BANNER
+        case .algorithmUnsupported: libssh2.LIBSSH2_ERROR_ALGO_UNSUPPORTED
+        case .macFailure: libssh2.LIBSSH2_ERROR_MAC_FAILURE
+        case .hashInitialization: libssh2.LIBSSH2_ERROR_HASH_INIT
+        case .hashCalculation: libssh2.LIBSSH2_ERROR_HASH_CALC
+        case .storeOverflow: libssh2.LIBSSH2_ERROR_STORE_OVERFLOW
+        case .nullPointer: libssh2.LIBSSH2_ERROR_INVAL
+        case .sftp: libssh2.LIBSSH2_ERROR_SFTP_PROTOCOL
+        case let .unknown(code, _): code
+        case .invalidKnownHostsLine: libssh2.LIBSSH2_ERROR_KNOWN_HOSTS
+        case .couldNotResolveHostname: libssh2.LIBSSH2_ERROR_NONE
+        }
     }
 }

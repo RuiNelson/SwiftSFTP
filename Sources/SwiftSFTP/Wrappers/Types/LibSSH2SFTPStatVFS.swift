@@ -1,5 +1,6 @@
 import libssh2
 
+/// `statvfs`-style remote filesystem statistics from OpenSSH SFTP extensions.
 public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
     public let blockSize: UInt64
     public let fragmentSize: UInt64
@@ -10,7 +11,7 @@ public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
     public let freeFiles: UInt64
     public let availableFiles: UInt64
     public let fileSystemID: UInt64
-    public let flags: UInt64
+    public let flags: LibSSH2SFTPStatVFSFlags
     public let maximumNameLength: UInt64
 
     public init(_ rawValue: LIBSSH2_SFTP_STATVFS) {
@@ -23,7 +24,7 @@ public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
         self.freeFiles = UInt64(rawValue.f_ffree)
         self.availableFiles = UInt64(rawValue.f_favail)
         self.fileSystemID = UInt64(rawValue.f_fsid)
-        self.flags = UInt64(rawValue.f_flag)
+        self.flags = LibSSH2SFTPStatVFSFlags(rawValue: UInt64(rawValue.f_flag))
         self.maximumNameLength = UInt64(rawValue.f_namemax)
     }
 }

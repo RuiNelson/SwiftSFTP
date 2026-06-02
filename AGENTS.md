@@ -14,6 +14,7 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Keep the low-level wrapper 
 - Do not add deprecated libssh2 APIs.
 - Avoid convenience wrappers that only call another wrapper.
 - Prefer Swift types (`String`, `Data`, `Int`, `UInt`, `Bool`, enums, structs) over raw C pointers and integers.
+- Map libssh2 flag bitmasks to `OptionSet` types in `Wrappers/Types/`; map mutually exclusive operation selectors to enums.
 - When libssh2 returns an error code, expose `throws` and map through the project error helpers.
 - Use libssh2 symbolic constants through `libssh2.LIBSSH2_*`; do not pass magic integers to libssh2 calls.
 - Hide required raw pointers inside Swift wrapper types when lifetime belongs to libssh2, as with agent identities.

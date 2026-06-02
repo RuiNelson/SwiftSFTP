@@ -235,37 +235,39 @@ public func KnownHostFree(hosts: LibSSH2KnownHosts) {
 
 /// Reads a single known-hosts line into a collection.
 ///
-/// `type` selects the file format and should normally be
-/// `libssh2.LIBSSH2_KNOWNHOST_FILE_OPENSSH` (the only currently
-/// supported format).
-///
 /// - Parameters:
 ///   - hosts: The collection to append the parsed entry to.
 ///   - line: One line from a known-hosts file.
-///   - type: The file format identifier.
+///   - format: The file format (``.openSSH`` is the only supported format).
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readline` call fails.
-public func KnownHostReadLine(hosts: LibSSH2KnownHosts, line: String, type: Int = 1) throws {
+public func KnownHostReadLine(
+    hosts: LibSSH2KnownHosts,
+    line: String,
+    format: LibSSH2KnownHostFileFormat = .openSSH
+) throws {
     try line.withCString {
-        try libssh2.libssh2_knownhost_readline(hosts.rawValue, $0, line.utf8.count, Int32(type)).checkReturnValue()
+        try libssh2.libssh2_knownhost_readline(hosts.rawValue, $0, line.utf8.count, format.libssh2Value)
+            .checkReturnValue()
     }
 }
 
 /// Reads a known-hosts file into a collection.
 ///
-/// `type` selects the file format and should normally be
-/// `libssh2.LIBSSH2_KNOWNHOST_FILE_OPENSSH` (the only currently
-/// supported format). This is the file normally found at
-/// `~/.ssh/known_hosts`.
+/// This is the file normally found at `~/.ssh/known_hosts`.
 ///
 /// - Parameters:
 ///   - hosts: The collection to append the parsed entries to.
 ///   - filename: Path to the known-hosts file to read.
-///   - type: The file format identifier.
+///   - format: The file format (``.openSSH`` is the only supported format).
 /// - Returns: The number of entries parsed from the file.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_readfile` call fails.
-public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws -> Int {
+public func KnownHostReadFile(
+    hosts: LibSSH2KnownHosts,
+    filename: String,
+    format: LibSSH2KnownHostFileFormat = .openSSH
+) throws -> Int {
     try filename.withCString {
-        let result = libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, Int32(type))
+        let result = libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, format.libssh2Value)
         if result < 0 { throw LibSSH2Error(code: result) }
         return Int(result)
     }
@@ -273,15 +275,14 @@ public func KnownHostReadFile(hosts: LibSSH2KnownHosts, filename: String, type: 
 
 /// Serializes a known-hosts entry to a single line in the chosen format.
 ///
-/// `type` selects the file format and should normally be
-/// `libssh2.LIBSSH2_KNOWNHOST_FILE_OPENSSH`. If `maximumLength` is too
-/// small, ``LibSSH2Error/bufferTooSmall(_:)`` is thrown and a larger buffer should be supplied.
+/// If `maximumLength` is too small, ``LibSSH2Error/bufferTooSmall(_:)`` is thrown and a larger buffer should be
+/// supplied.
 ///
 /// - Parameters:
 ///   - hosts: The collection that owns the entry.
 ///   - rawKnownHost: The entry to serialize.
 ///   - maximumLength: Size of the output buffer in bytes.
-///   - type: The file format identifier.
+///   - format: The file format (``.openSSH`` is the only supported format).
 /// - Returns: The serialized line, excluding the trailing NUL.
 /// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/bufferTooSmall(_:)`` when the buffer is too small, or any other
 /// ``LibSSH2Error`` raised by the underlying call.
@@ -289,7 +290,7 @@ public func KnownHostWriteLine(
     hosts: LibSSH2KnownHosts,
     rawKnownHost: UnsafeMutablePointer<libssh2_knownhost>,
     maximumLength: Int = 4096,
-    type: Int = 1
+    format: LibSSH2KnownHostFileFormat = .openSSH
 ) throws -> String {
     var buffer = [CChar](repeating: 0, count: maximumLength)
     var outputLength = 0
@@ -301,7 +302,7 @@ public func KnownHostWriteLine(
                 $0.baseAddress,
                 maximumLength,
                 &outputLength,
-                Int32(type)
+                format.libssh2Value
             )
         }
     ).checkReturnValue()
@@ -310,18 +311,18 @@ public func KnownHostWriteLine(
 
 /// Writes a known-hosts collection to a file.
 ///
-/// `type` selects the file format and should normally be
-/// `libssh2.LIBSSH2_KNOWNHOST_FILE_OPENSSH` (the only currently
-/// supported format).
-///
 /// - Parameters:
 ///   - hosts: The collection to write.
 ///   - filename: Path of the file to create.
-///   - type: The file format identifier.
+///   - format: The file format (``.openSSH`` is the only supported format).
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_writefile` call fails.
-public func KnownHostWriteFile(hosts: LibSSH2KnownHosts, filename: String, type: Int = 1) throws {
+public func KnownHostWriteFile(
+    hosts: LibSSH2KnownHosts,
+    filename: String,
+    format: LibSSH2KnownHostFileFormat = .openSSH
+) throws {
     try filename.withCString {
-        try libssh2.libssh2_knownhost_writefile(hosts.rawValue, $0, Int32(type)).checkReturnValue()
+        try libssh2.libssh2_knownhost_writefile(hosts.rawValue, $0, format.libssh2Value).checkReturnValue()
     }
 }
 
