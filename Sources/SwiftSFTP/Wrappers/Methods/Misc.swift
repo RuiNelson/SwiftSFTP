@@ -15,7 +15,7 @@ import libssh2
 ///
 /// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call fails.
-public func Init(noCrypto: Bool = false) throws {
+public func SSHInit(noCrypto: Bool = false) throws {
     try SynchronousExecution {
         let flags: Int32 = noCrypto ? LIBSSH2_INIT_NO_CRYPTO : 0
         try libssh2.libssh2_init(flags).checkReturnValue()
@@ -29,7 +29,7 @@ public func Init(noCrypto: Bool = false) throws {
 /// call decrements the wrapper reference count (without going below zero). When the count reaches zero,
 /// `libssh2_exit` is invoked. If libssh2 was already deinitialized at the C
 /// level, that call is a no-op.
-public func Exit() {
+public func SSHExit() {
     SynchronousExecution {
         if InitReferenceCountDown() {
             libssh2.libssh2_exit()
@@ -45,7 +45,7 @@ public func Exit() {
 /// - Parameters:
 ///   - session: The session that owns the allocation callbacks.
 ///   - pointer: The pointer previously returned by libssh2 to free.
-public func Free(session: LibSSH2Session, pointer: UnsafeMutableRawPointer?) {
+public func SSHFree(session: LibSSH2Session, pointer: UnsafeMutableRawPointer?) {
     libssh2.libssh2_free(session.rawValue, pointer)
 }
 
@@ -58,13 +58,13 @@ public func Free(session: LibSSH2Session, pointer: UnsafeMutableRawPointer?) {
 /// - Parameter requiredVersionNumber: A `LIBSSH2_VERSION_NUM`-style version number, or `0` for the unconditional
 /// version string.
 /// - Returns: The libssh2 version string, or `nil` if the required version is not fulfilled.
-public func Version(_ requiredVersionNumber: Int = 0) -> String? {
+public func SSHVersion(_ requiredVersionNumber: Int = 0) -> String? {
     libssh2.libssh2_version(Int32(requiredVersionNumber)).string
 }
 
 /// Returns the crypto backend used by the linked libssh2.
 ///
 /// - Returns: A ``LibSSH2CryptoEngine`` value identifying the active crypto backend.
-public func CryptoEngine() -> LibSSH2CryptoEngine {
+public func SSHCryptoEngine() -> LibSSH2CryptoEngine {
     LibSSH2CryptoEngine(rawEngineValue: Int32(libssh2.libssh2_crypto_engine().rawValue))
 }

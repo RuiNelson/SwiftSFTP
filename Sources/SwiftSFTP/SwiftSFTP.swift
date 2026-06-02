@@ -1,3 +1,3 @@
 import libssh2
 
-public let VersionString = Version() ?? ""
+public let VersionString = SSHVersion() ?? ""

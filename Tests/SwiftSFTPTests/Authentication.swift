@@ -241,7 +241,7 @@ private nonisolated(unsafe) var libssh2Initialized = false
 
 private func ensureLibSSH2Initialized() throws {
     if libssh2Initialized { return }
-    try Init()
+    try SSHInit()
     libssh2Initialized = true
 }
 
