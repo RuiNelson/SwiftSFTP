@@ -124,10 +124,14 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
         case let .unknown(code, message): Self.describe("libssh2 error \(code)", message)
         case let .invalidKnownHostsLine(line): Self.describe("Invalid Known Hosts Line", line)
         case let .couldNotResolveHostname(hostname: hostname, message: message): Self.describe(
-            "Could not resolve hostname",
-            "\(hostname ?? "") - \(message ?? ""))"
-        )
+                "Could not resolve hostname",
+                "\(hostname ?? "") - \(message ?? ""))"
+            )
         }
+    }
+    
+    public init(code: Int, message: String? = nil) {
+        self.init(code: Int32(code), message: message)
     }
 
     public init(code: Int32, message: String? = nil) {

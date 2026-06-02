@@ -15,7 +15,7 @@ public func KnownHostsAddString(
     host: String,
     keyString: String
 ) throws -> LibSSH2KnownHost? {
-    return try KnownHostsAddString(hosts: hosts, keyString: "\(host) \(keyString)")
+    try KnownHostsAddString(hosts: hosts, keyString: "\(host) \(keyString)")
 }
 
 /// Adds a host key string to a known-hosts collection, reading the host name from the string.

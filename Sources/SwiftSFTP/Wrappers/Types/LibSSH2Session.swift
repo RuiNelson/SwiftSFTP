@@ -36,4 +36,8 @@ extension LibSSH2Session {
         guard let messagePointer else { return nil }
         return String(cString: messagePointer)
     }
+    
+    var lastErrorNo: Int {
+        SessionLastErrno(session: self)
+    }
 }

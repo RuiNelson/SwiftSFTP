@@ -42,7 +42,7 @@ public func SessionHostKeyString(session: LibSSH2Session, host _host: String? = 
     let b64Field = lineFields.removeFirst()
         
     if _host == nil {
-        return [algoField,b64Field].joined(separator: " ")
+        return [algoField, b64Field].joined(separator: " ")
     }
     else {
         return [hostField, algoField, b64Field].joined(separator: " ")
