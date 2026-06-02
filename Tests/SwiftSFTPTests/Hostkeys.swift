@@ -5,93 +5,111 @@ import Testing
 @Suite("Hostkeys")
 struct Hostkeys {
     @Test func knownHosts() async throws {
-        let session1 = try SessionInit()
-        defer { try? SessionFree(session: session1) }
-        let socket1: LibSSH2Socket
+        let firstConnection: TestConnection
         do {
-            socket1 = try SessionHandshakeTCP(session: session1, host: TS.host, port: TS.port)
+            firstConnection = try connectToTestServer()
         }
         catch {
             Issue.record("Could not reach: \(error)", severity: .error)
             return
         }
-        defer { CloseSocket(socket1) }
+        defer { firstConnection.close() }
 
-        let capturedHostKey = try #require(SessionHostKey(session: session1))
-        let hostKeyString = try knownHostKeyString(from: capturedHostKey)
+        let publicKeyString = try SessionHostKeyString(session: firstConnection.session)
+        let knownHostsLine = try SessionHostKeyString(session: firstConnection.session, hostname: TS.host)
 
-        let session2 = try SessionInit()
-        defer { try? SessionFree(session: session2) }
-        let socket2 = try SessionHandshakeTCP(session: session2, host: TS.host, port: TS.port)
-        defer { CloseSocket(socket2) }
-        let knownHosts = try KnownHostInit(session: session2)
-        defer { KnownHostFree(hosts: knownHosts) }
+        #expect(publicKeyString.split(separator: " ").count == 2)
+        #expect(knownHostsLine.split(separator: " ").count == 3)
+        #expect(knownHostsLine.hasPrefix("\(TS.host) "))
+        #expect(knownHostsLine.hasSuffix(publicKeyString))
 
-        let knownHostKey = try parseKnownHostKey(hostKeyString)
-        _ = try KnownHostAdd(
-            hosts: knownHosts,
-            host: TS.host,
-            key: knownHostKey.key,
-            typeMask: [.plain, .base64Key, knownHostKey.typeMask]
+        let secondConnection = try connectToTestServer()
+        defer { secondConnection.close() }
+
+        let explicitHosts = try KnownHostInit(session: secondConnection.session)
+        defer { KnownHostFree(hosts: explicitHosts) }
+
+        let addedExplicitKnownHost = try KnownHostsAddString(
+            hosts: explicitHosts,
+            hostname: TS.host,
+            keyString: publicKeyString
         )
+        let explicitKnownHost = try #require(addedExplicitKnownHost)
 
-        let connectedHostKey = try #require(SessionHostKey(session: session2))
-        let connectedKnownHostKey = try knownHostKeyString(from: connectedHostKey)
-        let parsedConnectedHostKey = try parseKnownHostKey(connectedKnownHostKey)
-
-        let match = try KnownHostCheckPort(
-            hosts: knownHosts,
+        let explicitMatch = try checkCurrentHostKey(
+            hosts: explicitHosts,
+            knownHost: explicitKnownHost,
             host: TS.host,
-            port: TS.port,
-            key: parsedConnectedHostKey.key,
-            typeMask: [.plain, .base64Key, parsedConnectedHostKey.typeMask]
+            port: TS.port
         )
-        #expect(match.result == .match)
+        #expect(explicitMatch.result == .match)
 
-        let mismatch = try KnownHostCheckPort(
-            hosts: knownHosts,
+        let explicitMismatch = try checkDifferentHostKey(
+            hosts: explicitHosts,
+            knownHost: explicitKnownHost,
             host: TS.host,
-            port: TS.port,
-            key: differentBase64Key(from: parsedConnectedHostKey.key),
-            typeMask: [.plain, .base64Key, parsedConnectedHostKey.typeMask]
+            port: TS.port
         )
-        #expect(mismatch.result == .mismatch)
+        #expect(explicitMismatch.result == .mismatch)
+
+        let inferredHosts = try KnownHostInit(session: secondConnection.session)
+        defer { KnownHostFree(hosts: inferredHosts) }
+
+        let addedInferredKnownHost = try KnownHostsAddString(
+            hosts: inferredHosts,
+            keyString: knownHostsLine
+        )
+        let inferredKnownHost = try #require(addedInferredKnownHost)
+
+        let inferredMatch = try checkCurrentHostKey(
+            hosts: inferredHosts,
+            knownHost: inferredKnownHost,
+            host: TS.host,
+            port: TS.port
+        )
+        #expect(inferredMatch.result == .match)
     }
 
-    private func knownHostKeyString(from hostKey: (key: Data, type: LibSSH2HostKeyType)) throws -> String {
-        try "\(knownHostAlgorithmName(for: hostKey.type)) \(hostKey.key.base64EncodedString())"
-    }
-
-    private func parseKnownHostKey(_ string: String) throws -> (key: String, typeMask: LibSSH2KnownHostTypeMask) {
-        let parts = string.split(separator: " ", maxSplits: 1).map(String.init)
-        let algorithm = try #require(parts.first)
-        let key = try #require(parts.last)
-
-        return try (key, knownHostTypeMask(for: algorithm))
-    }
-
-    private func knownHostAlgorithmName(for type: LibSSH2HostKeyType) throws -> String {
-        switch type {
-        case .rsa: "ssh-rsa"
-        case .ecdsa256: "ecdsa-sha2-nistp256"
-        case .ecdsa384: "ecdsa-sha2-nistp384"
-        case .ecdsa521: "ecdsa-sha2-nistp521"
-        case .ed25519: "ssh-ed25519"
-        case .unknown, .dss:
-            throw HostKeyTestError.unsupportedHostKeyType(String(describing: type))
+    private func connectToTestServer() throws -> TestConnection {
+        let session = try SessionInit()
+        do {
+            let socket = try SessionHandshakeTCP(session: session, host: TS.host, port: TS.port)
+            return TestConnection(session: session, socket: socket)
+        }
+        catch {
+            try? SessionFree(session: session)
+            throw error
         }
     }
 
-    private func knownHostTypeMask(for algorithm: String) throws -> LibSSH2KnownHostTypeMask {
-        switch algorithm {
-        case "ssh-rsa": .sshRSA
-        case "ecdsa-sha2-nistp256": .ecdsa256
-        case "ecdsa-sha2-nistp384": .ecdsa384
-        case "ecdsa-sha2-nistp521": .ecdsa521
-        case "ssh-ed25519": .ed25519
-        default:
-            throw HostKeyTestError.unsupportedHostKeyAlgorithm(algorithm)
-        }
+    private func checkCurrentHostKey(
+        hosts: LibSSH2KnownHosts,
+        knownHost: LibSSH2KnownHost,
+        host: String,
+        port: Int
+    ) throws -> (result: LibSSH2KnownHostCheckResult, knownHost: LibSSH2KnownHost?) {
+        try KnownHostCheckPort(
+            hosts: hosts,
+            host: host,
+            port: port,
+            key: #require(knownHost.key),
+            typeMask: knownHost.typeMask
+        )
+    }
+
+    private func checkDifferentHostKey(
+        hosts: LibSSH2KnownHosts,
+        knownHost: LibSSH2KnownHost,
+        host: String,
+        port: Int
+    ) throws -> (result: LibSSH2KnownHostCheckResult, knownHost: LibSSH2KnownHost?) {
+        try KnownHostCheckPort(
+            hosts: hosts,
+            host: host,
+            port: port,
+            key: differentBase64Key(from: #require(knownHost.key)),
+            typeMask: knownHost.typeMask
+        )
     }
 
     private func differentBase64Key(from key: String) throws -> String {
@@ -100,8 +118,13 @@ struct Hostkeys {
         return data.base64EncodedString()
     }
 
-    private enum HostKeyTestError: Error {
-        case unsupportedHostKeyType(String)
-        case unsupportedHostKeyAlgorithm(String)
+    private struct TestConnection {
+        let session: LibSSH2Session
+        let socket: LibSSH2Socket
+
+        func close() {
+            try? SessionFree(session: session)
+            CloseSocket(socket)
+        }
     }
 }
