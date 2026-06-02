@@ -6,7 +6,7 @@ import libssh2
 /// SFTP uses the same kind of channel as the rest of the Channel API, but it speaks its own binary packet protocol
 /// which must be driven through the
 /// `SFTP*` family of functions. When finished, release the session with
-/// ``SFTPShutdown(sftp:)``.
+/// ``SFTPShutdown(sftp:)``. The call is serialized through ``SynchronousExecution``.
 ///
 /// - Parameter session: The SSH session that will own the SFTP session.
 /// - Returns: A new ``LibSSH2SFTP`` instance.
@@ -22,6 +22,8 @@ public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
 }
 
 /// Destroys a previously initialized SFTP session and frees its resources.
+///
+/// The call is serialized through ``SynchronousExecution``.
 ///
 /// - Parameter sftp: The SFTP instance to shut down.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.

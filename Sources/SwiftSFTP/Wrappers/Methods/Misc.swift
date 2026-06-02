@@ -2,25 +2,38 @@ import libssh2
 
 /// Initializes global libssh2 state.
 ///
-/// This typically initializes the crypto library. It uses a global state and is not thread safe; callers must ensure it
-/// is not invoked concurrently. Pair with ``Exit()`` when finished.
+/// This typically initializes the crypto library. The underlying
+/// `libssh2_init` is not thread-safe; this wrapper serializes it through
+/// ``SynchronousExecution`` so ``Init(noCrypto:)`` can be called safely from
+/// multiple threads or tasks.
+///
+/// Each call invokes `libssh2_init` and increments a wrapper reference count. libssh2 maintains its own init counter as
+/// well. Pair ``Init(noCrypto:)`` with
+/// ``Exit()`` for balanced teardown: ``Exit()`` calls `libssh2_exit` only when
+/// the wrapper count returns to zero. On libssh2, crypto setup runs only on the first transition from uninitialized to
+/// initialized; the `noCrypto` flag is consulted during that first transition.
 ///
 /// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call fails.
 public func Init(noCrypto: Bool = false) throws {
     try SynchronousExecution {
         let flags: Int32 = noCrypto ? LIBSSH2_INIT_NO_CRYPTO : 0
-
         try libssh2.libssh2_init(flags).checkReturnValue()
+        InitReferenceCountUp()
     }
 }
 
 /// Releases global libssh2 state and frees all internal memory.
 ///
-/// Pair with a successful ``Init(flags:)`` call.
+/// The underlying `libssh2_exit` is not thread-safe; this wrapper serializes it through ``SynchronousExecution``. Each
+/// call decrements the wrapper reference count (without going below zero). When the count reaches zero,
+/// `libssh2_exit` is invoked. If libssh2 was already deinitialized at the C
+/// level, that call is a no-op.
 public func Exit() {
     SynchronousExecution {
-        libssh2.libssh2_exit()
+        if InitReferenceCountDown() {
+            libssh2.libssh2_exit()
+        }
     }
 }
 

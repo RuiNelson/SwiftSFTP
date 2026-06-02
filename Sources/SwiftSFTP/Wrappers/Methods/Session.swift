@@ -7,7 +7,8 @@ public typealias LibSSH2SessionCallback = @convention(c) () -> Void
 ///
 /// Must be called before any other session calls. By default the standard
 /// `malloc`/`free`/`realloc` allocators are used; the Swift wrapper
-/// invokes the extended initializer with `nil` for all four arguments.
+/// invokes the extended initializer with `nil` for all four arguments. The call is serialized through
+/// ``SynchronousExecution`` because the underlying session allocator is not thread-safe at the libssh2 level.
 ///
 /// - Returns: A new ``LibSSH2Session`` instance.
 /// - Throws: ``LibSSH2Error`` with `.nullPointer` if the underlying
@@ -155,7 +156,9 @@ public func SessionDisconnect(
 /// Frees all resources associated with a session instance.
 ///
 /// Typically called after ``SessionDisconnect(session:reason:description:language:)``. The ``LibSSH2Session`` handle is
-/// no longer usable after a successful return.
+/// no longer usable after a successful return. The call is serialized through
+/// ``SynchronousExecution`` because the underlying session teardown is not
+/// thread-safe at the libssh2 level.
 ///
 /// - Parameter session: The session to free.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
