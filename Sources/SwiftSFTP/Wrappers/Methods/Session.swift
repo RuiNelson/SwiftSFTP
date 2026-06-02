@@ -118,7 +118,7 @@ public func SessionBannerGet(session: LibSSH2Session) -> String? {
 /// - Throws: ``LibSSH2Error`` on failure (invalid socket, banner send, key exchange failure, socket send, disconnect,
 /// protocol error, or
 ///   `EAGAIN` for non-blocking sessions).
-public func SessionHandshake(session: LibSSH2Session, socket: Int32) throws {
+public func SessionHandshake(session: LibSSH2Session, socket: LibSSH2Socket) throws {
     try session.checkReturnValue(libssh2.libssh2_session_handshake(session.rawValue, socket))
 }
 

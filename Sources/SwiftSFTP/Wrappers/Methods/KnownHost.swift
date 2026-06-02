@@ -35,16 +35,14 @@ public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
 /// trailing-zero-terminated buffer. If
 /// `host` is plain text, `salt` is ignored and may be `nil`.
 ///
-/// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
-/// `LIBSSH2_KNOWNHOST_KEYENC_*`, and `LIBSSH2_KNOWNHOST_KEY_*` values
-/// describing the host name format, key encoding, and key algorithm.
+/// `typeMask` describes the host name format, key encoding, and key algorithm.
 ///
 /// - Parameters:
 ///   - hosts: The collection to add the entry to.
 ///   - host: The host name in plain text or base64-encoded hashed form.
 ///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for plain-text hosts.
 ///   - key: The host key.
-///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
 /// - Returns: A ``LibSSH2KnownHost`` referencing the added entry, or
 ///   `nil` if `store` was not filled in.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_add` call fails.
@@ -53,7 +51,7 @@ public func KnownHostAdd(
     host: String,
     salt: String? = nil,
     key: String,
-    typeMask: Int
+    typeMask: LibSSH2KnownHostTypeMask
 ) throws -> LibSSH2KnownHost? {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     try host.withCString { hostPointer in
@@ -66,7 +64,7 @@ public func KnownHostAdd(
                         saltPointer,
                         keyPointer,
                         key.utf8.count,
-                        Int32(typeMask),
+                        typeMask.rawValue,
                         &store
                     )
                 ).checkReturnValue()
@@ -81,9 +79,7 @@ public func KnownHostAdd(
 /// To bind the key to a specific port, encode the host as
 /// `"[host.example.com]:222"` per OpenSSH known-hosts conventions.
 ///
-/// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
-/// `LIBSSH2_KNOWNHOST_KEYENC_*`, and `LIBSSH2_KNOWNHOST_KEY_*` values
-/// describing the host name format, key encoding, and key algorithm.
+/// `typeMask` describes the host name format, key encoding, and key algorithm.
 ///
 /// - Parameters:
 ///   - hosts: The collection to add the entry to.
@@ -91,7 +87,7 @@ public func KnownHostAdd(
 ///   - salt: The base64-encoded salt used for hashed hosts, or `nil` for plain-text hosts.
 ///   - key: The host key.
 ///   - comment: A comment to associate with the entry, or `nil`.
-///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
 /// - Returns: A ``LibSSH2KnownHost`` referencing the added entry, or
 ///   `nil` if `store` was not filled in.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_addc` call fails.
@@ -101,7 +97,7 @@ public func KnownHostAdd(
     salt: String? = nil,
     key: String,
     comment: String?,
-    typeMask: Int
+    typeMask: LibSSH2KnownHostTypeMask
 ) throws -> LibSSH2KnownHost? {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     try host.withCString { hostPointer in
@@ -117,7 +113,7 @@ public func KnownHostAdd(
                             key.utf8.count,
                             commentPointer,
                             comment?.utf8.count ?? 0,
-                            Int32(typeMask),
+                            typeMask.rawValue,
                             &store
                         )
                     ).checkReturnValue()
@@ -133,15 +129,13 @@ public func KnownHostAdd(
 /// The match is performed against the plain host name without a port qualifier. To check against a specific port, use
 /// ``KnownHostCheckPort(hosts:host:port:key:typeMask:)``.
 ///
-/// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
-/// `LIBSSH2_KNOWNHOST_KEYENC_*`, and `LIBSSH2_KNOWNHOST_KEY_*` values
-/// describing the host name format, key encoding, and key algorithm.
+/// `typeMask` describes the host name format, key encoding, and key algorithm.
 ///
 /// - Parameters:
 ///   - hosts: The collection to check against.
 ///   - host: The host name in plain text.
 ///   - key: The host key to check.
-///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
 /// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and the matched ``LibSSH2KnownHost`` (if any).
 /// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if the check could not be performed, or
 /// ``LibSSH2Error/unknown(code:message:)`` for an unrecognized raw result.
@@ -149,7 +143,7 @@ public func KnownHostCheck(
     hosts: LibSSH2KnownHosts,
     host: String,
     key: String,
-    typeMask: Int
+    typeMask: LibSSH2KnownHostTypeMask
 ) throws -> (result: LibSSH2KnownHostCheckResult, knownHost: LibSSH2KnownHost?) {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     let rawResult = host.withCString { hostPointer in
@@ -159,7 +153,7 @@ public func KnownHostCheck(
                 hostPointer,
                 keyPointer,
                 key.utf8.count,
-                Int32(typeMask),
+                typeMask.rawValue,
                 &store
             )
         }
@@ -177,16 +171,14 @@ public func KnownHostCheck(
 /// to check the generic host without a port qualifier. When `port` is given, libssh2 checks the host-and-port
 /// combination in addition to the plain host name.
 ///
-/// `typeMask` is a bitmask of `LIBSSH2_KNOWNHOST_TYPE_*`,
-/// `LIBSSH2_KNOWNHOST_KEYENC_*`, and `LIBSSH2_KNOWNHOST_KEY_*` values
-/// describing the host name format, key encoding, and key algorithm.
+/// `typeMask` describes the host name format, key encoding, and key algorithm.
 ///
 /// - Parameters:
 ///   - hosts: The collection to check against.
 ///   - host: The host name in plain text.
 ///   - port: The port number, or a negative value to ignore the port.
 ///   - key: The host key to check.
-///   - typeMask: A bitmask describing the host format, key encoding, and key algorithm.
+///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
 /// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and the matched ``LibSSH2KnownHost`` (if any).
 /// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if the check could not be performed, or
 /// ``LibSSH2Error/unknown(code:message:)`` for an unrecognized raw result.
@@ -195,7 +187,7 @@ public func KnownHostCheckPort(
     host: String,
     port: Int,
     key: String,
-    typeMask: Int
+    typeMask: LibSSH2KnownHostTypeMask
 ) throws -> (result: LibSSH2KnownHostCheckResult, knownHost: LibSSH2KnownHost?) {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     let rawResult = host.withCString { hostPointer in
@@ -206,7 +198,7 @@ public func KnownHostCheckPort(
                 Int32(port),
                 keyPointer,
                 key.utf8.count,
-                Int32(typeMask),
+                typeMask.rawValue,
                 &store
             )
         }
