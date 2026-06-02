@@ -1,0 +1,14 @@
+SwiftSFTP Test Server
+=====================
+
+This SSH/SFTP server is used by SwiftSFTP integration tests.
+
+Authentication test users:
+  bulbasaur  - password
+  charmander - RSA
+  squirtle   - P-256
+  caterpie   - P-384
+  weedle     - P-521
+  pidgey     - Ed25519
+
+Default password: pass123

@@ -65,3 +65,5 @@ fastlane/test_output
 .DS_Store
 .openssl-build/
 /Artifacts
+/TestServer/Fixtures
+/TestServer/KeyPairs
