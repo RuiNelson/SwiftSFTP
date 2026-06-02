@@ -9,7 +9,7 @@ let package = Package(
         .macOS(.v15),
         .iOS(.v18),
         .visionOS(.v2),
-        .watchOS(.v11)
+        .watchOS(.v11),
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -88,6 +88,7 @@ let package = Package(
                 .headerSearchPath("src"),
                 .define("HAVE_GETTIMEOFDAY"),
                 .define("HAVE_INTTYPES_H"),
+                .define("HAVE_O_NONBLOCK"),
                 .define("HAVE_SELECT"),
                 .define("HAVE_SNPRINTF"),
                 .define("HAVE_SYS_SOCKET_H"),
@@ -103,7 +104,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftSFTPTests",
-            dependencies: ["SwiftSFTP"]
+            dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"]
         ),
     ],
     swiftLanguageModes: [.v6]
