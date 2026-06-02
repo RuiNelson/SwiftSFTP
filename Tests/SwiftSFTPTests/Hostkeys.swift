@@ -73,7 +73,7 @@ struct Hostkeys {
     private func connectToTestServer() throws -> TestConnection {
         let session = try SessionInit()
         do {
-            let socket = try SessionHandshakeTCP(session: session, host: TS.host, port: TS.port)
+            let socket = try SessionHandshakeTCP(session: session, host: TS.hostname, port: TS.port)
             return TestConnection(session: session, socket: socket)
         }
         catch {

@@ -1,11 +1,5 @@
 import Foundation
 
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#endif
-
 /// A connected socket descriptor used by libssh2 session handshakes.
 public typealias LibSSH2Socket = Int32
 
@@ -39,7 +33,8 @@ public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int
     var results: UnsafeMutablePointer<addrinfo>?
     let lookupResult = getaddrinfo(host, String(port), &hints, &results)
     guard lookupResult == 0, let results else {
-        throw LibSSH2Error.badSocket(String(cString: gai_strerror(lookupResult)))
+        let message = String(cString: gai_strerror(lookupResult))
+        throw LibSSH2Error.couldNotResolveHostname(hostname: host, message: message)
     }
     defer { freeaddrinfo(results) }
 

@@ -61,6 +61,7 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
     case sftp(statusCode: UInt)
     case unknown(code: Int32, message: String?)
     case invalidKnownHostsLine(String?)
+    case couldNotResolveHostname(hostname: String?, message: String?)
 
     public var description: String {
         switch self {
@@ -122,6 +123,10 @@ public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
         case let .sftp(statusCode): "SFTP status code \(statusCode)"
         case let .unknown(code, message): Self.describe("libssh2 error \(code)", message)
         case let .invalidKnownHostsLine(line): Self.describe("Invalid Known Hosts Line", line)
+        case let .couldNotResolveHostname(hostname: hostname, message: message): Self.describe(
+            "Could not resolve hostname",
+            "\(hostname ?? "") - \(message ?? ""))"
+        )
         }
     }
 
