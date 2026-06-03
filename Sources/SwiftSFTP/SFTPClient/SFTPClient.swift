@@ -470,7 +470,7 @@ public final class SFTPClient: SFTPClientProtocol {
     public func openFile(
         _ flags: OpenFlags,
         path: String,
-        permissions: POSIXPermissions
+        permissions: POSIXPermissions = [.serverDefault]
     ) throws -> any SFTPFileProtocol {
         try checkClosed()
         
