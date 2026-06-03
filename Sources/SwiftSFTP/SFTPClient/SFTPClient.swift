@@ -147,6 +147,9 @@ public final class SFTPClient: SFTPClientProtocol {
             throw SFTPClientInvalidConfig.invalidPrivateKey(error)
         }
         
+        if let operationsTimeOut {
+            SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
+        }
         SessionSetBlocking(session: session, blocking: true)
     }
     
@@ -204,14 +207,10 @@ public final class SFTPClient: SFTPClientProtocol {
     }
 
     public func login(timeOut: TimeInterval = 10.0) async throws {
+        let oldTimeout = operationsTimeOut?.milliseconds ?? SessionGetTimeout(session: session)
         SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
         defer {
-            if let operationsTimeOut {
-                SessionSetTimeout(
-                    session: session,
-                    timeoutMilliseconds: operationsTimeOut.milliseconds
-                )
-            }
+            SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
         }
         
         let socket = try SessionHandshakeTCP(
@@ -342,7 +341,7 @@ public final class SFTPClient: SFTPClientProtocol {
         return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
     }
 
-    public func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws {
+    public func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions = [.serverDefault]) async throws {
         try checkClosed()
         
         let sanitizedPath = path.sanitizePath
@@ -370,7 +369,7 @@ public final class SFTPClient: SFTPClientProtocol {
         try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
     }
 
-    public func renameNonPosix(from: String, to: String, options: RenameOptions) async throws {
+    public func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
         try checkClosed()
         
         try SFTPRename(
