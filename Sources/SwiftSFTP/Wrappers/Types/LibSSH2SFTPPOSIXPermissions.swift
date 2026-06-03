@@ -4,7 +4,7 @@ import libssh2
 ///
 /// Combine a file-type member such as ``regularFile`` or ``directory`` with permission bits such as
 /// ``ownerRead`` and ``groupRead``. Pass an empty set when opening an existing resource without creating one.
-public struct LibSSH2SFTPPOSIXPermissions: OptionSet, Sendable, Codable {
+public struct LibSSH2SFTPPOSIXPermissions: OptionSet, Sendable, Codable, Hashable {
     public let rawValue: CLong
 
     public init(rawValue: CLong) {

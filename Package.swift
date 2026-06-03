@@ -18,6 +18,9 @@ let package = Package(
             targets: ["SwiftSFTP"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
+    ],
     targets: [
         .binaryTarget(
             name: "OpenSSLCrypto",
@@ -100,7 +103,7 @@ let package = Package(
         ),
         .target(
             name: "SwiftSFTP",
-            dependencies: ["libssh2", "OpenSSLCrypto"]
+            dependencies: ["libssh2", "OpenSSLCrypto", "PathWorks"]
         ),
         .testTarget(
             name: "SwiftSFTPTests",

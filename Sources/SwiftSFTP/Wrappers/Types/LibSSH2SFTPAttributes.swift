@@ -4,7 +4,7 @@ import libssh2
 /// SFTP file or directory attributes returned by stat operations or sent with setstat.
 ///
 /// Only fields selected in ``flags`` are meaningful to the server when writing attributes.
-public struct LibSSH2SFTPAttributes: Sendable, Codable, Equatable {
+public struct LibSSH2SFTPAttributes: Sendable, Codable, Equatable, Hashable {
     /// Indicates which of the other fields are set and should be honoured.
     public var flags: LibSSH2SFTPAttributeFlags
     /// File size in bytes when ``flags`` contains ``LibSSH2SFTPAttributeFlags/size``.
@@ -59,5 +59,33 @@ public struct LibSSH2SFTPAttributes: Sendable, Codable, Equatable {
             atime: CUnsignedLong(accessTime),
             mtime: CUnsignedLong(modificationTime)
         )
+    }
+    
+    var accessDate: Date {
+        get {
+            Date(secondsSince1970: accessTime)
+        }
+        set {
+            accessTime = newValue.secondSince1970
+        }
+    }
+    
+    var modificationDate: Date {
+        get {
+            Date(secondsSince1970: modificationTime)
+        }
+        set {
+            modificationTime = newValue.secondSince1970
+        }
+    }
+}
+
+extension Date {
+    init(secondsSince1970: UInt) {
+        self.init(timeIntervalSince1970: Double(secondsSince1970))
+    }
+    
+    var secondSince1970: UInt {
+        UInt(timeIntervalSince1970.rounded())
     }
 }

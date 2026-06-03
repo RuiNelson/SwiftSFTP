@@ -1,7 +1,7 @@
 import libssh2
 
 /// Attribute field presence flags for ``LibSSH2SFTPAttributes``.
-public struct LibSSH2SFTPAttributeFlags: OptionSet, Sendable, Codable {
+public struct LibSSH2SFTPAttributeFlags: OptionSet, Sendable, Codable, Hashable {
     public let rawValue: UInt
 
     public init(rawValue: UInt) {

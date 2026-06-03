@@ -1,0 +1,15 @@
+{
+  "originHash" : "5a02ac6d113558505c59639eb0d666f6aa7f5dc741d1f1704d20f0893573a55a",
+  "pins" : [
+    {
+      "identity" : "pathworks",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RuiNelson/PathWorks.git",
+      "state" : {
+        "revision" : "1892d7c5148bac69c4d48e99b4454cd1010da08c",
+        "version" : "2.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

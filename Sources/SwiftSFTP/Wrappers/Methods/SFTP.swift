@@ -230,22 +230,6 @@ public func SFTPCloseHandle(handle: LibSSH2SFTPHandle) throws {
     try libssh2.libssh2_sftp_close_handle(handle.rawValue).checkReturnValue()
 }
 
-/// Sets the read/write position indicator for an SFTP file handle.
-///
-/// The libssh2 documentation marks this function as deprecated; prefer
-/// ``SFTPSeek64(handle:offset:)`` for 64-bit file sizes. libssh2 models
-/// file pointers as a localized concept: the seek adjusts an internal offset and does not exchange packets with the
-/// server.
-///
-/// Do not seek while a read or write is in flight, as outstanding packets use the previous file position.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to seek.
-///   - offset: Number of bytes from the beginning of the file.
-public func SFTPSeek(handle: LibSSH2SFTPHandle, offset: Int) {
-    libssh2.libssh2_sftp_seek(handle.rawValue, offset)
-}
-
 /// Sets the read/write position indicator for an SFTP file handle using a 64-bit offset.
 ///
 /// The seek adjusts an internal, client-side file pointer; no packets are exchanged with the server. Do not seek while
@@ -254,26 +238,15 @@ public func SFTPSeek(handle: LibSSH2SFTPHandle, offset: Int) {
 /// - Parameters:
 ///   - handle: The SFTP file handle to seek.
 ///   - offset: Number of bytes from the beginning of the file.
-public func SFTPSeek64(handle: LibSSH2SFTPHandle, offset: UInt64) {
+public func SFTPSeek(handle: LibSSH2SFTPHandle, offset: UInt64) {
     libssh2.libssh2_sftp_seek64(handle.rawValue, libssh2_uint64_t(offset))
-}
-
-/// Returns the current read/write position of an SFTP file handle.
-///
-/// The libssh2 documentation marks this function as deprecated; prefer
-/// ``SFTPTell64(handle:)`` for 64-bit file sizes.
-///
-/// - Parameter handle: The SFTP file handle to inspect.
-/// - Returns: The current offset, in bytes, from the beginning of the file.
-public func SFTPTell(handle: LibSSH2SFTPHandle) -> Int {
-    libssh2.libssh2_sftp_tell(handle.rawValue)
 }
 
 /// Returns the current read/write position of an SFTP file handle as a 64-bit value.
 ///
 /// - Parameter handle: The SFTP file handle to inspect.
 /// - Returns: The current offset, in bytes, from the beginning of the file.
-public func SFTPTell64(handle: LibSSH2SFTPHandle) -> UInt64 {
+public func SFTPTell(handle: LibSSH2SFTPHandle) -> UInt64 {
     UInt64(libssh2.libssh2_sftp_tell64(handle.rawValue))
 }
 
@@ -286,116 +259,6 @@ public func SFTPFStat(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPAttributes
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
     try libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, 0).checkReturnValue()
     return LibSSH2SFTPAttributes(rawAttributes)
-}
-
-/// Writes attributes back to the server for an SFTP file handle (`fsetstat`).
-///
-/// Only the fields selected in ``LibSSH2SFTPAttributes/flags`` are sent to the server.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - attributes: The attributes to write. ``LibSSH2SFTPAttributes/flags`` controls which fields are honoured.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttributes) throws {
-    var rawAttributes = attributes.rawValue
-    try libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, 1).checkReturnValue()
-}
-
-/// Sets the size of an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - fileSize: The new file size in bytes.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetFileSize(handle: LibSSH2SFTPHandle, fileSize: UInt64) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: .size, fileSize: fileSize)
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the POSIX permissions on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - permissions: The new POSIX mode, for example `[.regularFile, .ownerRead, .ownerWrite, .ownerExecute, .groupRead,
-/// .otherRead]`.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetPermissions(handle: LibSSH2SFTPHandle, permissions: LibSSH2SFTPPOSIXPermissions) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: .permissions, permissions: permissions)
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the access time on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - accessTime: The new access time as a Unix timestamp.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetAccessTime(handle: LibSSH2SFTPHandle, accessTime: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = .accessModificationTime
-    attrs.accessTime = accessTime
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the modification time on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - modificationTime: The new modification time as a Unix timestamp.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetModificationTime(handle: LibSSH2SFTPHandle, modificationTime: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = .accessModificationTime
-    attrs.modificationTime = modificationTime
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the access and modification time on a SFTP file handle to the same value.
-public func SFTPSetAccessAndModificationTime(handle: LibSSH2SFTPHandle, time: UInt) throws {
-    let attrs = LibSSH2SFTPAttributes(
-        flags: .accessModificationTime,
-        accessTime: time,
-        modificationTime: time
-    )
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the user ID on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - uid: The new user ID.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetUserID(handle: LibSSH2SFTPHandle, uID: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = .uidGID
-    attrs.uid = uID
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the group ID on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - gid: The new group ID.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetGroupID(handle: LibSSH2SFTPHandle, gID: UInt) throws {
-    var attrs = try SFTPFStat(handle: handle)
-    attrs.flags = .uidGID
-    attrs.gid = gID
-    try SFTPFSetStat(handle: handle, attributes: attrs)
-}
-
-/// Sets the user and group ID on an SFTP file handle.
-///
-/// - Parameters:
-///   - handle: The SFTP file handle to modify.
-///   - uid: The new user ID.
-///   - gid: The new group ID.
-/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
-public func SFTPSetUserAndGroupIDs(handle: LibSSH2SFTPHandle, uID: UInt, gID: UInt) throws {
-    let attrs = LibSSH2SFTPAttributes(flags: .uidGID, uid: uID, gid: gID)
-    try SFTPFSetStat(handle: handle, attributes: attrs)
 }
 
 /// Renames a filesystem object on the remote SFTP server.

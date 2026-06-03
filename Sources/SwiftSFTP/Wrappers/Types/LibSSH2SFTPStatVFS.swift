@@ -28,3 +28,13 @@ public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
         self.maximumNameLength = UInt64(rawValue.f_namemax)
     }
 }
+
+extension LibSSH2SFTPStatVFS {
+    var freeSize: UInt64 {
+        blockSize * freeBlocks
+    }
+
+    var availableSize: UInt64 {
+        blockSize * availableBlocks
+    }
+}
