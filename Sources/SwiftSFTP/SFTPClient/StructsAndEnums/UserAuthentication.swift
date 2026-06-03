@@ -17,7 +17,12 @@ extension SFTPClient {
         
         switch authentication.auth {
         case let .password(pass):
-            try UserAuthPassword(session: session, username: username, password: pass)
+            do {
+                try UserAuthPassword(session: session, username: username, password: pass)
+            }
+            catch {
+                throw SFTPClientInvalidConfig.invalidPassword
+            }
             
         case let .privateKeyString(string, passphrase):
             try UserAuthPublicKeyFromMemory(

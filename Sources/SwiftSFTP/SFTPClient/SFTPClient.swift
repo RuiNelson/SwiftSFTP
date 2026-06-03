@@ -5,7 +5,7 @@ import PathWorks
 public final class SFTPClient: SFTPClientProtocol {
     public let id = UUID()
 
-    internal nonisolated(unsafe) let session: LibSSH2Session
+    nonisolated(unsafe) let session: LibSSH2Session
     private nonisolated(unsafe) var _closed: Bool = false
     private nonisolated(unsafe) var _sftp: LibSSH2SFTP?
     private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
@@ -14,7 +14,7 @@ public final class SFTPClient: SFTPClientProtocol {
     private let operationsTimeOut: TimeInterval?
     private let logger: Logger?
     private let trapOnDeInitWithoutClose: Bool
-    internal let authentication: UserAuthentication
+    let authentication: UserAuthentication
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
     
     public init(
@@ -45,8 +45,8 @@ public final class SFTPClient: SFTPClientProtocol {
         }
         
         switch authentication.auth {
-        case let .password(string):
-            guard string.isEmpty == false else {
+        case let .password(pass):
+            guard pass.isEmpty == false else {
                 throw SFTPClientInvalidConfig.invalidPassword
             }
 
@@ -78,33 +78,7 @@ public final class SFTPClient: SFTPClientProtocol {
         
         // HostKeys
         
-        do {
-            switch hostKeyAcceptance {
-            case .acceptAny:
-                ()
-                
-            case let .loadFromFile(file):
-                let kH = try KnownHostInit(session: session)
-                _ = try KnownHostReadFile(hosts: kH, filename: file.path(percentEncoded: false))
-                
-            case let .loadFromFileString(str):
-                let kH = try KnownHostInit(session: session)
-                for line in str.split(separator: "\n") {
-                    try KnownHostReadLine(hosts: kH, line: String(line))
-                }
-                
-            case let .shortHandAcceptedKeys(keys):
-                let kH = try KnownHostInit(session: session)
-                let hN = openSocketIn.knownHostsHost
-                for key in keys {
-                    let line = "\(hN) \(key)"
-                    try KnownHostReadLine(hosts: kH, line: line)
-                }
-            }
-        }
-        catch {
-            throw SFTPClientInvalidConfig.invalidHostKeyFormat(error)
-        }
+        try Self.loadHostKeyAcceptanceSettings(to: session, with: hostKeyAcceptance, location: openSocketIn)
 
         if let operationsTimeOut {
             SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
@@ -448,7 +422,6 @@ public final class SFTPClient: SFTPClientProtocol {
 }
 
 private extension SFTPClient {
-
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         do {
             return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
