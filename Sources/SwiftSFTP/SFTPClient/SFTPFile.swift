@@ -22,13 +22,13 @@ public final class SFTPFile: SFTPFileProtocol {
         }
     }
     
-    func checkClosed() throws(AlreadyClosed) {
+    private func checkClosed() throws(AlreadyClosed) {
         if closed {
             throw AlreadyClosed()
         }
     }
     
-    init(parent: SFTPClient, handle: LibSSH2SFTPHandle, logger: Logger?, trapOnDeInitWithoutClose: Bool) {
+    internal init(parent: SFTPClient, handle: LibSSH2SFTPHandle, logger: Logger?, trapOnDeInitWithoutClose: Bool) {
         self.parent = parent
         self.handle = handle
         self.logger = logger
@@ -42,7 +42,7 @@ public final class SFTPFile: SFTPFileProtocol {
         }
     }
 
-    static let size32kB = 32 * 1024
+    static private let size32kB = 32 * 1024
     
     public var position: UInt64 {
         get {
