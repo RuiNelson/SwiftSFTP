@@ -4,3 +4,6 @@
 [submodule "vendor/openssl"]
 	path = vendor/openssl
 	url = https://github.com/openssl/openssl.git
+[submodule "vendor/PathWorks"]
+	path = vendor/PathWorks
+	url = https://github.com/RuiNelson/PathWorks.git
