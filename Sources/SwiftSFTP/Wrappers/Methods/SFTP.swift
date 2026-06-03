@@ -82,45 +82,6 @@ public func SFTPOpen(
     return LibSSH2SFTPHandle(rawValue: handle)
 }
 
-/// Opens a file or directory and reports the server-side attributes.
-///
-/// This overload of ``SFTPOpen(sftp:filename:flags:mode:openType:)`` writes the attributes of the opened resource into
-/// `attributes` as part of the open exchange, which can avoid a separate stat round trip.
-///
-/// - Parameters:
-///   - sftp: The SFTP instance that will own the handle.
-///   - filename: Remote path of the file or directory to open.
-///   - flags: SFTP open flags such as ``LibSSH2SFTPFileOpenFlags/read``.
-///   - mode: POSIX mode passed when creating a file; use `[]` when not creating.
-///   - openType: ``LibSSH2SFTPOpenType/file`` or ``LibSSH2SFTPOpenType/directory``.
-///   - attributes: ``LibSSH2SFTPAttributes`` populated by the server with the resource's metadata.
-/// - Returns: A new ``LibSSH2SFTPHandle`` for the opened resource.
-/// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
-/// non-blocking sessions).
-public func SFTPOpen(
-    sftp: LibSSH2SFTP,
-    filename: String,
-    flags: LibSSH2SFTPFileOpenFlags,
-    mode: LibSSH2SFTPPOSIXPermissions,
-    openType: LibSSH2SFTPOpenType,
-    attributes: LibSSH2SFTPAttributes
-) throws -> LibSSH2SFTPHandle {
-    var rawAttributes = attributes.rawValue
-    let handle = filename.withCString {
-        libssh2.libssh2_sftp_open_ex_r(
-            sftp.rawValue,
-            $0,
-            filename.utf8.count,
-            CUnsignedLong(flags.rawValue),
-            mode.rawValue,
-            openType.libssh2Value,
-            &rawAttributes
-        )
-    }
-    guard let handle else { throw LibSSH2Error.sftp(status: SFTPLastError(sftp: sftp)) }
-    return LibSSH2SFTPHandle(rawValue: handle)
-}
-
 /// Reads data from an SFTP file handle.
 ///
 /// Modelled on the POSIX `read(2)` function: the call attempts to fill the buffer but may return a short read if the

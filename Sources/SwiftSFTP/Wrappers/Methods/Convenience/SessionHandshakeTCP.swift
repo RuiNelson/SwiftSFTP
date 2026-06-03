@@ -1,11 +1,15 @@
 import Foundation
 
 /// A connected socket descriptor used by libssh2 session handshakes.
-public typealias LibSSH2Socket = Int32
+public typealias SwiftSFTPSocket = Int32
 
 /// Closes a socket descriptor returned by ``SessionHandshakeTCP(session:host:port:)``.
-public func CloseSocket(_ socket: LibSSH2Socket) {
-    close(socket)
+public func CloseSocket(_ socket: SwiftSFTPSocket) throws {
+    let code = close(socket)
+    
+    guard code == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: code)!)
+    }
 }
 
 /// Opens a TCP connection to a host, performs the SSH handshake, and returns the connected socket.
@@ -19,7 +23,7 @@ public func CloseSocket(_ socket: LibSSH2Socket) {
 ///   - port: TCP port number.
 /// - Returns: The connected socket descriptor.
 /// - Throws: ``LibSSH2Error`` for address lookup, connection, or handshake failures.
-public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int) throws -> LibSSH2Socket {
+public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int) throws -> SwiftSFTPSocket {
     var hints = addrinfo(
         ai_flags: 0,
         ai_family: AF_UNSPEC,
@@ -48,11 +52,11 @@ public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int
                     return descriptor
                 }
                 catch {
-                    CloseSocket(descriptor)
+                    try CloseSocket(descriptor)
                     throw error
                 }
             }
-            CloseSocket(descriptor)
+            try CloseSocket(descriptor)
         }
         current = info.pointee.ai_next
     }

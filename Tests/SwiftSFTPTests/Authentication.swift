@@ -334,7 +334,7 @@ private func readSFTPFile(sftp: LibSSH2SFTP, path: String) throws -> Data {
     return data
 }
 
-private func connectHandshaken() throws -> (session: LibSSH2Session, socket: LibSSH2Socket) {
+private func connectHandshaken() throws -> (session: LibSSH2Session, socket: SwiftSFTPSocket) {
     try ensureLibSSH2Initialized()
     let session = try SessionInit()
     SessionSetBlocking(session: session, blocking: true)
@@ -349,8 +349,8 @@ private func connectHandshaken() throws -> (session: LibSSH2Session, socket: Lib
     }
 }
 
-private func close(session: LibSSH2Session, socket: LibSSH2Socket) {
+private func close(session: LibSSH2Session, socket: SwiftSFTPSocket) {
     try? SessionDisconnect(session: session, description: "done")
     try? SessionFree(session: session)
-    CloseSocket(socket)
+    try? CloseSocket(socket)
 }

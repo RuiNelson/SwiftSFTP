@@ -19,16 +19,18 @@ public protocol SFTPClientProtocol: Identifiable, Sendable {
         // inherit
     ) throws(SFTPClientInvalidConfig)
     
-    // connects to the server just to get the host key, then disconnects and destroys session
-    // sets a special timeout for this operation
+    // connects to the server just to get the host key, then disconnects and destroys session sets a special timeout for
+    // this operation
     static func getServerHostKey(
         openSocketIn: TCPLocation,
         timeOut: TimeInterval,
-        shortHandForm: Bool // if true outputs in the short format: {algorithm} {base64}, if false, outputs in the format used by the known hosts file: {host} {algorithm} {base64} {optional comment}, where {host} is [hostname]:port or ip:port, where the port is omitted if using the default port
+        shortHandForm: Bool // if true outputs in the short format: {algorithm} {base64}, if false, outputs in the
+        // format used by the known hosts file: {host} {algorithm} {base64} {optional comment}, where {host} is
+        // [hostname]:port or ip:port, where the port is omitted if using the default port
     ) async throws -> String
 
-    // opens the socket connects verifies hostkeys (if restricted), authenticates, etc.
-    // sets a special timeout for this operation and then returns to the normal timeout of operationsTimeOut
+    // opens the socket connects verifies hostkeys (if restricted), authenticates, etc. sets a special timeout for this
+    // operation and then returns to the normal timeout of operationsTimeOut
     func login(timeOut: TimeInterval) async throws
 
     var banner: String { get async throws }
@@ -45,16 +47,24 @@ public protocol SFTPClientProtocol: Identifiable, Sendable {
 
     func listDirectory(path: String, recursive: Bool) async throws -> Set<FileMetadata>
 
-    // if the path doesn't exist, returns nil
+    // if the file path doesn't exist, returns nil
+    func statFile(path: String, followLink: Bool) async throws -> FileMetadata?
+    
+    // if the directory path doesn't exist, returns nil
+    func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata?
+    
+    // works for files or directories
     func stat(path: String, followLink: Bool) async throws -> FileMetadata?
     
-    func filesystemStat(path: String?) async throws -> FilesystemStat
+    func filesystemStat(path: String) async throws -> FilesystemStat
     
     // MARK: File/Directory Operations
     
-    // no-op if the directory already exists or is known to exist ("", "." or "/")
-    // if makePath: creates the previous directories by calling itself.
+    // no-op if the directory already exists or is known to exist ("", "." or "/") if makePath: creates the previous
+    // directories by calling itself.
     func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws
+    
+    func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws
 
     // posix rename
     func rename(from: String, to: String) async throws
@@ -79,36 +89,31 @@ public protocol SFTPClientProtocol: Identifiable, Sendable {
     
     // MARK: Files
     
-    func openFile(_ flags: OpenFlags, path: String, permissions: POSIXPermissions) -> any SFTPFileProtocol
-    
-    // MARK: File Attributes
-    
-    // change only if the argument is not nil
-    func setFile(
-        _ path: String,
-        userID: UInt?,
-        groupID: UInt?,
-        permissions: POSIXPermissions?,
-        modificationTime: Date?,
-        accessTime: Date?,
-        size: UInt64?
-    ) async throws
+    func openFile(
+        _ flags: OpenFlags,
+        path: String,
+        permissions: POSIXPermissions
+    ) throws -> any SFTPFileProtocol
 }
 
 public protocol SFTPFileProtocol: Sendable, Identifiable {
-    func seek(_ position: UInt64) async throws
-    
-    var tell: UInt64 { get async throws }
+    var position: UInt64 { get set }
 
     // transparently divides the data into 32KB blocks
     func read(upTo: Int) async throws -> Data?
     
     // transparently divides the data into 32KB blocks
-    func write(_ data: Data) async throws -> Int
+    @discardableResult func write(_ data: Data) async throws -> Int
     
     func fsync() async throws
     
     func close() async throws
     
     var closed: Bool { get }
+    
+    func set(_ attributes: FileAttributes) async throws
+    
+    var stat: FileAttributes { get async throws }
+    
+    var statFilesystem: FilesystemStat { get async throws }
 }

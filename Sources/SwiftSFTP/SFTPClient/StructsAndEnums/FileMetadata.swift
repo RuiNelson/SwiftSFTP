@@ -1,7 +1,7 @@
 import Foundation
 import PathWorks
 
-public struct FileMetadata: Codable, Equatable, Hashable {
+public struct FileMetadata: Sendable, Codable, Equatable, Hashable {
     let fileName: String
     let directory: String
     var fullPath: String {
@@ -43,14 +43,16 @@ public extension FileMetadata {
 
 public extension Set<FileMetadata> {
     var regularFiles: Set<FileMetadata> {
-        self.filter { $0.isRegularFile }
+        self.filter(\.isRegularFile)
     }
     
     var directories: Set<FileMetadata> {
-        self.filter { $0.isDirectory }
+        self.filter(\.isDirectory)
     }
     
-    var nonDirectories: Set<FileMetadata> { self.filter { $0.isDirectory == false }}
+    var nonDirectories: Set<FileMetadata> {
+        self.filter { $0.isDirectory == false }
+    }
     
     var byPath: [FileMetadata] {
         Array(self).sorted { a, b in
@@ -85,10 +87,10 @@ public extension Set<FileMetadata> {
     var directoriesFirst: [FileMetadata] {
         Array(self).sorted { a, b in
             if a.isDirectory == b.isDirectory {
-                return a.fileName < b.fileName
+                a.fileName < b.fileName
             }
             else {
-                return a.isDirectory
+                a.isDirectory
             }
         }
     }

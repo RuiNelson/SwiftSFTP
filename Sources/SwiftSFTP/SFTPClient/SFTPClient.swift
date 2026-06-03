@@ -1,0 +1,564 @@
+import Foundation
+import OSLog
+import PathWorks
+
+
+
+public final class SFTPClient: SFTPClientProtocol {
+    public let id = UUID()
+
+    private nonisolated(unsafe) let session: LibSSH2Session
+    private nonisolated(unsafe) var _closed: Bool = false
+    private nonisolated(unsafe) var _sftp: LibSSH2SFTP?
+    private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
+
+    private let tcpLocation: TCPLocation
+    private let operationsTimeOut: TimeInterval?
+    private let logger: Logger?
+    private let trapOnDeInitWithoutClose: Bool
+    private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
+    
+    public init(
+        openSocketIn: TCPLocation,
+        operationsTimeOut: TimeInterval? = 10.0,
+        hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
+        authentication: UserAuthentication,
+        logger: Logger? = nil,
+        trapOnDeInitWithoutClose: Bool = false
+    ) throws(SFTPClientInvalidConfig) {
+        // initial validation
+        guard openSocketIn.validHostname else {
+            throw SFTPClientInvalidConfig.invalidHostname
+        }
+        
+        guard openSocketIn.validPort else {
+            throw SFTPClientInvalidConfig.invalidPort
+        }
+        
+        if let operationsTimeOut {
+            guard operationsTimeOut > 0, operationsTimeOut.isFinite else {
+                throw SFTPClientInvalidConfig.invalidTimeOutValue
+            }
+        }
+        
+        guard authentication.name.isEmpty == false else {
+            throw SFTPClientInvalidConfig.invalidUsername
+        }
+        
+        switch authentication.auth {
+        case let .password(string):
+            guard string.isEmpty == false else {
+                throw SFTPClientInvalidConfig.invalidPassword
+            }
+            
+        default: ()
+        }
+        
+        // store state
+        
+        self.tcpLocation = openSocketIn
+        self.operationsTimeOut = operationsTimeOut
+        self.logger = logger
+        self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
+        
+        // init session
+        
+        do {
+            session = try SessionInit()
+        }
+        catch {
+            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
+        }
+        
+        // HostKeys
+        
+        do {
+            switch hostKeyAcceptance {
+            case .acceptAny:
+                ()
+                
+            case let .loadFromFile(file):
+                let kH = try KnownHostInit(session: session)
+                _ = try KnownHostReadFile(hosts: kH, filename: file.path(percentEncoded: false))
+                
+            case let .loadFromFileString(str):
+                let kH = try KnownHostInit(session: session)
+                for line in str.split(separator: "\n") {
+                    try KnownHostReadLine(hosts: kH, line: String(line))
+                }
+                
+            case let .shortHandAcceptedKeys(keys):
+                let kH = try KnownHostInit(session: session)
+                let hN = openSocketIn.knownHostsHost
+                for key in keys {
+                    let line = "\(hN) \(key)"
+                    try KnownHostReadLine(hosts: kH, line: line)
+                }
+            }
+        }
+        catch {
+            throw SFTPClientInvalidConfig.invalidHostKeyFormat(error)
+        }
+        
+        // Authentication
+        
+        let username = authentication.name
+        
+        do {
+            switch authentication.auth {
+            case let .password(pass):
+                try UserAuthPassword(session: session, username: username, password: pass)
+                
+            default: ()
+            }
+        }
+        catch {
+            throw SFTPClientInvalidConfig.invalidPassword
+        }
+        
+        do {
+            switch authentication.auth {
+            case .password:
+                ()
+                
+            case let .privateKeyString(string, passphrase):
+                try UserAuthPublicKeyFromMemory(
+                    session: session,
+                    username: username,
+                    publicKeyFileData: "",
+                    privateKeyFileData: string,
+                    passphrase: passphrase
+                )
+                
+            case let .privateKeyFile(file, passphrase):
+                let filePath = file.path(percentEncoded: false)
+                guard FileManager.default.fileExists(atPath: filePath) else {
+                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+                }
+                
+                try UserAuthPublicKeyFromFile(
+                    session: session,
+                    username: username,
+                    publicKeyPath: nil,
+                    privateKeyPath: filePath,
+                    passphrase: passphrase
+                )
+            }
+        }
+        catch {
+            throw SFTPClientInvalidConfig.invalidPrivateKey(error)
+        }
+        
+        SessionSetBlocking(session: session, blocking: true)
+    }
+    
+    public static func getServerHostKey(
+        openSocketIn: TCPLocation,
+        timeOut: TimeInterval = 10.0,
+        shortHandForm: Bool = true
+    ) async throws -> String {
+        let session = try SessionInit()
+        
+        SessionSetBlocking(session: session, blocking: true)
+        
+        guard timeOut > 0, timeOut.isFinite else {
+            throw SFTPClientInvalidConfig.invalidTimeOutValue
+        }
+        
+        SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
+        
+        do {
+            let socket = try SessionHandshakeTCP(
+                session: session,
+                host: openSocketIn.trimmedHostname,
+                port: openSocketIn.port
+            )
+            
+            defer { try? CloseSocket(socket) }
+            
+            let shortHand = try SessionHostKeyString(session: session)
+                        
+            if shortHandForm {
+                return shortHand
+            }
+            else {
+                return "\(openSocketIn.knownHostsHost) \(shortHand)"
+            }
+        }
+        catch {
+            throw error
+        }
+    }
+    
+    /// Returns the SFTP Session or throws NotLoggedIn if inexistent
+    private var sftp: LibSSH2SFTP {
+        get throws {
+            let session = internalStateQueue.sync {
+                _sftp
+            }
+            
+            guard let session else {
+                throw NotLoggedIn()
+            }
+            
+            return session
+        }
+    }
+
+    public func login(timeOut: TimeInterval = 10.0) async throws {
+        SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
+        defer {
+            if let operationsTimeOut {
+                SessionSetTimeout(
+                    session: session,
+                    timeoutMilliseconds: operationsTimeOut.milliseconds
+                )
+            }
+        }
+        
+        let socket = try SessionHandshakeTCP(
+            session: session,
+            host: tcpLocation.trimmedHostname,
+            port: tcpLocation.port
+        )
+                
+        let sftp = try SFTPInit(session: session)
+        
+        internalStateQueue.sync {
+            self._socket = socket
+            self._sftp = sftp
+        }
+    }
+
+    public func close() async throws {
+        try internalStateQueue.sync {
+            guard _closed == false else {
+                logger?.warning("Trying to close SFTPClient that was already closed")
+                return
+            }
+            
+            if let sftpSession = _sftp {
+                try SFTPShutdown(sftp: sftpSession)
+                _sftp = nil
+            }
+        
+            try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user")
+            try SessionFree(session: session)
+
+            if let socket = _socket {
+                try CloseSocket(socket)
+                _socket = nil
+            }
+        
+            logger?.trace("SFTPClient closed successfully")
+        
+            _closed = true
+        }
+    }
+    
+    public var closed: Bool {
+        internalStateQueue.sync {
+            _closed
+        }
+    }
+    
+    func checkClosed() throws(AlreadyClosed) {
+        let status = internalStateQueue.sync {
+            _closed
+        }
+        
+        if status {
+            throw AlreadyClosed()
+        }
+    }
+    
+    deinit {
+        let closed = internalStateQueue.sync {
+            _closed
+        }
+        
+        if trapOnDeInitWithoutClose, !closed {
+            logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
+            raise(SIGTRAP)
+        }
+    }
+    
+    public var banner: String {
+        get async throws {
+            try checkClosed()
+            
+            guard let banner = SessionBannerGet(session: session) else {
+                throw NotLoggedIn()
+            }
+            
+            return banner
+        }
+    }
+    
+    public var latency: TimeInterval {
+        get async throws {
+            try checkClosed()
+            
+            let start = Date()
+            _ = try await currentWorkingDirectory
+            return Date().timeIntervalSince(start)
+        }
+    }
+
+    public var currentWorkingDirectory: String {
+        get async throws {
+            try checkClosed()
+            
+            return try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) ?? "."
+        }
+    }
+
+    public func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+    }
+
+    public func stat(path: String, followLink: Bool = false) async throws -> FileMetadata? {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        guard let attributes = try attributes(sanitizedPath: sanitizedPath, followLink: followLink) else {
+            return nil
+        }
+        
+        return FileMetadata(fullPath: sanitizedPath, attributes: attributes)
+            ?? FileMetadata(fileName: sanitizedPath, directory: "", attributes: attributes)
+    }
+
+    public func filesystemStat(path: String) async throws -> FilesystemStat {
+        try checkClosed()
+        
+        return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
+    }
+
+    public func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        guard sanitizedPath != ".", sanitizedPath != "/" else {
+            return
+        }
+        
+        if let metadata = try await statDirectory(path: sanitizedPath, followLink: false), metadata.isDirectory {
+            return
+        }
+        
+        if makePath {
+            let parent = sanitizedPath.removingLastPathComponent
+            if parent != sanitizedPath {
+                try await createDirectory(path: parent, makePath: true, mode: mode)
+            }
+        }
+        
+        try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
+    }
+
+    public func rename(from: String, to: String) async throws {
+        try checkClosed()
+        
+        try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+    }
+
+    public func renameNonPosix(from: String, to: String, options: RenameOptions) async throws {
+        try checkClosed()
+        
+        try SFTPRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath, flags: options)
+    }
+
+    public func deleteFile(path: String) async throws {
+        try checkClosed()
+        
+        try SFTPUnlink(sftp: sftp, filename: path.sanitizePath)
+    }
+
+    public func deleteDirectory(path: String) async throws {
+        try checkClosed()
+        
+        try SFTPRmdir(sftp: sftp, path: path.sanitizePath)
+    }
+
+    public func delete(path: String) async throws {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        guard let metadata = try await stat(path: sanitizedPath, followLink: false) else {
+            return
+        }
+        
+        if metadata.isDirectory {
+            let children = try await listDirectory(path: sanitizedPath, recursive: false)
+            for child in children {
+                try await delete(path: child.fullPath)
+            }
+            try await deleteDirectory(path: sanitizedPath)
+        }
+        else {
+            try await deleteFile(path: sanitizedPath)
+        }
+    }
+
+    public func followLink(path: String) async throws -> String {
+        try checkClosed()
+        
+        guard let target = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink) else {
+            throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
+        }
+        
+        return target
+    }
+
+    public func createSymLink(path: String, destination: String) async throws {
+        try checkClosed()
+        
+        _ = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, target: destination.sanitizePath, linkType: .symlink)
+    }
+    
+    public func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
+        try checkClosed()
+        
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink), metadata.isRegularFile else {
+            return nil
+        }
+        
+        return metadata
+    }
+    
+    public func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata? {
+        try checkClosed()
+        
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink), metadata.isDirectory else {
+            return nil
+        }
+        
+        return metadata
+    }
+    
+    public func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        let handle = try SFTPOpen(sftp: sftp, filename: sanitizedPath, flags: .read, mode: [], openType: .directory)
+        defer {
+            do {
+                try SFTPCloseHandle(handle: handle)
+            }
+            catch {
+                logger?.error("Failed to close directory handle for \(sanitizedPath): \(String(describing: error))")
+            }
+        }
+        
+        try SFTPFSetStat(handle: handle, attributes: attributes)
+    }
+
+    public func openFile(
+        _ flags: OpenFlags,
+        path: String,
+        permissions: POSIXPermissions
+    ) throws -> any SFTPFileProtocol {
+        try checkClosed()
+        
+        let sanitizedPath = path.sanitizePath
+        let handle = try SFTPOpen(
+            sftp: sftp,
+            filename: sanitizedPath,
+            flags: flags,
+            mode: permissions,
+            openType: .file
+        )
+        
+        return SFTPFile(
+            parent: self,
+            handle: handle,
+            logger: logger,
+            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+        )
+    }
+}
+
+private extension SFTPClient {
+    func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
+        do {
+            return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
+        }
+        catch let error as LibSSH2Error {
+            switch error {
+            case .sftp(status: .noSuchFile),
+                 .sftp(status: .noSuchPath):
+                return nil
+                
+            case .sftpProtocol:
+                switch try SFTPLastError(sftp: sftp) {
+                case .noSuchFile, .noSuchPath:
+                    return nil
+                    
+                default:
+                    throw error
+                }
+                
+            default:
+                throw error
+            }
+        }
+    }
+    
+    func listDirectory(
+        sanitizedPath: String,
+        recursive: Bool,
+        openedDirectories: Set<String>
+    ) throws -> Set<FileMetadata> {
+        guard openedDirectories.contains(sanitizedPath) == false else {
+            return []
+        }
+        
+        let handle = try SFTPOpen(sftp: sftp, filename: sanitizedPath, flags: .read, mode: [], openType: .directory)
+        defer {
+            do {
+                try SFTPCloseHandle(handle: handle)
+            }
+            catch {
+                logger?.error("Failed to close directory handle for \(sanitizedPath): \(String(describing: error))")
+            }
+        }
+        
+        var entries = Set<FileMetadata>()
+        var openedDirectories = openedDirectories
+        openedDirectories.insert(sanitizedPath)
+        
+        while true {
+            let entry = try SFTPReadDir(handle: handle, maximumNameLength: 64 * 1024)
+            guard entry.name.isEmpty == false else {
+                break
+            }
+            
+            guard entry.name != ".", entry.name != ".." else {
+                continue
+            }
+            
+            let metadata = FileMetadata(
+                fileName: entry.name,
+                directory: sanitizedPath,
+                attributes: entry.attributes
+            )
+            entries.insert(metadata)
+            
+            if recursive, metadata.isDirectory {
+                try entries.formUnion(
+                    listDirectory(
+                        sanitizedPath: metadata.fullPath,
+                        recursive: true,
+                        openedDirectories: openedDirectories
+                    )
+                )
+            }
+        }
+        
+        return entries
+    }
+}

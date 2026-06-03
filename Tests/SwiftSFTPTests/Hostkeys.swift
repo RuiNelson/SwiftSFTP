@@ -120,11 +120,11 @@ struct Hostkeys {
 
     private struct TestConnection {
         let session: LibSSH2Session
-        let socket: LibSSH2Socket
+        let socket: SwiftSFTPSocket
 
         func close() {
             try? SessionFree(session: session)
-            CloseSocket(socket)
+            try? CloseSocket(socket)
         }
     }
 }

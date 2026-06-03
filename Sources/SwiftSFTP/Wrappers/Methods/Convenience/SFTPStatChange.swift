@@ -1,5 +1,5 @@
-import libssh2
 import Foundation
+import libssh2
 
 /// Writes attributes back to the server for an SFTP file handle (`fsetstat`).
 ///
