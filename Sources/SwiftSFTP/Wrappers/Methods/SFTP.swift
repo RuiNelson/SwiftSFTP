@@ -388,6 +388,30 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: LibSSH2SFTPStatT
     return LibSSH2SFTPAttributes(rawAttributes)
 }
 
+/// Sets attributes for a remote SFTP path.
+///
+/// Only the fields selected in ``LibSSH2SFTPAttributes/flags`` are sent to the server.
+///
+/// - Parameters:
+///   - sftp: The SFTP instance to use.
+///   - path: Remote filesystem object to modify.
+///   - attributes: Attributes to write.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
+public func SFTPSetStat(sftp: LibSSH2SFTP, path: String, attributes: LibSSH2SFTPAttributes) throws {
+    var rawAttributes = attributes.rawValue
+    try path.withCString {
+        try (
+            libssh2.libssh2_sftp_stat_ex(
+                sftp.rawValue,
+                $0,
+                path.uint32Length,
+                LibSSH2SFTPStatType.setStat.libssh2Value,
+                &rawAttributes
+            )
+        ).checkReturnValue()
+    }
+}
+
 /// Creates, reads, or resolves an SFTP symlink.
 ///
 /// `linkType` selects the operation:
@@ -441,10 +465,10 @@ public func SFTPSymlink(
                 try (
                     libssh2.libssh2_sftp_symlink_ex(
                         sftp.rawValue,
-                        pathPointer,
-                        path.uint32Length,
-                        UnsafeMutablePointer(mutating: targetPointer),
+                        targetPointer,
                         target.uint32Length,
+                        UnsafeMutablePointer(mutating: pathPointer),
+                        path.uint32Length,
                         linkType.libssh2Value
                     )
                 ).checkReturnValue()

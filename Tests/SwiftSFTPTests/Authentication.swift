@@ -335,6 +335,22 @@ private func readSFTPFile(sftp: LibSSH2SFTP, path: String) throws -> Data {
 }
 
 private func connectHandshaken() throws -> (session: LibSSH2Session, socket: SwiftSFTPSocket) {
+    var lastError: (any Error)?
+    for attempt in 1 ... 3 {
+        do {
+            return try connectHandshakenOnce()
+        }
+        catch {
+            lastError = error
+            if attempt < 3 {
+                Thread.sleep(forTimeInterval: 0.1 * Double(attempt))
+            }
+        }
+    }
+    throw lastError ?? LibSSH2Error.badSocket("Could not connect to test server")
+}
+
+private func connectHandshakenOnce() throws -> (session: LibSSH2Session, socket: SwiftSFTPSocket) {
     try ensureLibSSH2Initialized()
     let session = try SessionInit()
     SessionSetBlocking(session: session, blocking: true)

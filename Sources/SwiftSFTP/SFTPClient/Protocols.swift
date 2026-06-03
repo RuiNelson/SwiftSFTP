@@ -168,7 +168,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable {
     
     /// Sets attributes on an existing remote directory.
     ///
-    /// The concrete implementation opens the directory handle and applies `fsetstat` to that handle.
+    /// The concrete implementation applies path-based `setstat` to the directory.
     ///
     /// - Parameters:
     ///   - path: Remote directory path. The path is sanitized before use.

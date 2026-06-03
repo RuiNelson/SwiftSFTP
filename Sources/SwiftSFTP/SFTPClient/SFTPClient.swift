@@ -14,6 +14,7 @@ public final class SFTPClient: SFTPClientProtocol {
     private let operationsTimeOut: TimeInterval?
     private let logger: Logger?
     private let trapOnDeInitWithoutClose: Bool
+    private let authentication: UserAuthentication
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
     
     public init(
@@ -48,16 +49,23 @@ public final class SFTPClient: SFTPClientProtocol {
             guard string.isEmpty == false else {
                 throw SFTPClientInvalidConfig.invalidPassword
             }
-            
+
+        case let .privateKeyFile(file, _):
+            let filePath = file.path(percentEncoded: false)
+            guard FileManager.default.fileExists(atPath: filePath) else {
+                throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+            }
+
         default: ()
         }
-        
+
         // store state
-        
+
         self.tcpLocation = openSocketIn
         self.operationsTimeOut = operationsTimeOut
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
+        self.authentication = authentication
         
         // init session
         
@@ -97,56 +105,7 @@ public final class SFTPClient: SFTPClientProtocol {
         catch {
             throw SFTPClientInvalidConfig.invalidHostKeyFormat(error)
         }
-        
-        // Authentication
-        
-        let username = authentication.name
-        
-        do {
-            switch authentication.auth {
-            case let .password(pass):
-                try UserAuthPassword(session: session, username: username, password: pass)
-                
-            default: ()
-            }
-        }
-        catch {
-            throw SFTPClientInvalidConfig.invalidPassword
-        }
-        
-        do {
-            switch authentication.auth {
-            case .password:
-                ()
-                
-            case let .privateKeyString(string, passphrase):
-                try UserAuthPublicKeyFromMemory(
-                    session: session,
-                    username: username,
-                    publicKeyFileData: "",
-                    privateKeyFileData: string,
-                    passphrase: passphrase
-                )
-                
-            case let .privateKeyFile(file, passphrase):
-                let filePath = file.path(percentEncoded: false)
-                guard FileManager.default.fileExists(atPath: filePath) else {
-                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
-                }
-                
-                try UserAuthPublicKeyFromFile(
-                    session: session,
-                    username: username,
-                    publicKeyPath: nil,
-                    privateKeyPath: filePath,
-                    passphrase: passphrase
-                )
-            }
-        }
-        catch {
-            throw SFTPClientInvalidConfig.invalidPrivateKey(error)
-        }
-        
+
         if let operationsTimeOut {
             SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
         }
@@ -207,22 +166,28 @@ public final class SFTPClient: SFTPClientProtocol {
     }
 
     public func login(timeOut: TimeInterval = 10.0) async throws {
+        try checkClosed()
+
         let oldTimeout = operationsTimeOut?.milliseconds ?? SessionGetTimeout(session: session)
         SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
         defer {
             SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
         }
-        
+
         let socket = try SessionHandshakeTCP(
             session: session,
             host: tcpLocation.trimmedHostname,
             port: tcpLocation.port
         )
-                
-        let sftp = try SFTPInit(session: session)
-        
         internalStateQueue.sync {
             self._socket = socket
+        }
+
+        try authenticate()
+
+        let sftp = try SFTPInit(session: session)
+
+        internalStateQueue.sync {
             self._sftp = sftp
         }
     }
@@ -454,17 +419,7 @@ public final class SFTPClient: SFTPClientProtocol {
         try checkClosed()
         
         let sanitizedPath = path.sanitizePath
-        let handle = try SFTPOpen(sftp: sftp, filename: sanitizedPath, flags: .read, mode: [], openType: .directory)
-        defer {
-            do {
-                try SFTPCloseHandle(handle: handle)
-            }
-            catch {
-                logger?.error("Failed to close directory handle for \(sanitizedPath): \(String(describing: error))")
-            }
-        }
-        
-        try SFTPFSetStat(handle: handle, attributes: attributes)
+        try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
     }
 
     public func openFile(
@@ -493,6 +448,33 @@ public final class SFTPClient: SFTPClientProtocol {
 }
 
 private extension SFTPClient {
+    func authenticate() throws {
+        let username = authentication.name
+
+        switch authentication.auth {
+        case let .password(pass):
+            try UserAuthPassword(session: session, username: username, password: pass)
+
+        case let .privateKeyString(string, passphrase):
+            try UserAuthPublicKeyFromMemory(
+                session: session,
+                username: username,
+                publicKeyFileData: "",
+                privateKeyFileData: string,
+                passphrase: passphrase
+            )
+
+        case let .privateKeyFile(file, passphrase):
+            try UserAuthPublicKeyFromFile(
+                session: session,
+                username: username,
+                publicKeyPath: nil,
+                privateKeyPath: file.path(percentEncoded: false),
+                passphrase: passphrase
+            )
+        }
+    }
+
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         do {
             return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
