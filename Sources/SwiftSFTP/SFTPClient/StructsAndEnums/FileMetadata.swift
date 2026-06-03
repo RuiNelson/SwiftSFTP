@@ -4,10 +4,7 @@ import PathWorks
 public struct FileMetadata: Sendable, Codable, Equatable, Hashable {
     let fileName: String
     let directory: String
-    var fullPath: String {
-        directory.appendingPathComponent(fileName)
-    }
-    
+
     let attributes: FileAttributes
     
     init(fileName: String, directory: String, attributes: FileAttributes) {
@@ -24,6 +21,18 @@ public struct FileMetadata: Sendable, Codable, Equatable, Hashable {
         let directory = fullPath.removingLastPathComponent
         
         self.init(fileName: fileName, directory: directory, attributes: attributes)
+    }
+}
+
+// MARK: Convenience
+
+public extension FileMetadata {
+    var fullPath: String {
+        directory.appendingPathComponent(fileName)
+    }
+    
+    var fileExtension: String? {
+        fileName.separateExtension.ext
     }
 }
 

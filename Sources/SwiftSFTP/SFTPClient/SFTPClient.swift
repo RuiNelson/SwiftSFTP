@@ -5,7 +5,7 @@ import PathWorks
 public final class SFTPClient: SFTPClientProtocol {
     public let id = UUID()
 
-    private nonisolated(unsafe) let session: LibSSH2Session
+    internal nonisolated(unsafe) let session: LibSSH2Session
     private nonisolated(unsafe) var _closed: Bool = false
     private nonisolated(unsafe) var _sftp: LibSSH2SFTP?
     private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
@@ -14,7 +14,7 @@ public final class SFTPClient: SFTPClientProtocol {
     private let operationsTimeOut: TimeInterval?
     private let logger: Logger?
     private let trapOnDeInitWithoutClose: Bool
-    private let authentication: UserAuthentication
+    internal let authentication: UserAuthentication
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
     
     public init(
@@ -448,32 +448,6 @@ public final class SFTPClient: SFTPClientProtocol {
 }
 
 private extension SFTPClient {
-    func authenticate() throws {
-        let username = authentication.name
-
-        switch authentication.auth {
-        case let .password(pass):
-            try UserAuthPassword(session: session, username: username, password: pass)
-
-        case let .privateKeyString(string, passphrase):
-            try UserAuthPublicKeyFromMemory(
-                session: session,
-                username: username,
-                publicKeyFileData: "",
-                privateKeyFileData: string,
-                passphrase: passphrase
-            )
-
-        case let .privateKeyFile(file, passphrase):
-            try UserAuthPublicKeyFromFile(
-                session: session,
-                username: username,
-                publicKeyPath: nil,
-                privateKeyPath: file.path(percentEncoded: false),
-                passphrase: passphrase
-            )
-        }
-    }
 
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         do {
