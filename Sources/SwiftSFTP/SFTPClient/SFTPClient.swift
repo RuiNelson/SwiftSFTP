@@ -2,8 +2,6 @@ import Foundation
 import OSLog
 import PathWorks
 
-
-
 public final class SFTPClient: SFTPClientProtocol {
     public let id = UUID()
 
@@ -316,7 +314,13 @@ public final class SFTPClient: SFTPClientProtocol {
     public func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
         try checkClosed()
         
-        let sanitizedPath = path.sanitizePath
+        var sanitizedPath = path.sanitizePath
+        
+        if sanitizedPath.first != "/" {
+            let cwd = try await currentWorkingDirectory
+            sanitizedPath = cwd.appendingPathComponent(sanitizedPath)
+        }
+        
         return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
     }
 
@@ -369,7 +373,12 @@ public final class SFTPClient: SFTPClientProtocol {
     public func renameNonPosix(from: String, to: String, options: RenameOptions) async throws {
         try checkClosed()
         
-        try SFTPRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath, flags: options)
+        try SFTPRename(
+            sftp: sftp,
+            sourceFilename: from.sanitizePath,
+            destinationFilename: to.sanitizePath,
+            flags: options
+        )
     }
 
     public func deleteFile(path: String) async throws {
@@ -423,7 +432,8 @@ public final class SFTPClient: SFTPClientProtocol {
     public func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
         try checkClosed()
         
-        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink), metadata.isRegularFile else {
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
+              metadata.isRegularFile else {
             return nil
         }
         
@@ -433,7 +443,8 @@ public final class SFTPClient: SFTPClientProtocol {
     public func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata? {
         try checkClosed()
         
-        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink), metadata.isDirectory else {
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
+              metadata.isDirectory else {
             return nil
         }
         
@@ -532,7 +543,7 @@ private extension SFTPClient {
         openedDirectories.insert(sanitizedPath)
         
         while true {
-            let entry = try SFTPReadDir(handle: handle, maximumNameLength: 64 * 1024)
+            let entry = try SFTPReadDir(handle: handle, maximumNameLength: 8 * 1024)
             guard entry.name.isEmpty == false else {
                 break
             }
