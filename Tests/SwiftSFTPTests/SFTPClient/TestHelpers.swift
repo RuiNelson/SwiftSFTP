@@ -1,6 +1,7 @@
 @testable import SwiftSFTP
 import Foundation
 import Testing
+import OSLog
 
 // MARK: - Shared SFTPClient Test Helpers
 
@@ -10,7 +11,10 @@ extension TS {
     static let fixturesPath = "\(testHome)/Fixtures"
     static let keyPairsPath = "\(testHome)/KeyPairs"
     static let charmanderHome = "/home/charmander"
+    static let keyPassphrase = "secret123"
 }
+
+let logger = Logger(subsystem: "com.ruinelson.SwiftSFTP", category: "Tests")
 
 func makeClient(
     user: String = TS.testUser,
@@ -24,7 +28,8 @@ func makeClient(
         openSocketIn: TCPLocation(hostname: hostname, port: port),
         operationsTimeOut: timeout,
         hostKeyAcceptance: hostKeyAcceptance,
-        authentication: auth
+        authentication: auth,
+        logger: nil
     )
 }
 

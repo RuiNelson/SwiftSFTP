@@ -267,6 +267,64 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
+    @Test("encrypted private key file login succeeds for charmander with RSA")
+    func encryptedPrivateKeyFileLoginSucceeds() async throws {
+        let keyPath = URL(fileURLWithPath: "TestServer/KeyPairs/rsa-private-pkcs8-encrypted")
+        guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
+
+        try await withClient { _ in
+            let client = try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(
+                    name: "charmander",
+                    auth: .privateKeyFile(file: keyPath, password: TS.keyPassphrase)
+                )
+            )
+            try await client.login(timeOut: 10.0)
+            #expect(!client.closed)
+            try await client.close()
+        }
+    }
+
+    @Test("encrypted private key string login succeeds for charmander with RSA")
+    func encryptedPrivateKeyStringLoginSucceeds() async throws {
+        let keyPath = "TestServer/KeyPairs/rsa-private-pkcs8-encrypted"
+        guard let keyData = try? String(contentsOfFile: keyPath, encoding: .utf8) else { return }
+
+        try await withClient { _ in
+            let client = try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(
+                    name: "charmander",
+                    auth: .privateKeyString(file: keyData, password: TS.keyPassphrase)
+                )
+            )
+            try await client.login(timeOut: 10.0)
+            #expect(!client.closed)
+            try await client.close()
+        }
+    }
+
+    @Test("encrypted private key login rejects wrong passphrase")
+    func encryptedPrivateKeyLoginRejectsWrongPassphrase() async throws {
+        let keyPath = URL(fileURLWithPath: "TestServer/KeyPairs/rsa-private-pkcs8-encrypted")
+        guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
+
+        try await withClient { _ in
+            let client = try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(
+                    name: "charmander",
+                    auth: .privateKeyFile(file: keyPath, password: "wrong-passphrase")
+                )
+            )
+            await #expect(throws: (any Error).self) {
+                try await client.login(timeOut: 10.0)
+            }
+            try? await client.close()
+        }
+    }
+
     // MARK: - Lifecycle
 
     @Test("close sets closed to true")

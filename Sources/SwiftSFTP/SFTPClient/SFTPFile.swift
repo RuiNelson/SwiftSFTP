@@ -53,7 +53,7 @@ public final class SFTPFile: SFTPFileProtocol {
         }
     }
 
-    public func read(upTo: Int) async throws -> Data? {
+    public func read(upTo: Int = (32 * 1024)) async throws -> Data? {
         try checkClosed()
         
         guard upTo > 0 else {

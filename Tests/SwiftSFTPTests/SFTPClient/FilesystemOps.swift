@@ -93,10 +93,11 @@ struct SFTPClientFilesystemOps {
     @Test("statFile returns metadata for regular file")
     func statFileReturnsMetadata() async throws {
         try await withClient { client in
-            let meta = try await client.statFile(path: "\(TS.fixturesPath)/TINY.bin", followLink: false)
+            let meta = try await client.statFile(path: "\(TS.fixturesPath)/SMALL.bin", followLink: false)
             let m = try #require(meta)
             #expect(m.isRegularFile)
-            #expect(m.fullPath.contains("TINY.bin"))
+            #expect(m.fullPath.contains("SMALL.bin"))
+            #expect(m.attributes.fileSize == 1024)
         }
     }
 

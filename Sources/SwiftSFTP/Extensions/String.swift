@@ -1,10 +1,15 @@
+extension String {
+    var uint32Length: UInt32 {
+        UInt32(clamping: self.utf8.count)
+    }
+}
 
-import Foundation
-import PathWorks
-
-extension TimeInterval {
-    var milliseconds: Int {
-        Int((self * 1000).rounded())
+extension String? {
+    func withCString<Result>(_ body: (UnsafePointer<CChar>?) throws -> Result) rethrows -> Result {
+        guard let s = self else {
+            return try body(nil)
+        }
+        return try s.withCString(body)
     }
 }
 
