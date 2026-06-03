@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "ripgrep": {
+      "source": "ratacat/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/ripgrep/SKILL.md",
+      "computedHash": "bc5ed0a5b897b7e06db597c00d0e1554dc1db3671009cdeab7945addf0708808"
+    }
+  }
+}
