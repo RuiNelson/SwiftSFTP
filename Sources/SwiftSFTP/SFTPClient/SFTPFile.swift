@@ -16,7 +16,7 @@ public final class SFTPFile: SFTPFileProtocol {
     }
     
     private func checkClosed() throws(AlreadyClosed) {
-        if closed {
+        if closed || parent.closed {
             throw AlreadyClosed()
         }
     }
