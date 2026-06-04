@@ -39,10 +39,14 @@ public final class SFTPFile: SFTPFileProtocol {
     
     public var position: UInt64 {
         get {
-            SFTPTell(handle: handle)
+            internalStateQueue.sync {
+                SFTPTell(handle: handle)
+            }
         }
         set {
-            SFTPSeek(handle: handle, offset: newValue)
+            internalStateQueue.sync {
+                SFTPSeek(handle: handle, offset: newValue)
+            }
         }
     }
 

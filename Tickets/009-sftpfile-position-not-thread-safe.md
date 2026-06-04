@@ -1,6 +1,7 @@
 # 009 — `SFTPFile.position` não é protegida pela fila interna
 
 **Severidade:** Média  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPFile.swift:47-53`
 
 ## Descrição
