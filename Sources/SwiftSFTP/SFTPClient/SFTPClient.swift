@@ -173,22 +173,30 @@ public final class SFTPClient: SFTPClientProtocol {
                 return
             }
 
+            _closed = true
+            var firstError: Error?
+
             if let sftpSession = _sftp {
-                try SFTPShutdown(sftp: sftpSession)
+                do { try SFTPShutdown(sftp: sftpSession) }
+                catch { firstError = firstError ?? error }
                 _sftp = nil
             }
 
-            try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user")
-            try SessionFree(session: session)
+            do { try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user") }
+            catch { firstError = firstError ?? error }
+
+            do { try SessionFree(session: session) }
+            catch { firstError = firstError ?? error }
 
             if let socket = _socket {
-                try CloseSocket(socket)
+                do { try CloseSocket(socket) }
+                catch { firstError = firstError ?? error }
                 _socket = nil
             }
 
             logger?.trace("SFTPClient closed successfully")
 
-            _closed = true
+            if let firstError { throw firstError }
         }
     }
 

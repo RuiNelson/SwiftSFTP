@@ -1,6 +1,7 @@
 # 003 — `close()` vaza recursos em falhas parciais
 
 **Severidade:** Crítico  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPClient.swift:169-193`
 
 ## Descrição
