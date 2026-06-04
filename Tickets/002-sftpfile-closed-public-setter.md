@@ -1,6 +1,7 @@
 # 002 — `SFTPFile.closed` tem setter público
 
 **Severidade:** Crítico  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPFile.swift:12-23`
 
 ## Descrição

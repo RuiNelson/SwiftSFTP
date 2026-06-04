@@ -10,15 +10,8 @@ public final class SFTPFile: SFTPFileProtocol {
     private nonisolated(unsafe) var _closed: Bool = false
     
     public var closed: Bool {
-        get {
-            internalStateQueue.sync {
-                _closed
-            }
-        }
-        set {
-            internalStateQueue.sync {
-                _closed = newValue
-            }
+        internalStateQueue.sync {
+            _closed
         }
     }
     
