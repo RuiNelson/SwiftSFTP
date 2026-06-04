@@ -6,6 +6,9 @@ public enum FileTransferErrors: Error {
     case notAFileURL
     /// The local source file does not exist.
     case localFileNotFound
+
+    /// The local destination file already exists.
+    case localFileAlreadyExists(path: String)
     /// The transfer buffer size must be greater than zero.
     case invalidBufferSize
     /// The remote handle accepted fewer bytes than were read from the local file.

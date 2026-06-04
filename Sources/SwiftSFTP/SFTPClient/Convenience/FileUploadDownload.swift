@@ -92,16 +92,17 @@ public extension SFTPFileProtocol {
 
         let localPath = file.path(percentEncoded: false)
         var isDirectory = ObjCBool(false)
-        if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory), isDirectory.boolValue {
-            throw FileTransferErrors.remotePathIsADirectory(path: localPath)
+        if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory) {
+            if isDirectory.boolValue {
+                throw FileTransferErrors.remotePathIsADirectory(path: localPath)
+            }
+            else {
+                throw FileTransferErrors.localFileAlreadyExists(path: localPath)
+            }
         }
 
-        let tempURL = file.deletingLastPathComponent()
-            .appendingPathComponent(".sftptmp-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        try Data().write(to: tempURL)
-        let localFileHandle = try FileHandle(forWritingTo: tempURL)
+        try Data().write(to: file)
+        let localFileHandle = try FileHandle(forWritingTo: file)
         defer {
             try? localFileHandle.close()
         }
@@ -138,9 +139,6 @@ public extension SFTPFileProtocol {
         guard !wasCancelled else {
             throw FileTransferErrors.transferCancelled
         }
-
-        try localFileHandle.close()
-        _ = try FileManager.default.replaceItemAt(file, withItemAt: tempURL)
     }
 
     /// Reads data from another SFTP file handle into this handle.
