@@ -10,13 +10,13 @@ import PathWorks
 /// ``Set`` extensions provide filtering and sorting shortcuts for working with listing results.
 public struct FileMetadata: Sendable, Codable, Equatable, Hashable {
     /// The base name of the entry (e.g. `"report.txt"`).
-    let fileName: String
+    public let fileName: String
 
     /// The parent directory path (e.g. `"/home/user/documents"`).
-    let directory: String
+    public let directory: String
 
     /// SFTP attributes returned by the server for this entry.
-    let attributes: FileAttributes
+    public let attributes: FileAttributes
 
     /// Creates metadata from a file name and its parent directory.
     ///
