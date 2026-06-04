@@ -76,7 +76,7 @@ try await myClient.delete(path: "myfolder")
 try await myClient.close()
 ```
 
-A complete user guide can be found [Documentation/UserGuide.md](here).
+A complete user guide can be found [here](Documentation/UserGuide.md).
 
 ## Adding SwiftSFTP to your Project
 
