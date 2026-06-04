@@ -1,6 +1,7 @@
 # 007 — Erro errado lançado em `createDirectory` quando o caminho é um arquivo regular
 
 **Severidade:** Média  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPClient.swift:297-299`
 
 ## Descrição

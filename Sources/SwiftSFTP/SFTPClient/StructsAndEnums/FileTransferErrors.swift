@@ -22,4 +22,7 @@ public enum FileTransferErrors: Error {
 
     /// The requested remote path is a directory where a file was required.
     case remotePathIsADirectory(path: String)
+
+    /// The requested remote path is a regular file where a directory was required.
+    case remotePathIsAFile(path: String)
 }

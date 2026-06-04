@@ -309,7 +309,7 @@ public final class SFTPClient: SFTPClientProtocol {
                 return
             }
             else if metadata.isRegularFile {
-                throw FileTransferErrors.remotePathIsADirectory(path: path)
+                throw FileTransferErrors.remotePathIsAFile(path: path)
             }
         }
 
