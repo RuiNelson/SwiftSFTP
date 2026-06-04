@@ -103,7 +103,11 @@ let package = Package(
         ),
         .target(
             name: "SwiftSFTP",
-            dependencies: ["libssh2", "OpenSSLCrypto", "PathWorks"]
+            dependencies: [
+                "libssh2",
+                "OpenSSLCrypto",
+                .product(name: "PathWorks", package: "PathWorks"),
+            ]
         ),
         .testTarget(
             name: "SwiftSFTPTests",

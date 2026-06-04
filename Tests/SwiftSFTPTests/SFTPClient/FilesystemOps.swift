@@ -62,7 +62,7 @@ struct SFTPClientFilesystemOps {
     func listDirectoryRelativePath() async throws {
         try await withClient { client in
             let entries = try await client.listDirectory(path: "Fixtures", recursive: false)
-            #expect(entries.filter { $0.fileExtension == "bin" }.count == 4)
+            #expect(entries.count(where: { $0.fileExtension == "bin" }) == 4)
             let names = entries.map(\.fileName)
             #expect(names.contains("DEADBEAF.bin"))
             #expect(names.contains("SMALL.bin"))

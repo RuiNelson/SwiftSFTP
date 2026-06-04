@@ -1,7 +1,7 @@
 @testable import SwiftSFTP
 import Foundation
-import Testing
 import OSLog
+import Testing
 
 // MARK: - Shared SFTPClient Test Helpers
 

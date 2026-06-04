@@ -21,7 +21,7 @@ public typealias OpenFlags = LibSSH2SFTPFileOpenFlags
 /// trailing whitespace is trimmed, path components are normalized with PathWorks, and empty input becomes `"."`.
 /// Operations throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP
 /// subsystem that has not been initialized.
-public protocol SFTPClientProtocol: Identifiable, Sendable {
+public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Creates a client and validates its static configuration without opening the network connection.
     ///
     /// The initializer creates the underlying libssh2 session, prepares host-key acceptance data, validates the user
@@ -261,7 +261,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable {
 /// File handles are owned separately from their parent client and must be closed with ``close()``. Operations throw
 /// ``AlreadyClosed`` after close. The concrete implementation uses libssh2's handle-based read, write, seek, fstat,
 /// fsetstat, fsync, and fstatvfs APIs.
-public protocol SFTPFileProtocol: Sendable, Identifiable {
+public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// The current client-side read/write offset within the remote file.
     ///
     /// Setting this property seeks the libssh2 SFTP handle locally; no packet is sent until a later read or write.
@@ -270,10 +270,10 @@ public protocol SFTPFileProtocol: Sendable, Identifiable {
     /// Reads up to `upTo` bytes from the current file position.
     ///
     /// The concrete implementation reads in chunks of at most 32 KiB and returns early at EOF. A positive request that
-    /// reaches EOF before reading any bytes returns `nil`; requesting `0` bytes returns empty `Data`.
+    /// reaches EOF before reading any bytes returns `nil`; requesting `0` bytes returns `nil`.
     ///
-    /// - Parameter upTo: Maximum number of bytes to read.
-    /// - Returns: Data read from the file, or `nil` at EOF.
+    /// - Parameter upTo: Maximum number of bytes to read. Must be greater than zero.
+    /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
     func read(upTo: Int) async throws -> Data?
     

@@ -222,6 +222,19 @@ public func SFTPFStat(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPAttributes
     return LibSSH2SFTPAttributes(rawAttributes)
 }
 
+/// Writes attributes back to the server for an SFTP file handle (`fsetstat`).
+///
+/// Only the fields selected in ``LibSSH2SFTPAttributes/flags`` are sent to the server.
+///
+/// - Parameters:
+///   - handle: The SFTP file handle to modify.
+///   - attributes: The attributes to write. ``LibSSH2SFTPAttributes/flags`` controls which fields are honoured.
+/// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
+public func SFTPFSetStat(handle: LibSSH2SFTPHandle, attributes: LibSSH2SFTPAttributes) throws {
+    var rawAttributes = attributes.rawValue
+    try libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, 1).checkReturnValue()
+}
+
 /// Renames a filesystem object on the remote SFTP server.
 ///
 /// The rename may move an object between directories or across mount points, depending on server support. When the

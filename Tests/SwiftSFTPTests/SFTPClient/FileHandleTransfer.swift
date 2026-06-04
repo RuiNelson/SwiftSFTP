@@ -83,13 +83,12 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
-    @Test("read zero bytes returns empty data")
+    @Test("read zero bytes returns nil")
     func readZeroBytes() async throws {
         try await withClient { client in
             let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             let data = try await handle.read(upTo: 0)
-            #expect(data != nil)
-            #expect(data?.isEmpty == true)
+            #expect(data == nil)
             try await handle.close()
         }
     }
@@ -131,6 +130,22 @@ struct SFTPClientFileHandleTransfer {
                 #expect(allData[i] == pattern[i % 4])
             }
             try await handle.close()
+        }
+    }
+
+    @Test("readAll reads entire DEADBEAF.bin and verifies pattern")
+    func readAllLargeFile4MiB() async throws {
+        try await withClient { client in
+            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/DEADBEAF.bin", permissions: [])
+            let data = try await handle.readAll()
+            try await handle.close()
+
+            let d = try #require(data)
+            #expect(d.count == 4 * 1024 * 1024)
+
+            let pattern: [UInt8] = [0xDE, 0xAD, 0xBE, 0xAF]
+            let expected = Data((0 ..< d.count).map { pattern[$0 % 4] })
+            #expect(d == expected)
         }
     }
 
@@ -421,6 +436,175 @@ struct SFTPClientFileHandleTransfer {
             try await handle.write(Data("sync me".utf8))
             try await handle.fsync()
             try await handle.close()
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    // MARK: - truncate (convenience)
+
+    @Test("truncate shrinks file")
+    func truncateShrinksFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("truncconv")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/trunc.bin"
+            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data(repeating: 0xAB, count: 100))
+            try await wh.close()
+
+            let h = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await h.truncate(toSize: 40)
+            try await h.close()
+
+            let rh = try client.openFile(.read, path: filePath, permissions: [])
+            let data = try await rh.readAll()
+            try await rh.close()
+
+            let d = try #require(data)
+            #expect(d.count == 40)
+            #expect(d.allSatisfy { $0 == 0xAB })
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("truncate adjusts position when past new size")
+    func truncateAdjustsPosition() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("truncpos")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/truncpos.bin"
+            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data(repeating: 0xFF, count: 100))
+            try await wh.close()
+
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            #expect(h.position == 0)
+            h.position = 80
+            #expect(h.position == 80)
+
+            try await h.truncate(toSize: 50)
+            #expect(h.position == 49)
+            try await h.close()
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("truncate extends file")
+    func truncateExtendsFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("truncext")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/truncext.bin"
+            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data("short".utf8))
+            try await wh.close()
+
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            try await h.truncate(toSize: 200)
+            try await h.close()
+
+            let attrs = try await client.stat(path: filePath, followLink: false)
+            let m = try #require(attrs)
+            #expect(m.attributes.fileSize == 200)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    // MARK: - set convenience
+
+    @Test("convenience set changes permissions")
+    func convenienceSetPermissions() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("setperm")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/perm.txt"
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [.ownerRead, .ownerWrite])
+            try await h.write(Data("x".utf8))
+            try await h.set(permissions: [.ownerReadWriteExecute])
+            try await h.close()
+
+            let after = try await client.stat(path: filePath, followLink: false)
+            let m = try #require(after)
+            #expect(m.attributes.permissions.contains(.ownerExecute))
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("convenience set changes fileSize")
+    func convenienceSetFileSize() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("setsize")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/size.bin"
+            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data(repeating: 0x01, count: 100))
+            try await wh.close()
+
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            try await h.set(fileSize: 30)
+            try await h.close()
+
+            let after = try await client.stat(path: filePath, followLink: false)
+            let m = try #require(after)
+            #expect(m.attributes.fileSize == 30)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("convenience set changes modification time")
+    func convenienceSetModificationTime() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("setmtime")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/mtime.txt"
+            let wh = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data("t".utf8))
+            try await wh.close()
+
+            let newTime = Date(timeIntervalSince1970: 1_700_000_000)
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            try await h.set(modificationTime: newTime)
+            try await h.close()
+
+            let after = try await client.stat(path: filePath, followLink: false)
+            let m = try #require(after)
+            let diff = abs(Int64(m.attributes.modificationTime) - Int64(newTime.secondSince1970))
+            #expect(diff <= 1)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("convenience set with no arguments is no-op")
+    func convenienceSetNoOp() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("setnoop")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/noop.txt"
+            let wh = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await wh.write(Data("data".utf8))
+            try await wh.close()
+
+            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            try await h.set()
+            try await h.close()
+
+            let after = try await client.stat(path: filePath, followLink: false)
+            let m = try #require(after)
+            #expect(m.attributes.fileSize == 4)
 
             try await client.delete(path: dir)
         }

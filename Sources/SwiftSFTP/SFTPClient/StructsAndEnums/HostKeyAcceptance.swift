@@ -11,7 +11,11 @@ public enum HostKeyAcceptance: Codable, Equatable {
 }
 
 extension SFTPClient {
-    static func loadHostKeyAcceptanceSettings(to session: borrowing LibSSH2Session, with hostKeyAcceptance: HostKeyAcceptance, location: borrowing TCPLocation) throws(SFTPClientInvalidConfig) {
+    static func loadHostKeyAcceptanceSettings(
+        to session: borrowing LibSSH2Session,
+        with hostKeyAcceptance: HostKeyAcceptance,
+        location: borrowing TCPLocation
+    ) throws(SFTPClientInvalidConfig) {
         do {
             switch hostKeyAcceptance {
             case .acceptAny:
