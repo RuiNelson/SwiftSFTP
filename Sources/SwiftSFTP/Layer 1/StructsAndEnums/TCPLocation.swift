@@ -45,18 +45,13 @@ extension TCPLocation {
 extension TCPLocation {
     var knownHostsHost: String {
         let trimmed = trimmedHostname
-        let defaultPort = port == 22
+        let isDefaultPort = port == 22
         
-        if defaultPort {
-            if isIPAddress {
-                return trimmed
-            }
-            else {
-                return "[\(trimmed)]"
-            }
-        }
-        else {
-            return "[\(trimmed)]:\(port)"
+        return switch (isIPAddress, isDefaultPort) {
+        case (false, false): "[\(trimmed)]:\(port)"
+        case (false, true): "[\(trimmed)]"
+        case (true, false): "\(trimmed):\(port)"
+        case (true, true): "\(trimmed)"
         }
     }
 }
