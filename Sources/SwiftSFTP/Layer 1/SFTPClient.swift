@@ -150,6 +150,47 @@ public extension SFTPClient {
             return "\(openSocketIn.knownHostsHost) \(shortHand)"
         }
     }
+
+    /// Creates, connects, authenticates, and initializes an SFTP client in one async operation.
+    ///
+    /// Use this convenience when callers need a fully logged-in, `Sendable` client without performing the separate
+    /// ``init(openSocketIn:operationsTimeOut:hostKeyAcceptance:authentication:logger:trapOnDeInitWithoutClose:)`` and
+    /// ``login(timeOut:)`` steps. `operationsTimeOut` is applied to ordinary operations after login, while
+    /// `loginTimeOut` is used only for the connection, authentication, and SFTP initialization sequence.
+    ///
+    /// - Parameters:
+    ///   - openSocketIn: Hostname and port for the SSH server.
+    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` to keep libssh2's default.
+    ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
+    ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
+    ///   - authentication: Username and authentication material.
+    ///   - logger: Optional logger used for close/deinit diagnostics.
+    ///   - trapOnDeInitWithoutClose: When `true`, trap if the returned client is deallocated before ``close()``.
+    /// - Returns: A connected and authenticated SFTP client.
+    /// - Throws: ``SFTPClientInvalidConfig`` for invalid configuration, or libssh2/socket/authentication errors from
+    /// login.
+    static func initAndLogin(
+        openSocketIn: TCPLocation,
+        operationsTimeOut: TimeInterval? = 10.0,
+        loginTimeOut: TimeInterval = 10.0,
+        hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
+        authentication: UserAuthentication,
+        logger: Logger? = nil,
+        trapOnDeInitWithoutClose: Bool = true
+    ) async throws -> Self {
+        let instance = try Self(
+            openSocketIn: openSocketIn,
+            operationsTimeOut: operationsTimeOut,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication,
+            logger: logger,
+            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+        )
+        
+        try await instance.login(timeOut: loginTimeOut)
+        
+        return instance
+    }
 }
 
 // MARK: SFTPClientProtocol + Connection
