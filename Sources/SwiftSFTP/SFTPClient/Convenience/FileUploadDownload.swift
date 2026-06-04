@@ -108,7 +108,7 @@ public extension SFTPFileProtocol {
             try? localFileHandle.close()
         }
 
-        let startingPosition = position
+        let startingPosition = offset
         let fileSize = try await stat.fileSize
         let totalBytes = Int64(clamping: fileSize > startingPosition ? fileSize - startingPosition : 0)
         var completed = Int64()
@@ -211,7 +211,7 @@ public extension SFTPFileProtocol {
             return
         }
 
-        let startingPosition = source.position
+        let startingPosition = source.offset
         let fileSize = try await source.stat.fileSize
         let availableBytes = fileSize > startingPosition ? fileSize - startingPosition : 0
         let totalBytes = Int64(clamping: min(UInt64(clamping: upTo ?? Int64.max), availableBytes))

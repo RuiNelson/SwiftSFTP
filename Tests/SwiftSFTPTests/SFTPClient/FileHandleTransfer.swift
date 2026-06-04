@@ -306,7 +306,7 @@ struct SFTPClientFileHandleTransfer {
     func positionStartsAtZero() async throws {
         try await withClient { client in
             let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
-            #expect(handle.position == 0)
+            #expect(handle.offset == 0)
             try await handle.close()
         }
     }
@@ -316,7 +316,7 @@ struct SFTPClientFileHandleTransfer {
         try await withClient { client in
             let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             _ = try await handle.read(upTo: 100)
-            #expect(handle.position == 100)
+            #expect(handle.offset == 100)
             try await handle.close()
         }
     }
@@ -339,8 +339,8 @@ struct SFTPClientFileHandleTransfer {
             try await wh.close()
 
             var rh = try await client.openFile(.read, path: filePath, permissions: [])
-            rh.position = 200
-            #expect(rh.position == 200)
+            rh.offset = 200
+            #expect(rh.offset == 200)
 
             let data = try await rh.read(upTo: 100)
             let d = try #require(data)
@@ -517,12 +517,12 @@ struct SFTPClientFileHandleTransfer {
             try await wh.close()
 
             let h = try await client.openFile(.write, path: filePath, permissions: [])
-            #expect(h.position == 0)
-            h.position = 80
-            #expect(h.position == 80)
+            #expect(h.offset == 0)
+            h.offset = 80
+            #expect(h.offset == 80)
 
             try await h.truncate(toSize: 50)
-            #expect(h.position == 49)
+            #expect(h.offset == 49)
             try await h.close()
 
             try await client.delete(path: dir)

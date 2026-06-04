@@ -83,7 +83,7 @@ struct SFTPClientFileConvenience {
             }
 
             let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
-            source.position = 128
+            source.offset = 128
 
             var totals = [Int64]()
             try await source.read(to: localFile, bufferSize: 200) { _, total, _, _ in
@@ -107,7 +107,7 @@ struct SFTPClientFileConvenience {
             let outputPath = "\(dir)/partial.bin"
 
             let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
-            source.position = 128
+            source.offset = 128
             let destination = try await client.openFile(
                 [.write, .create, .truncate],
                 path: outputPath,

@@ -270,7 +270,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// The current client-side read/write offset within the remote file.
     ///
     /// Setting this property seeks the libssh2 SFTP handle locally; no packet is sent until a later read or write.
-    var position: UInt64 { get set }
+    var offset: UInt64 { get set }
 
     /// Reads up to `upTo` bytes from the current file position.
     ///

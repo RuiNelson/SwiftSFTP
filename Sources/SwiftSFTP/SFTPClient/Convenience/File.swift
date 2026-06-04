@@ -36,10 +36,10 @@ extension SFTPFileProtocol {
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
     func truncate(toSize newSize: UInt64) async throws {
         if newSize == 0 {
-            position = 0
+            offset = 0
         }
-        else if position >= newSize {
-            position = newSize - 1
+        else if offset >= newSize {
+            offset = newSize - 1
         }
 
         var new = FileAttributes()
@@ -83,10 +83,10 @@ extension SFTPFileProtocol {
 
         if let fileSize {
             if fileSize == 0 {
-                position = 0
+                offset = 0
             }
-            else if position >= fileSize {
-                position = fileSize - 1
+            else if offset >= fileSize {
+                offset = fileSize - 1
             }
 
             attrs.fileSize = fileSize

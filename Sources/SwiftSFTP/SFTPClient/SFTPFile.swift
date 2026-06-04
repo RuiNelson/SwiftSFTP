@@ -37,7 +37,7 @@ public final class SFTPFile: SFTPFileProtocol {
 
     private static let size32kB = 32 * 1024
     
-    public var position: UInt64 {
+    public var offset: UInt64 {
         get {
             internalStateQueue.sync {
                 SFTPTell(handle: handle)
