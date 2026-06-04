@@ -239,6 +239,39 @@ struct SFTPClientFilesystemOps {
         }
     }
 
+    @Test("createDirectory no-ops for symbolic link to directory")
+    func createDirectoryNoOpSymlinkToDirectory() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("mkdir-symlink")
+            let target = "\(dir)/target"
+            let link = "\(dir)/link"
+            try await client.createDirectory(path: target, makePath: true, mode: .serverDefault)
+            try await client.createSymLink(path: link, destination: target)
+
+            try await client.createDirectory(path: link, makePath: false, mode: .serverDefault)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("createDirectory throws for existing regular file")
+    func createDirectoryThrowsForRegularFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("mkdir-file")
+            let filePath = "\(dir)/file.txt"
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await handle.write(Data("not a directory".utf8))
+            try await handle.close()
+
+            await #expect(throws: FileTransferErrors.self) {
+                try await client.createDirectory(path: filePath, makePath: false, mode: .serverDefault)
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("createDirectory no-ops for . and /")
     func createDirectoryNoOpRoot() async throws {
         try await withClient { client in

@@ -288,8 +288,15 @@ public final class SFTPClient: SFTPClientProtocol {
             return
         }
 
-        if let metadata = try await statDirectory(path: sanitizedPath, followLink: false), metadata.isDirectory {
-            return
+        let metadata = try await stat(path: sanitizedPath, followLink: true)
+
+        if let metadata {
+            if metadata.isDirectory {
+                return
+            }
+            else if metadata.isRegularFile {
+                throw FileTransferErrors.remotePathIsADirectory(path: path)
+            }
         }
 
         if makePath {

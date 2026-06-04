@@ -156,14 +156,15 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Creates a remote directory.
     ///
     /// The concrete implementation treats empty input as `"."` through path sanitization and no-ops for `"."` and
-    /// `"/"`. It also no-ops when the target already exists as a directory. When `makePath` is `true`, parent
-    /// directories are created recursively before the final `mkdir`.
+    /// `"/"`. Existing targets are checked with symbolic links followed: directories, including symbolic links to
+    /// directories, are treated as success, while regular files throw ``FileTransferErrors``. When `makePath` is
+    /// `true`, parent directories are created recursively before the final `mkdir`.
     ///
     /// - Parameters:
     ///   - path: Remote directory path to create. The path is sanitized before use.
     ///   - makePath: Whether to create missing parent directories.
     ///   - mode: POSIX mode to request for created directories.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: ``AlreadyClosed``, ``FileTransferErrors``, ``NotLoggedIn``, or libssh2/SFTP errors.
     func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws
     
     /// Sets attributes on an existing remote directory.
