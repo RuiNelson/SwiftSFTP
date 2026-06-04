@@ -1,4 +1,4 @@
-# SwiftSFTP — Engineer's Guide
+# SwiftSFTP — User's Guide
 
 This guide walks through everything you need to integrate and use SwiftSFTP in your application, from initial setup through advanced workflows.
 
