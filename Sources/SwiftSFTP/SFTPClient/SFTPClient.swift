@@ -288,7 +288,7 @@ public final class SFTPClient: SFTPClientProtocol {
             return
         }
 
-        let metadata = try await stat(path: sanitizedPath, followLink: true)
+        let metadata = try await stat(path: sanitizedPath, followLink: false)
 
         if let metadata {
             if metadata.isDirectory {
@@ -300,8 +300,9 @@ public final class SFTPClient: SFTPClientProtocol {
         }
 
         if makePath {
-            let parent = sanitizedPath.removingLastPathComponent
-            if parent != sanitizedPath {
+            if sanitizedPath.pathComponents.count >= 2 {
+                let parent = sanitizedPath.removingLastPathComponent
+
                 try await createDirectory(path: parent, makePath: true, mode: mode)
             }
         }

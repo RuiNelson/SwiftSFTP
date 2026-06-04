@@ -7,7 +7,7 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Keep the low-level wrapper 
 ## Human Code
 
 - Code written by the human maintainer is sacred and should be treated as better than AI-written code.
-- Do not delete or modify human-written code unless explicitly instructed to do so.
+- Do not delete or modify human-written code unless explicitly instructed to do so. If you find issues, ask the user first what to do.
 - Prefer additive, narrowly scoped changes that preserve the maintainer's existing structure and intent.
 
 ## Wrapper Style (`Sources/SwiftSFTP/Wrappers`)
