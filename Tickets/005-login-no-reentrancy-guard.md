@@ -1,6 +1,7 @@
 # 005 — `login()` não tem proteção contra chamadas concorrentes
 
 **Severidade:** Alta  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPClient.swift:142-167`
 
 ## Descrição

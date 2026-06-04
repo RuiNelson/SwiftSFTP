@@ -142,6 +142,12 @@ public final class SFTPClient: SFTPClientProtocol {
     public func login(timeOut: TimeInterval = 10.0) async throws {
         try checkClosed()
 
+        let alreadyLoggedIn = internalStateQueue.sync { _sftp != nil }
+        guard !alreadyLoggedIn else {
+            logger?.warning("Trying to login to SFTPClient that was already logged in")
+            return
+        }
+
         let oldTimeout = operationsTimeOut?.milliseconds ?? SessionGetTimeout(session: session)
         SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
         defer {
