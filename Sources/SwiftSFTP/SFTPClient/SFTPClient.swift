@@ -91,7 +91,12 @@ public final class SFTPClient: SFTPClientProtocol {
         timeOut: TimeInterval = 10.0,
         shortHandForm: Bool = true
     ) async throws -> String {
+        guard timeOut > 0, timeOut.isFinite else {
+            throw SFTPClientInvalidConfig.invalidTimeOutValue
+        }
+        
         let session = try SessionInit()
+        defer { try? SessionFree(session: session) }
 
         SessionSetBlocking(session: session, blocking: true)
 
@@ -106,11 +111,12 @@ public final class SFTPClient: SFTPClientProtocol {
             host: openSocketIn.trimmedHostname,
             port: openSocketIn.port
         )
-
+        
+        defer { try? SessionDisconnect(session: session, description: "Goodbye") }
         defer { try? CloseSocket(socket) }
-
+        
         let shortHand = try SessionHostKeyString(session: session)
-
+        
         if shortHandForm {
             return shortHand
         }
@@ -135,6 +141,10 @@ public final class SFTPClient: SFTPClientProtocol {
     }
 
     public func login(timeOut: TimeInterval = 10.0) async throws {
+        guard timeOut > 0, timeOut.isFinite else {
+            throw SFTPClientInvalidConfig.invalidTimeOutValue
+        }
+        
         try checkClosed()
 
         let alreadyLoggedIn = internalStateQueue.sync { _sftp != nil }

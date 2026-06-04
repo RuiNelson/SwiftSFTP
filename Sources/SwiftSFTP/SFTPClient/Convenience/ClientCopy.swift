@@ -38,7 +38,11 @@ public extension SFTPClientProtocol {
         }
 
         let sourceHandle = try await openFile([.read], path: source, permissions: [.serverDefault])
-        let destinationHandle = try await openFile([.create, .write], path: destination, permissions: permissions)
+        let destinationHandle = try await openFile(
+            [.create, .write, .exclusive],
+            path: destination,
+            permissions: permissions
+        )
 
         do {
             try await destinationHandle.read(

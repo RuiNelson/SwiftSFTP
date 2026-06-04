@@ -20,7 +20,7 @@ public enum FileTransferErrors: Error {
     /// The requested remote download source does not exist or is not a regular file.
     case remoteFileNotFound(path: String)
 
-    /// The requested remote path is a directory where a file was required.
+    /// The requested path is a directory where a file was required.
     case remotePathIsADirectory(path: String)
 
     /// The requested remote path is a regular file where a directory was required.

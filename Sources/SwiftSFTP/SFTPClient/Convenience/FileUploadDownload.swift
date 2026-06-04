@@ -72,15 +72,16 @@ public extension SFTPFileProtocol {
 
     /// Downloads this remote SFTP file handle into a local file.
     ///
-    /// The local file is created or truncated before data is written. Transfer starts at this handle's current
-    /// ``position``. Returning `false` from `continuation` cancels the transfer after the current chunk is written.
+    /// The local destination must not already exist. If it does not exist, the local file is created before data is
+    /// written. Transfer starts at this handle's current ``position``. Returning `false` from `continuation` cancels
+    /// the transfer after the current chunk is written.
     ///
     /// - Parameters:
-    ///   - file: Local file URL to create or overwrite.
+    ///   - file: Local file URL to create.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid local input, cancellation, or invalid buffer sizes; otherwise
-    /// forwards `FileHandle` and SFTP read errors.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, existing local destinations, directory destinations,
+    /// cancellation, or invalid buffer sizes; otherwise forwards `FileHandle` and SFTP read errors.
     func read(to file: URL, bufferSize: Int = 512 * 1024, continuation: @escaping TransferProgress) async throws {
         guard file.isFileURL else {
             throw FileTransferErrors.notAFileURL

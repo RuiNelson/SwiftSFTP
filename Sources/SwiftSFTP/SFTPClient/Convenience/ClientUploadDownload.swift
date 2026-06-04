@@ -37,7 +37,7 @@ public extension SFTPClientProtocol {
             }
         }
 
-        let handle = try await openFile([.create, .write], path: remotePath, permissions: permissions)
+        let handle = try await openFile([.create, .write, .exclusive], path: remotePath, permissions: permissions)
         do {
             try await handle.write(from: localURL, bufferSize: bufferSize, continuation: continuation)
             try await handle.close()
@@ -50,16 +50,17 @@ public extension SFTPClientProtocol {
 
     /// Downloads a remote SFTP file to a local file URL.
     ///
-    /// The local file is created or truncated by the underlying file-handle transfer. The opened remote file is closed
-    /// before this method returns, including when the transfer throws.
+    /// The local destination must not already exist. The opened remote file is closed before this method returns,
+    /// including when the transfer throws.
     ///
     /// - Parameters:
     ///   - remotePath: Existing remote regular-file path to download.
-    ///   - localURL: Local file URL to create or overwrite.
+    ///   - localURL: Local file URL to create.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid local input, missing remote files, remote directory sources,
-    /// cancellation, or invalid buffer sizes; otherwise forwards `FileHandle` and SFTP errors.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, existing local destinations, directory destinations,
+    /// missing remote files, remote directory sources, cancellation, or invalid buffer sizes; otherwise forwards
+    /// `FileHandle` and SFTP errors.
     func download(
         from remotePath: String,
         to localURL: URL,
