@@ -170,6 +170,113 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("copyClientSide copies remote file contents")
+    func copyClientSideCopiesRemoteFileContents() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("client-copy")
+            let sourcePath = "\(TS.fixturesPath)/SMALL.bin"
+            let destinationPath = "\(dir)/copied.bin"
+
+            var totals = [Int64]()
+            try await client.copyClientSide(
+                from: sourcePath,
+                to: destinationPath,
+                permissions: .serverDefault,
+                chunkSize: 128
+            ) { _, total, _, _ in
+                totals.append(total)
+                return true
+            }
+
+            let verification = try await client.openFile(.read, path: destinationPath, permissions: [])
+            let copied = try await Self.readAll(verification)
+            try await verification.close()
+
+            let data = try #require(copied)
+            #expect(data.count == 1024)
+            #expect(data.allSatisfy { $0 == 0xAA })
+            #expect(totals.allSatisfy { $0 == 1024 })
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("copyClientSide creates parent directories")
+    func copyClientSideCreatesParentDirectories() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("client-copy-mkdir")
+            let sourcePath = "\(TS.fixturesPath)/TINY.bin"
+            let destinationPath = "\(dir)/nested/deep/copied.bin"
+
+            try await client.copyClientSide(
+                from: sourcePath,
+                to: destinationPath,
+                permissions: .serverDefault
+            ) { _, _, _, _ in
+                true
+            }
+
+            let verification = try await client.openFile(.read, path: destinationPath, permissions: [])
+            let copied = try await Self.readAll(verification)
+            try await verification.close()
+
+            let data = try #require(copied)
+            #expect(data == Data([0x00]))
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("copyClientSide refuses to overwrite existing remote file")
+    func copyClientSideRefusesExistingRemoteFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("client-copy-existing")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let sourcePath = "\(TS.fixturesPath)/SMALL.bin"
+            let destinationPath = "\(dir)/copied.bin"
+
+            let existing = try await client.openFile(
+                [.write, .create],
+                path: destinationPath,
+                permissions: .serverDefault
+            )
+            try await existing.write(Data("original".utf8))
+            try await existing.close()
+
+            await #expect(throws: FileTransferErrors.self) {
+                try await client.copyClientSide(
+                    from: sourcePath,
+                    to: destinationPath,
+                    permissions: .serverDefault
+                ) { _, _, _, _ in
+                    true
+                }
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("copyClientSide throws for missing source")
+    func copyClientSideThrowsForMissingSource() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("client-copy-missing")
+            let destinationPath = "\(dir)/copied.bin"
+
+            await #expect(throws: FileTransferErrors.self) {
+                try await client.copyClientSide(
+                    from: "\(dir)/missing.bin",
+                    to: destinationPath,
+                    permissions: .serverDefault
+                ) { _, _, _, _ in
+                    true
+                }
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
     private static func readAll(_ handle: any SFTPFileProtocol) async throws -> Data? {
         var buffer = Data()
         while let chunk = try await handle.read(upTo: 32 * 1024) {

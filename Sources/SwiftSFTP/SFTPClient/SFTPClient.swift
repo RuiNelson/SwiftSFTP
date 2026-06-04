@@ -414,8 +414,10 @@ public final class SFTPClient: SFTPClientProtocol {
         let s = try await stat(path: path, followLink: true)
 
         if flags.contains(.create) {
-            if s?.isDirectory ?? false {
-                throw FileTransferErrors.remotePathIsADirectory(path: path)
+            if let s {
+                guard s.isDirectory == false else {
+                    throw FileTransferErrors.remotePathIsADirectory(path: path)
+                }
             }
         }
         else {
