@@ -31,7 +31,7 @@ struct Cookbook {
         let myClient = try SFTPClient(
             openSocketIn: .init(hostname: "localhost", port: 6922),
             hostKeyAcceptance: .acceptAny, // configurable
-            authentication: .init(name: "bulbasaur", auth: .password("pass123")) // also OpenSSL supported private keys
+            authentication: .init(name: "bulbasaur", auth: .password("pass123")) // supports private keys
         )
 
         // - Call this to connect
@@ -59,7 +59,7 @@ struct Cookbook {
 
         // - Upload a file
         let localFile = URL(filePath: "myfile.zip")
-        try await myClient.upload(from: localFile, to: "myfolder/myfile.zip")
+        try await myClient.upload(from: localFile, to: "/home/bulbasaur/myfolder/myfile.zip")
             { doneBytes, totalBytes, lastBlockBytes, lastBlockTime in
                 // return true/false if you want to continue/terminate the upload
 
@@ -71,7 +71,7 @@ struct Cookbook {
                 return true
             }
         
-        // - Deletes the directory with everything in it, less dangerous methods available
+        // - Deletes a file or directory with everything in it (less radical methods available)
         try await myClient.delete(path: "myfolder")
 
         // - Close
