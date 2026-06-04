@@ -75,21 +75,25 @@ public final class SFTPFile: SFTPFileProtocol {
 
     @discardableResult public func write(_ data: Data) async throws -> Int {
         try checkClosed()
-        
+
         var bytesWritten = 0
-        
+
         while bytesWritten < data.count {
             let end = min(bytesWritten + Self.size32kB, data.count)
             let chunk = data.subdata(in: bytesWritten ..< end)
             let written = try SFTPWrite(handle: handle, data: chunk)
-            
+
             guard written > 0 else {
                 break
             }
-            
+
             bytesWritten += written
         }
-        
+
+        guard bytesWritten == data.count else {
+            throw FileTransferErrors.shortWrite(expected: data.count, actual: bytesWritten)
+        }
+
         return bytesWritten
     }
 

@@ -1,6 +1,7 @@
 # 008 — `SFTPFile.write()` retorna silenciosamente uma contagem menor sem erro
 
 **Severidade:** Média  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPFile.swift:83-101`
 
 ## Descrição
