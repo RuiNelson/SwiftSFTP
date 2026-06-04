@@ -1,6 +1,7 @@
 # 004 — `authenticate()` descarta o erro original da autenticação por senha
 
 **Severidade:** Alta  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/StructsAndEnums/UserAuthentication.swift:19-25`
 
 ## Descrição

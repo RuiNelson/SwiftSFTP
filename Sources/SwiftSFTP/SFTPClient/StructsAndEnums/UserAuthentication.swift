@@ -21,7 +21,7 @@ extension SFTPClient {
                 try UserAuthPassword(session: session, username: username, password: pass)
             }
             catch {
-                throw SFTPClientInvalidConfig.invalidPassword
+                throw SFTPClientInvalidConfig.authenticationFailed(error)
             }
             
         case let .privateKeyString(string, passphrase):
