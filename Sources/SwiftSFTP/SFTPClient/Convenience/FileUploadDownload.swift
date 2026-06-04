@@ -12,6 +12,17 @@ public enum FileTransferErrors: Error {
     case invalidBufferSize
     /// The remote handle accepted fewer bytes than were read from the local file.
     case shortWrite(expected: Int, actual: Int)
+
+    /// A remote upload target already exists.
+    case fileAlreadyExists(path: String)
+
+    /// A transfer tried to create a local or remote file where a directory already exists.
+    case tryingToCreateAFileWhereADirectoryExists(path: String)
+
+    /// The requested remote download source does not exist or is not a regular file.
+    case remoteFileNotFound(path: String)
+    
+    case remotePathIsADirectory(path: String)
 }
 
 /// Reports transfer progress as completed bytes, total bytes, last chunk size, and elapsed time since the last update.
@@ -72,6 +83,72 @@ public extension SFTPFileProtocol {
             }
 
             if continuation(completed, fileSize, size, interval) == false {
+                wasCancelled = true
+                break
+            }
+
+            startTime = endTime
+        }
+
+        guard !wasCancelled else {
+            throw FileTransferErrors.transferCancelled
+        }
+    }
+
+    /// Downloads this remote SFTP file handle into a local file.
+    ///
+    /// The local file is created or truncated before data is written. Transfer starts at this handle's current
+    /// ``position``. Returning `false` from `continuation` cancels the transfer after the current chunk is written.
+    ///
+    /// - Parameters:
+    ///   - file: Local file URL to create or overwrite.
+    ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
+    ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, cancellation, or invalid buffer sizes; otherwise
+    /// forwards `FileHandle` and SFTP read errors.
+    func read(to file: URL, bufferSize: Int = 512 * 1024, continuation: @escaping TransferProgress) async throws {
+        guard file.isFileURL else {
+            throw FileTransferErrors.notAFileURL
+        }
+
+        guard bufferSize > 0 else {
+            throw FileTransferErrors.invalidBufferSize
+        }
+
+        let localPath = file.path(percentEncoded: false)
+        var isDirectory = ObjCBool(false)
+        if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory), isDirectory.boolValue {
+            throw FileTransferErrors.tryingToCreateAFileWhereADirectoryExists(path: localPath)
+        }
+
+        try Data().write(to: file)
+        let localFileHandle = try FileHandle(forWritingTo: file)
+        defer {
+            try? localFileHandle.close()
+        }
+
+        let startingPosition = position
+        let fileSize = try await stat.fileSize
+        let totalBytes = Int64(clamping: fileSize > startingPosition ? fileSize - startingPosition : 0)
+        var completed = Int64()
+        var wasCancelled = false
+
+        var startTime = Date()
+        var endTime = Date()
+        while let data = try await read(upTo: bufferSize) {
+            guard data.isEmpty == false else {
+                break
+            }
+
+            try localFileHandle.write(contentsOf: data)
+            completed += Int64(data.count)
+
+            endTime = .init()
+            var interval: TimeInterval {
+                endTime.timeIntervalSince(startTime)
+            }
+
+            if continuation(completed, totalBytes, data.count, interval) == false {
                 wasCancelled = true
                 break
             }

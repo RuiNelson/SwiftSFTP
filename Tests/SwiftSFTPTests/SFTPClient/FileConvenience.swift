@@ -44,6 +44,33 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("read to local file downloads from current position")
+    func readToLocalFileDownloadsFromCurrentPosition() async throws {
+        try await withClient { client in
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let source = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            source.position = 128
+
+            var totals = [Int64]()
+            try await source.read(to: localFile, bufferSize: 200) { _, total, _, _ in
+                totals.append(total)
+                return true
+            }
+            try await source.close()
+
+            let data = try Data(contentsOf: localFile)
+            #expect(data.count == 896)
+            #expect(data.allSatisfy { $0 == 0xAA })
+            #expect(totals.allSatisfy { $0 == 896 })
+        }
+    }
+
     @Test("read from handle starts at source position")
     func readFromHandleStartsAtSourcePosition() async throws {
         try await withClient { client in
