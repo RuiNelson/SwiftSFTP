@@ -27,6 +27,16 @@ public extension SFTPClientProtocol {
             try await createDirectory(path: directory, makePath: true, mode: .serverDefault)
         }
 
+        let stat = try await stat(path: remotePath, followLink: true)
+        guard stat == nil else {
+            if stat?.isDirectory ?? false {
+                throw FileTransferErrors.remotePathIsADirectory(path: remotePath)
+            }
+            else {
+                throw FileTransferErrors.remoteFileAlreadyExists(path: remotePath)
+            }
+        }
+
         let handle = try await openFile([.create, .write], path: remotePath, permissions: permissions)
         do {
             try await handle.write(from: localURL, bufferSize: bufferSize, continuation: continuation)

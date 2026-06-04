@@ -47,6 +47,25 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
+    @Test("openFile with create can open existing regular file")
+    func openFileCreateCanOpenExistingFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("openexisting")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/existing.txt"
+            let first = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await first.write(Data("one".utf8))
+            try await first.close()
+
+            let second = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            try await second.write(Data("two".utf8))
+            try await second.close()
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("openFile throws after client closed")
     func openFileThrowsAfterClientClosed() async throws {
         try await withClient { client in

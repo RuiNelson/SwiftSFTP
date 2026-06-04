@@ -44,6 +44,34 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("upload refuses to overwrite existing remote file")
+    func uploadRefusesExistingRemoteFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("upload-existing")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/uploaded.bin"
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-upload-\(UUID().uuidString).bin"
+            )
+            try Data("replacement".utf8).write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let existing = try await client.openFile([.write, .create], path: remotePath, permissions: .serverDefault)
+            try await existing.write(Data("original".utf8))
+            try await existing.close()
+
+            await #expect(throws: FileTransferErrors.self) {
+                try await client.upload(from: localFile, to: remotePath) { _, _, _, _ in
+                    true
+                }
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("read to local file downloads from current position")
     func readToLocalFileDownloadsFromCurrentPosition() async throws {
         try await withClient { client in

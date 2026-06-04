@@ -403,22 +403,19 @@ public final class SFTPClient: SFTPClientProtocol {
     ) async throws -> any SFTPFileProtocol {
         try checkClosed()
 
-        let stat = try await stat(path: path, followLink: true)
+        let s = try await stat(path: path, followLink: true)
 
         if flags.contains(.create) {
-            guard stat == nil else {
-                if stat?.isDirectory ?? false {
-                    throw FileTransferErrors.remotePathIsADirectory(path: path)
-                }
-                throw FileTransferErrors.remoteFileAlreadyExists(path: path)
+            if s?.isDirectory ?? false {
+                throw FileTransferErrors.remotePathIsADirectory(path: path)
             }
         }
         else {
-            guard stat != nil else {
+            guard s != nil else {
                 throw FileTransferErrors.remoteFileNotFound(path: path)
             }
 
-            guard stat?.isDirectory == false else {
+            guard s?.isDirectory == false else {
                 throw FileTransferErrors.remotePathIsADirectory(path: path)
             }
         }

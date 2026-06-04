@@ -241,9 +241,11 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Opens a remote file and returns a handle object.
     ///
     /// The returned file handle must be closed independently with ``SFTPFileProtocol/close()``. The concrete
-    /// implementation validates the remote path before opening: `.create` requires a missing path, while non-create
-    /// opens require an existing regular file. `permissions` is passed to libssh2 when creating files; otherwise it is
-    /// ignored by the server.
+    /// implementation validates the remote path before opening: directory paths are rejected, and non-create opens
+    /// require an existing regular file. Existing regular files may still be opened with `.create`; use `.exclusive` or
+    /// higher-level helpers such as ``SFTPClientProtocol/upload(from:to:bufferSize:permissions:continuation:)`` when
+    /// replacement should be rejected. `permissions` is passed to libssh2 when creating files; otherwise it is ignored
+    /// by the server.
     ///
     /// - Parameters:
     ///   - flags: SFTP open flags such as read, write, create, truncate, append, or exclusive.
