@@ -7,7 +7,7 @@ public struct UserAuthentication: Codable, Equatable, Sendable {
 
 public enum UserAuthenticationMode: Codable, Equatable, Sendable {
     case password(String)
-    case privateKeyString(file: String, password: String?)
+    case privateKeyString(keyData: String, password: String?)
     case privateKeyFile(file: URL, password: String?)
 }
 
@@ -24,7 +24,7 @@ extension SFTPClient {
                 throw SFTPClientInvalidConfig.authenticationFailed(error)
             }
             
-        case let .privateKeyString(string, passphrase):
+        case let .privateKeyString(keyData: string, passphrase):
             try UserAuthPublicKeyFromMemory(
                 session: session,
                 username: username,

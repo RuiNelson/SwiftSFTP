@@ -1,6 +1,7 @@
 # 012 — Label `file:` enganosa em `UserAuthenticationMode.privateKeyString`
 
 **Severidade:** Baixa  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/StructsAndEnums/UserAuthentication.swift:10`
 
 ## Descrição

@@ -259,7 +259,7 @@ struct SFTPClientHostkeyAndAuth {
         try await withClient { _ in
             let client = try makeClient(
                 user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeyString(file: keyData, password: nil))
+                auth: UserAuthentication(name: "charmander", auth: .privateKeyString(keyData: keyData, password: nil))
             )
             try await client.login(timeOut: 10.0)
             #expect(!client.closed)
@@ -296,7 +296,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeyString(file: keyData, password: TS.keyPassphrase)
+                    auth: .privateKeyString(keyData: keyData, password: TS.keyPassphrase)
                 )
             )
             try await client.login(timeOut: 10.0)
