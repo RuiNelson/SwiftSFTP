@@ -1,6 +1,7 @@
 # 006 — `read(to:)` apaga o arquivo local antes de iniciar a transferência
 
 **Severidade:** Alta  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/Convenience/FileUploadDownload.swift:99`
 
 ## Descrição

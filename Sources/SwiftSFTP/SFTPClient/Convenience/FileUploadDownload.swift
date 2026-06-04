@@ -96,8 +96,12 @@ public extension SFTPFileProtocol {
             throw FileTransferErrors.remotePathIsADirectory(path: localPath)
         }
 
-        try Data().write(to: file)
-        let localFileHandle = try FileHandle(forWritingTo: file)
+        let tempURL = file.deletingLastPathComponent()
+            .appendingPathComponent(".sftptmp-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        try Data().write(to: tempURL)
+        let localFileHandle = try FileHandle(forWritingTo: tempURL)
         defer {
             try? localFileHandle.close()
         }
@@ -134,6 +138,9 @@ public extension SFTPFileProtocol {
         guard !wasCancelled else {
             throw FileTransferErrors.transferCancelled
         }
+
+        try localFileHandle.close()
+        _ = try FileManager.default.replaceItemAt(file, withItemAt: tempURL)
     }
 
     /// Reads data from another SFTP file handle into this handle.
