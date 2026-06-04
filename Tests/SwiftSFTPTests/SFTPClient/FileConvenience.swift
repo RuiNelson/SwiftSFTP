@@ -19,7 +19,7 @@ struct SFTPClientFileConvenience {
                 try? FileManager.default.removeItem(at: localFile)
             }
 
-            let destination = try client.openFile(
+            let destination = try await client.openFile(
                 [.write, .create, .truncate],
                 path: remotePath,
                 permissions: .serverDefault
@@ -32,7 +32,7 @@ struct SFTPClientFileConvenience {
             }
             try await destination.close()
 
-            let verification = try client.openFile(.read, path: remotePath, permissions: [])
+            let verification = try await client.openFile(.read, path: remotePath, permissions: [])
             let uploaded = try await Self.readAll(verification)
             try await verification.close()
 
@@ -54,7 +54,7 @@ struct SFTPClientFileConvenience {
                 try? FileManager.default.removeItem(at: localFile)
             }
 
-            let source = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             source.position = 128
 
             var totals = [Int64]()
@@ -78,9 +78,9 @@ struct SFTPClientFileConvenience {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
             let outputPath = "\(dir)/partial.bin"
 
-            let source = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             source.position = 128
-            let destination = try client.openFile(
+            let destination = try await client.openFile(
                 [.write, .create, .truncate],
                 path: outputPath,
                 permissions: .serverDefault
@@ -94,7 +94,7 @@ struct SFTPClientFileConvenience {
             try await source.close()
             try await destination.close()
 
-            let verification = try client.openFile(.read, path: outputPath, permissions: [])
+            let verification = try await client.openFile(.read, path: outputPath, permissions: [])
             let downloaded = try await Self.readAll(verification)
             try await verification.close()
 
@@ -114,8 +114,8 @@ struct SFTPClientFileConvenience {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
             let outputPath = "\(dir)/limited.bin"
 
-            let source = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
-            let destination = try client.openFile(
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let destination = try await client.openFile(
                 [.write, .create, .truncate],
                 path: outputPath,
                 permissions: .serverDefault
@@ -129,7 +129,7 @@ struct SFTPClientFileConvenience {
             try await source.close()
             try await destination.close()
 
-            let verification = try client.openFile(.read, path: outputPath, permissions: [])
+            let verification = try await client.openFile(.read, path: outputPath, permissions: [])
             let downloaded = try await Self.readAll(verification)
             try await verification.close()
 

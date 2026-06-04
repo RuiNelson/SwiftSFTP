@@ -1,30 +1,5 @@
 import Foundation
 
-/// Errors thrown by file upload and download convenience helpers.
-public enum FileTransferErrors: Error {
-    /// The transfer was cancelled by the progress callback.
-    case transferCancelled
-    /// The provided URL is not a local file URL.
-    case notAFileURL
-    /// The local source file does not exist.
-    case localFileNotFound
-    /// The transfer buffer size must be greater than zero.
-    case invalidBufferSize
-    /// The remote handle accepted fewer bytes than were read from the local file.
-    case shortWrite(expected: Int, actual: Int)
-
-    /// A remote upload target already exists.
-    case fileAlreadyExists(path: String)
-
-    /// A transfer tried to create a local or remote file where a directory already exists.
-    case tryingToCreateAFileWhereADirectoryExists(path: String)
-
-    /// The requested remote download source does not exist or is not a regular file.
-    case remoteFileNotFound(path: String)
-    
-    case remotePathIsADirectory(path: String)
-}
-
 /// Reports transfer progress as completed bytes, total bytes, last chunk size, and elapsed time since the last update.
 public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) -> Bool
 
@@ -118,7 +93,7 @@ public extension SFTPFileProtocol {
         let localPath = file.path(percentEncoded: false)
         var isDirectory = ObjCBool(false)
         if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory), isDirectory.boolValue {
-            throw FileTransferErrors.tryingToCreateAFileWhereADirectoryExists(path: localPath)
+            throw FileTransferErrors.remotePathIsADirectory(path: localPath)
         }
 
         try Data().write(to: file)

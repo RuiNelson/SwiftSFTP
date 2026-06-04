@@ -1,10 +1,11 @@
 import Foundation
+import PathWorks
 
 public extension SFTPClientProtocol {
     /// Uploads a local file to a new remote SFTP file.
     ///
-    /// The remote path must not already exist. The created remote file is closed before this method returns, including
-    /// when the transfer throws.
+    /// Parent directories in `remotePath` are created as needed. The remote file itself must not already exist. The
+    /// created remote file is closed before this method returns, including when the transfer throws.
     ///
     /// - Parameters:
     ///   - localURL: Local file URL to upload.
@@ -12,8 +13,8 @@ public extension SFTPClientProtocol {
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid local input, existing remote paths, cancellation, invalid buffer
-    /// sizes, or short writes; otherwise forwards SFTP errors.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, existing remote files, remote directory targets,
+    /// cancellation, invalid buffer sizes, or short writes; otherwise forwards SFTP errors.
     func upload(
         from localURL: URL,
         to remotePath: String,
@@ -21,17 +22,12 @@ public extension SFTPClientProtocol {
         permissions: POSIXPermissions = [.serverDefault],
         continuation: @escaping TransferProgress
     ) async throws {
-        let remoteStat = try await stat(path: remotePath, followLink: false)
-        if let remoteStat {
-            if remoteStat.isDirectory {
-                throw FileTransferErrors.tryingToCreateAFileWhereADirectoryExists(path: remotePath)
-            }
-            else {
-                throw FileTransferErrors.fileAlreadyExists(path: remotePath)
-            }
+        if remotePath.pathComponents.count >= 2 {
+            let directory = remotePath.removingLastPathComponent
+            try await createDirectory(path: directory, makePath: true, mode: .serverDefault)
         }
 
-        let handle = try openFile([.create, .write], path: remotePath, permissions: permissions)
+        let handle = try await openFile([.create, .write], path: remotePath, permissions: permissions)
         do {
             try await handle.write(from: localURL, bufferSize: bufferSize, continuation: continuation)
             try await handle.close()
@@ -52,29 +48,16 @@ public extension SFTPClientProtocol {
     ///   - localURL: Local file URL to create or overwrite.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid local input, missing remote files, cancellation, or invalid buffer
-    /// sizes; otherwise forwards `FileHandle` and SFTP errors.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, missing remote files, remote directory sources,
+    /// cancellation, or invalid buffer sizes; otherwise forwards `FileHandle` and SFTP errors.
     func download(
         from remotePath: String,
         to localURL: URL,
         bufferSize: Int = 512 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
+        let handle = try await openFile([.read], path: remotePath, permissions: [.serverDefault])
 
-        let remoteStat = try await stat(path: remotePath, followLink: false)
-        guard let remoteStat, remoteStat.isRegularFile else {
-            if remoteStat?.isDirectory ?? false {
-                throw FileTransferErrors.remotePathIsADirectory(path: remotePath)
-            }
-            else {
-                throw FileTransferErrors.remoteFileNotFound(path: remotePath)
-            }
-        }
-
-        let handle = try openFile([.read], path: remotePath, permissions: [.serverDefault])
         do {
             try await handle.read(to: localURL, bufferSize: bufferSize, continuation: continuation)
             try await handle.close()

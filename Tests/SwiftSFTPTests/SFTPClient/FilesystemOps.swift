@@ -283,7 +283,7 @@ struct SFTPClientFilesystemOps {
             let src = "\(dir)/original.txt"
             let dst = "\(dir)/renamed.txt"
 
-            let handle = try client.openFile([.write, .create], path: src, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: src, permissions: .serverDefault)
             try await handle.write(Data("hello".utf8))
             try await handle.close()
 
@@ -311,7 +311,7 @@ struct SFTPClientFilesystemOps {
             let src = "\(dir)/original.txt"
             let dst = "\(dir)/renamed.txt"
 
-            let handle = try client.openFile([.write, .create], path: src, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: src, permissions: .serverDefault)
             try await handle.write(Data("data".utf8))
             try await handle.close()
 
@@ -334,7 +334,7 @@ struct SFTPClientFilesystemOps {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/to-delete.txt"
-            let handle = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await handle.write(Data("x".utf8))
             try await handle.close()
 
@@ -370,7 +370,7 @@ struct SFTPClientFilesystemOps {
             try await client.createDirectory(path: sub, makePath: true, mode: .serverDefault)
 
             let file = "\(sub)/file.txt"
-            let handle = try client.openFile([.write, .create], path: file, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: file, permissions: .serverDefault)
             try await handle.write(Data("content".utf8))
             try await handle.close()
 
@@ -397,7 +397,7 @@ struct SFTPClientFilesystemOps {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let target = "\(dir)/target.txt"
-            let handle = try client.openFile([.write, .create], path: target, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: target, permissions: .serverDefault)
             try await handle.write(Data("hello".utf8))
             try await handle.close()
 

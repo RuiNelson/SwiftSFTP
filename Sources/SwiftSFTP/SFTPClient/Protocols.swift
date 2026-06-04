@@ -241,19 +241,21 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Opens a remote file and returns a handle object.
     ///
     /// The returned file handle must be closed independently with ``SFTPFileProtocol/close()``. The concrete
-    /// implementation passes `permissions` to libssh2 when creating files; otherwise it is ignored by the server.
+    /// implementation validates the remote path before opening: `.create` requires a missing path, while non-create
+    /// opens require an existing regular file. `permissions` is passed to libssh2 when creating files; otherwise it is
+    /// ignored by the server.
     ///
     /// - Parameters:
     ///   - flags: SFTP open flags such as read, write, create, truncate, append, or exclusive.
     ///   - path: Remote file path. The path is sanitized before use.
     ///   - permissions: POSIX mode to request when creating a file.
     /// - Returns: An open SFTP file handle.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: ``AlreadyClosed``, ``FileTransferErrors``, ``NotLoggedIn``, or libssh2/SFTP errors.
     func openFile(
         _ flags: OpenFlags,
         path: String,
         permissions: POSIXPermissions
-    ) throws -> any SFTPFileProtocol
+    ) async throws -> any SFTPFileProtocol
 }
 
 /// An open SFTP file handle.

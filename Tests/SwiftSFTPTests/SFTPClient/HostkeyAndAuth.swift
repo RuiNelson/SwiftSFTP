@@ -371,8 +371,8 @@ struct SFTPClientHostkeyAndAuth {
             await #expect(throws: AlreadyClosed.self) {
                 try await client.followLink(path: ".")
             }
-            #expect(throws: AlreadyClosed.self) {
-                try client.openFile(.read, path: ".")
+            await #expect(throws: AlreadyClosed.self) {
+                try await client.openFile(.read, path: ".")
             }
         }
     }

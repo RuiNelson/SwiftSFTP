@@ -9,7 +9,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("openFile for read returns handle")
     func openFileForRead() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             #expect(!handle.closed)
             try await handle.close()
             #expect(handle.closed)
@@ -23,7 +23,7 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/newfile.txt"
-            let handle = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await handle.close()
 
             let meta = try await client.statFile(path: filePath, followLink: false)
@@ -37,8 +37,8 @@ struct SFTPClientFileHandleTransfer {
     @Test("openFile with exclusive fails when file exists")
     func openFileExclusiveFails() async throws {
         try await withClient { client in
-            #expect(throws: (any Error).self) {
-                try client.openFile(
+            await #expect(throws: (any Error).self) {
+                try await client.openFile(
                     [.write, .create, .exclusive],
                     path: "\(TS.fixturesPath)/TINY.bin",
                     permissions: .serverDefault
@@ -52,8 +52,8 @@ struct SFTPClientFileHandleTransfer {
         try await withClient { client in
             try await client.close()
 
-            #expect(throws: AlreadyClosed.self) {
-                try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            await #expect(throws: AlreadyClosed.self) {
+                try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             }
         }
     }
@@ -63,7 +63,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read returns file contents")
     func readReturnsContents() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             let data = try await handle.read(upTo: 1024)
             let d = try #require(data)
             #expect(d.count == 1)
@@ -75,7 +75,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read returns nil at EOF")
     func readReturnsNilAtEOF() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             _ = try await handle.read(upTo: 1024)
             let pastEnd = try await handle.read(upTo: 1024)
             #expect(pastEnd == nil)
@@ -86,7 +86,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read zero bytes returns nil")
     func readZeroBytes() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             let data = try await handle.read(upTo: 0)
             #expect(data == nil)
             try await handle.close()
@@ -96,7 +96,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read empty file returns nil")
     func readEmptyFile() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/NO_DATA.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/NO_DATA.bin", permissions: [])
             let data = try await handle.read(upTo: 1024)
             #expect(data == nil)
             try await handle.close()
@@ -106,7 +106,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read SMALL.bin returns 1 KiB of 0xAA")
     func readSmallFile() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             let data = try await handle.read(upTo: 2048)
             let d = try #require(data)
             #expect(d.count == 1024)
@@ -118,7 +118,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("read DEADBEAF.bin returns 4 MiB")
     func readLargeFile4MiB() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/DEADBEAF.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/DEADBEAF.bin", permissions: [])
             var allData = Data()
             while let chunk = try await handle.read(upTo: 256 * 1024) {
                 allData.append(chunk)
@@ -136,7 +136,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("readAll reads entire DEADBEAF.bin and verifies pattern")
     func readAllLargeFile4MiB() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/DEADBEAF.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/DEADBEAF.bin", permissions: [])
             let data = try await handle.readAll()
             try await handle.close()
 
@@ -158,7 +158,7 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/written.bin"
-            let handle = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             let payload = Data("Hello SFTP".utf8)
             let written = try await handle.write(payload)
             #expect(written == payload.count)
@@ -177,7 +177,7 @@ struct SFTPClientFileHandleTransfer {
             let filePath = "\(dir)/roundtrip.bin"
             let payload = Data((0 ..< 256).map { UInt8($0) })
 
-            let writeHandle = try client.openFile(
+            let writeHandle = try await client.openFile(
                 [.write, .create, .truncate],
                 path: filePath,
                 permissions: .serverDefault
@@ -185,7 +185,7 @@ struct SFTPClientFileHandleTransfer {
             try await writeHandle.write(payload)
             try await writeHandle.close()
 
-            let readHandle = try client.openFile(.read, path: filePath, permissions: [])
+            let readHandle = try await client.openFile(.read, path: filePath, permissions: [])
             let readData = try await readHandle.read(upTo: 512)
             try await readHandle.close()
 
@@ -205,7 +205,7 @@ struct SFTPClientFileHandleTransfer {
             let filePath = "\(dir)/large.bin"
             let payload = Data((0 ..< (128 * 1024)).map { UInt8($0 % 256) })
 
-            let writeHandle = try client.openFile(
+            let writeHandle = try await client.openFile(
                 [.write, .create, .truncate],
                 path: filePath,
                 permissions: .serverDefault
@@ -214,7 +214,7 @@ struct SFTPClientFileHandleTransfer {
             #expect(written == payload.count)
             try await writeHandle.close()
 
-            let readHandle = try client.openFile(.read, path: filePath, permissions: [])
+            let readHandle = try await client.openFile(.read, path: filePath, permissions: [])
             var readData = Data()
             while let chunk = try await readHandle.read(upTo: 256 * 1024) {
                 readData.append(chunk)
@@ -235,15 +235,15 @@ struct SFTPClientFileHandleTransfer {
 
             let filePath = "\(dir)/append.txt"
 
-            let h1 = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let h1 = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await h1.write(Data("part1".utf8))
             try await h1.close()
 
-            let h2 = try client.openFile([.write, .create, .append], path: filePath, permissions: .serverDefault)
+            let h2 = try await client.openFile([.write, .append], path: filePath, permissions: .serverDefault)
             try await h2.write(Data("part2".utf8))
             try await h2.close()
 
-            let h3 = try client.openFile(.read, path: filePath, permissions: [])
+            let h3 = try await client.openFile(.read, path: filePath, permissions: [])
             let data = try await h3.read(upTo: 1024)
             try await h3.close()
 
@@ -262,15 +262,15 @@ struct SFTPClientFileHandleTransfer {
 
             let filePath = "\(dir)/trunc.txt"
 
-            let h1 = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let h1 = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await h1.write(Data("long original content".utf8))
             try await h1.close()
 
-            let h2 = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let h2 = try await client.openFile([.write, .truncate], path: filePath, permissions: .serverDefault)
             try await h2.write(Data("new".utf8))
             try await h2.close()
 
-            let h3 = try client.openFile(.read, path: filePath, permissions: [])
+            let h3 = try await client.openFile(.read, path: filePath, permissions: [])
             let data = try await h3.read(upTo: 1024)
             try await h3.close()
 
@@ -286,7 +286,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("position starts at zero for new handle")
     func positionStartsAtZero() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             #expect(handle.position == 0)
             try await handle.close()
         }
@@ -295,7 +295,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("position advances after read")
     func positionAdvancesAfterRead() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             _ = try await handle.read(upTo: 100)
             #expect(handle.position == 100)
             try await handle.close()
@@ -311,11 +311,15 @@ struct SFTPClientFileHandleTransfer {
             let filePath = "\(dir)/seek.bin"
             let payload = Data((0 ..< 256).map { UInt8($0) })
 
-            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
             try await wh.write(payload)
             try await wh.close()
 
-            var rh = try client.openFile(.read, path: filePath, permissions: [])
+            var rh = try await client.openFile(.read, path: filePath, permissions: [])
             rh.position = 200
             #expect(rh.position == 200)
 
@@ -334,7 +338,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("file handle close sets closed")
     func fileHandleClose() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             #expect(!handle.closed)
             try await handle.close()
             #expect(handle.closed)
@@ -344,7 +348,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("file handle double close is safe")
     func fileHandleDoubleClose() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             try await handle.close()
             try await handle.close()
             #expect(handle.closed)
@@ -354,7 +358,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("file operations throw AlreadyClosed after close")
     func fileOperationsThrowAlreadyClosed() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             try await handle.close()
 
             await #expect(throws: AlreadyClosed.self) {
@@ -380,7 +384,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("file stat returns attributes")
     func fileStatReturnsAttributes() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             let attrs = try await handle.stat
             #expect(attrs.flags.contains(.size))
             #expect(attrs.fileSize == 1024)
@@ -395,7 +399,11 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/setattr.txt"
-            let handle = try client.openFile([.write, .create], path: filePath, permissions: [.ownerRead, .ownerWrite])
+            let handle = try await client.openFile(
+                [.write, .create],
+                path: filePath,
+                permissions: [.ownerRead, .ownerWrite]
+            )
             try await handle.write(Data("x".utf8))
 
             var attrs = FileAttributes()
@@ -415,7 +423,7 @@ struct SFTPClientFileHandleTransfer {
     @Test("file statFilesystem returns VFS data")
     func fileStatFilesystem() async throws {
         try await withClient { client in
-            let handle = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             let stat = try await handle.statFilesystem
             #expect(stat.blocks > 0)
             #expect(stat.blockSize > 0)
@@ -432,7 +440,7 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/fsync.txt"
-            let handle = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await handle.write(Data("sync me".utf8))
             try await handle.fsync()
             try await handle.close()
@@ -450,15 +458,19 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/trunc.bin"
-            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
             try await wh.write(Data(repeating: 0xAB, count: 100))
             try await wh.close()
 
-            let h = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let h = try await client.openFile(.write, path: filePath, permissions: .serverDefault)
             try await h.truncate(toSize: 40)
             try await h.close()
 
-            let rh = try client.openFile(.read, path: filePath, permissions: [])
+            let rh = try await client.openFile(.read, path: filePath, permissions: [])
             let data = try await rh.readAll()
             try await rh.close()
 
@@ -477,11 +489,15 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/truncpos.bin"
-            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
             try await wh.write(Data(repeating: 0xFF, count: 100))
             try await wh.close()
 
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            let h = try await client.openFile(.write, path: filePath, permissions: [])
             #expect(h.position == 0)
             h.position = 80
             #expect(h.position == 80)
@@ -501,11 +517,15 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/truncext.bin"
-            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
             try await wh.write(Data("short".utf8))
             try await wh.close()
 
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            let h = try await client.openFile(.write, path: filePath, permissions: [])
             try await h.truncate(toSize: 200)
             try await h.close()
 
@@ -526,7 +546,7 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/perm.txt"
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [.ownerRead, .ownerWrite])
+            let h = try await client.openFile([.write, .create], path: filePath, permissions: [.ownerRead, .ownerWrite])
             try await h.write(Data("x".utf8))
             try await h.set(permissions: [.ownerReadWriteExecute])
             try await h.close()
@@ -546,11 +566,15 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/size.bin"
-            let wh = try client.openFile([.write, .create, .truncate], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
             try await wh.write(Data(repeating: 0x01, count: 100))
             try await wh.close()
 
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            let h = try await client.openFile(.write, path: filePath, permissions: [])
             try await h.set(fileSize: 30)
             try await h.close()
 
@@ -569,12 +593,12 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/mtime.txt"
-            let wh = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await wh.write(Data("t".utf8))
             try await wh.close()
 
             let newTime = Date(timeIntervalSince1970: 1_700_000_000)
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            let h = try await client.openFile(.write, path: filePath, permissions: [])
             try await h.set(modificationTime: newTime)
             try await h.close()
 
@@ -594,11 +618,11 @@ struct SFTPClientFileHandleTransfer {
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             let filePath = "\(dir)/noop.txt"
-            let wh = try client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
+            let wh = try await client.openFile([.write, .create], path: filePath, permissions: .serverDefault)
             try await wh.write(Data("data".utf8))
             try await wh.close()
 
-            let h = try client.openFile([.write, .create], path: filePath, permissions: [])
+            let h = try await client.openFile(.write, path: filePath, permissions: [])
             try await h.set()
             try await h.close()
 
@@ -615,8 +639,8 @@ struct SFTPClientFileHandleTransfer {
     @Test("file handle id is unique")
     func fileHandleIDIsUnique() async throws {
         try await withClient { client in
-            let h1 = try client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
-            let h2 = try client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+            let h1 = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            let h2 = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             #expect(ObjectIdentifier(h1 as AnyObject) != ObjectIdentifier(h2 as AnyObject))
             try await h1.close()
             try await h2.close()
