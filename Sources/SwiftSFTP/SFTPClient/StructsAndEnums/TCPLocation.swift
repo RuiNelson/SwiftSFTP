@@ -64,82 +64,18 @@ extension TCPLocation {
 // MARK: - Private helpers
 
 private func isIPv4Address(_ string: String) -> Bool {
-    let components = string.split(separator: ".", omittingEmptySubsequences: false)
-    
-    guard components.count == 4 else {
-        return false
-    }
-    
-    for component in components {
-        let valueString = String(component)
-        
-        guard let value = Int(valueString), value >= 0, value <= 255 else {
-            return false
-        }
-        
-        if valueString.count > 1, valueString.hasPrefix("0") {
-            return false
-        }
-    }
-    
-    return true
+    var addr = in_addr()
+    return inet_pton(AF_INET, string, &addr) == 1
 }
 
 private func isIPv6Address(_ string: String) -> Bool {
-    var string = string
-    
-    if let percentIndex = string.firstIndex(of: "%") {
-        string = String(string[..<percentIndex])
+    var s = string
+    // Strip zone ID (e.g. "fe80::1%en0") — inet_pton does not accept it.
+    if let percentIndex = s.firstIndex(of: "%") {
+        s = String(s[..<percentIndex])
     }
-    
-    var containsDoubleColon = string.contains("::")
-    let colonCount = string.count(where: { $0 == ":" })
-    
-    if containsDoubleColon {
-        if string.hasPrefix("::") {
-            containsDoubleColon = (colonCount <= 7)
-        }
-        else if string.hasSuffix("::") {
-            containsDoubleColon = (colonCount <= 7)
-        }
-        else {
-            containsDoubleColon = (colonCount <= 6)
-        }
-    }
-    else {
-        containsDoubleColon = (colonCount == 7)
-    }
-    
-    if containsDoubleColon {
-        let pattern = #"^([0-9a-fA-F]{1,4}:){0,7}[0-9a-fA-F]{0,4}$|^:([0-9a-fA-F]{1,4}:){0,7}[0-9a-fA-F]{0,4}$|^([0-9a-fA-F]{1,4}:){1,7}:$|^::$"#
-        if string.range(of: pattern, options: .regularExpression) != nil {
-            return true
-        }
-    }
-    
-    let fullPattern = #"^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$"#
-    if string.range(of: fullPattern, options: .regularExpression) != nil {
-        return true
-    }
-    
-    if string.contains(".") {
-        let lastColonIndex = string.lastIndex(of: ":")
-        guard let lastColon = lastColonIndex else { return false }
-        let ipv6Part = String(string[..<lastColon])
-        let ipv4Part = String(string[string.index(after: lastColon)...])
-        
-        let ipv4Pattern = #"^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"#
-        if ipv6Part == "::" || ipv6Part == "" {
-            return ipv4Part.range(of: ipv4Pattern, options: .regularExpression) != nil
-        }
-        
-        let embeddedIPv6Pattern = #"^([0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}$"#
-        if ipv6Part.range(of: embeddedIPv6Pattern, options: .regularExpression) != nil {
-            return ipv4Part.range(of: ipv4Pattern, options: .regularExpression) != nil
-        }
-    }
-    
-    return false
+    var addr = in6_addr()
+    return inet_pton(AF_INET6, s, &addr) == 1
 }
 
 private func isValidHostname(_ string: String) -> Bool {

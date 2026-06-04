@@ -1,6 +1,7 @@
 # 011 — Lógica confusa com reatribuição de variável em `isIPv6Address`
 
 **Severidade:** Baixa  
+**Status:** Resolvido (substituído por inet_pton)  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/StructsAndEnums/TCPLocation.swift:95-108`
 
 ## Descrição
