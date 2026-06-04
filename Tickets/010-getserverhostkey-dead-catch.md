@@ -1,6 +1,7 @@
 # 010 — Dead code: `catch { throw error }` em `getServerHostKey`
 
 **Severidade:** Média  
+**Status:** Resolvido  
 **Arquivo:** `Sources/SwiftSFTP/SFTPClient/SFTPClient.swift:122-124`
 
 ## Descrição

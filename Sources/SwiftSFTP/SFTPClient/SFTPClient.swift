@@ -101,26 +101,21 @@ public final class SFTPClient: SFTPClientProtocol {
 
         SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
 
-        do {
-            let socket = try SessionHandshakeTCP(
-                session: session,
-                host: openSocketIn.trimmedHostname,
-                port: openSocketIn.port
-            )
+        let socket = try SessionHandshakeTCP(
+            session: session,
+            host: openSocketIn.trimmedHostname,
+            port: openSocketIn.port
+        )
 
-            defer { try? CloseSocket(socket) }
+        defer { try? CloseSocket(socket) }
 
-            let shortHand = try SessionHostKeyString(session: session)
+        let shortHand = try SessionHostKeyString(session: session)
 
-            if shortHandForm {
-                return shortHand
-            }
-            else {
-                return "\(openSocketIn.knownHostsHost) \(shortHand)"
-            }
+        if shortHandForm {
+            return shortHand
         }
-        catch {
-            throw error
+        else {
+            return "\(openSocketIn.knownHostsHost) \(shortHand)"
         }
     }
 
