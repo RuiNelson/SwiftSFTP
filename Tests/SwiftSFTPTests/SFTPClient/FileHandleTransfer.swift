@@ -338,7 +338,7 @@ struct SFTPClientFileHandleTransfer {
             try await wh.write(payload)
             try await wh.close()
 
-            var rh = try await client.openFile(.read, path: filePath, permissions: [])
+            let rh = try await client.openFile(.read, path: filePath, permissions: [])
             rh.offset = 200
             #expect(rh.offset == 200)
 

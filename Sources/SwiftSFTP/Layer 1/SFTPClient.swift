@@ -3,19 +3,30 @@ import OSLog
 import PathWorks
 
 public final class SFTPClient: SFTPClientProtocol {
+    // MARK: Identity
+
     public let id = UUID()
+
+    // MARK: libssh2 handles
 
     nonisolated(unsafe) let session: LibSSH2Session
     private nonisolated(unsafe) var _closed: Bool = false
     private nonisolated(unsafe) var _sftp: LibSSH2SFTP?
     private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
 
+    // MARK: Configuration
+
     private let tcpLocation: TCPLocation
     private let operationsTimeOut: TimeInterval?
     private let logger: Logger?
     private let trapOnDeInitWithoutClose: Bool
     let authentication: UserAuthentication
+
+    // MARK: Concurrency
+
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
+
+    // MARK: Initialization
 
     public init(
         openSocketIn: TCPLocation,
@@ -86,7 +97,22 @@ public final class SFTPClient: SFTPClientProtocol {
         SessionSetBlocking(session: session, blocking: true)
     }
 
-    public static func getServerHostKey(
+    deinit {
+        let closed = internalStateQueue.sync {
+            _closed
+        }
+
+        if trapOnDeInitWithoutClose, !closed {
+            logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
+            raise(SIGTRAP)
+        }
+    }
+}
+
+// MARK: SFTPClientProtocol + Static
+
+public extension SFTPClient {
+    static func getServerHostKey(
         openSocketIn: TCPLocation,
         timeOut: TimeInterval = 10.0,
         shortHandForm: Bool = true
@@ -94,7 +120,7 @@ public final class SFTPClient: SFTPClientProtocol {
         guard timeOut > 0, timeOut.isFinite else {
             throw SFTPClientInvalidConfig.invalidTimeOutValue
         }
-        
+
         let session = try SessionInit()
         defer { try? SessionFree(session: session) }
 
@@ -111,12 +137,12 @@ public final class SFTPClient: SFTPClientProtocol {
             host: openSocketIn.trimmedHostname,
             port: openSocketIn.port
         )
-        
+
         defer { try? SessionDisconnect(session: session, description: "Goodbye") }
         defer { try? CloseSocket(socket) }
-        
+
         let shortHand = try SessionHostKeyString(session: session)
-        
+
         if shortHandForm {
             return shortHand
         }
@@ -124,27 +150,16 @@ public final class SFTPClient: SFTPClientProtocol {
             return "\(openSocketIn.knownHostsHost) \(shortHand)"
         }
     }
+}
 
-    /// Returns the SFTP Session or throws NotLoggedIn if inexistent
-    private var sftp: LibSSH2SFTP {
-        get throws {
-            let session = internalStateQueue.sync {
-                _sftp
-            }
+// MARK: SFTPClientProtocol + Connection
 
-            guard let session else {
-                throw NotLoggedIn()
-            }
-
-            return session
-        }
-    }
-
-    public func login(timeOut: TimeInterval = 10.0) async throws {
+public extension SFTPClient {
+    func login(timeOut: TimeInterval = 10.0) async throws {
         guard timeOut > 0, timeOut.isFinite else {
             throw SFTPClientInvalidConfig.invalidTimeOutValue
         }
-        
+
         try checkClosed()
 
         let alreadyLoggedIn = internalStateQueue.sync { _sftp != nil }
@@ -177,7 +192,7 @@ public final class SFTPClient: SFTPClientProtocol {
         }
     }
 
-    public func close() async throws {
+    func close() async throws {
         try internalStateQueue.sync {
             guard _closed == false else {
                 logger?.warning("Trying to close SFTPClient that was already closed")
@@ -211,34 +226,17 @@ public final class SFTPClient: SFTPClientProtocol {
         }
     }
 
-    public var closed: Bool {
+    var closed: Bool {
         internalStateQueue.sync {
             _closed
         }
     }
+}
 
-    func checkClosed() throws(AlreadyClosed) {
-        let status = internalStateQueue.sync {
-            _closed
-        }
+// MARK: SFTPClientProtocol + Session
 
-        if status {
-            throw AlreadyClosed()
-        }
-    }
-
-    deinit {
-        let closed = internalStateQueue.sync {
-            _closed
-        }
-
-        if trapOnDeInitWithoutClose, !closed {
-            logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
-        }
-    }
-
-    public var banner: String {
+public extension SFTPClient {
+    var banner: String {
         get async throws {
             try checkClosed()
 
@@ -250,7 +248,7 @@ public final class SFTPClient: SFTPClientProtocol {
         }
     }
 
-    public var latency: TimeInterval {
+    var latency: TimeInterval {
         get async throws {
             try checkClosed()
 
@@ -259,8 +257,12 @@ public final class SFTPClient: SFTPClientProtocol {
             return Date().timeIntervalSince(start)
         }
     }
+}
 
-    public var currentWorkingDirectory: String {
+// MARK: SFTPClientProtocol + Inspection
+
+public extension SFTPClient {
+    var currentWorkingDirectory: String {
         get async throws {
             try checkClosed()
 
@@ -268,7 +270,7 @@ public final class SFTPClient: SFTPClientProtocol {
         }
     }
 
-    public func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
+    func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
         try checkClosed()
 
         var sanitizedPath = path.sanitizePath
@@ -281,7 +283,29 @@ public final class SFTPClient: SFTPClientProtocol {
         return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
     }
 
-    public func stat(path: String, followLink: Bool = false) async throws -> FileMetadata? {
+    func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
+        try checkClosed()
+
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
+              metadata.isRegularFile else {
+            return nil
+        }
+
+        return metadata
+    }
+
+    func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata? {
+        try checkClosed()
+
+        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
+              metadata.isDirectory else {
+            return nil
+        }
+
+        return metadata
+    }
+
+    func stat(path: String, followLink: Bool = false) async throws -> FileMetadata? {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
@@ -293,13 +317,17 @@ public final class SFTPClient: SFTPClientProtocol {
             ?? FileMetadata(fileName: sanitizedPath, directory: "", attributes: attributes)
     }
 
-    public func filesystemStat(path: String) async throws -> FilesystemStat {
+    func filesystemStat(path: String) async throws -> FilesystemStat {
         try checkClosed()
 
         return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
     }
+}
 
-    public func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions = [.serverDefault]) async throws {
+// MARK: SFTPClientProtocol + File and directory operations
+
+public extension SFTPClient {
+    func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions = [.serverDefault]) async throws {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
@@ -329,13 +357,20 @@ public final class SFTPClient: SFTPClientProtocol {
         try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
     }
 
-    public func rename(from: String, to: String) async throws {
+    func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws {
+        try checkClosed()
+
+        let sanitizedPath = path.sanitizePath
+        try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
+    }
+
+    func rename(from: String, to: String) async throws {
         try checkClosed()
 
         try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
     }
 
-    public func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
+    func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
         try checkClosed()
 
         try SFTPRename(
@@ -346,19 +381,19 @@ public final class SFTPClient: SFTPClientProtocol {
         )
     }
 
-    public func deleteFile(path: String) async throws {
+    func deleteFile(path: String) async throws {
         try checkClosed()
 
         try SFTPUnlink(sftp: sftp, filename: path.sanitizePath)
     }
 
-    public func deleteDirectory(path: String) async throws {
+    func deleteDirectory(path: String) async throws {
         try checkClosed()
 
         try SFTPRmdir(sftp: sftp, path: path.sanitizePath)
     }
 
-    public func delete(path: String) async throws {
+    func delete(path: String) async throws {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
@@ -377,8 +412,12 @@ public final class SFTPClient: SFTPClientProtocol {
             try await deleteFile(path: sanitizedPath)
         }
     }
+}
 
-    public func followLink(path: String) async throws -> String {
+// MARK: SFTPClientProtocol + Symlinks
+
+public extension SFTPClient {
+    func followLink(path: String) async throws -> String {
         try checkClosed()
 
         guard let target = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink) else {
@@ -388,42 +427,17 @@ public final class SFTPClient: SFTPClientProtocol {
         return target
     }
 
-    public func createSymLink(path: String, destination: String) async throws {
+    func createSymLink(path: String, destination: String) async throws {
         try checkClosed()
 
         _ = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, target: destination.sanitizePath, linkType: .symlink)
     }
+}
 
-    public func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
-        try checkClosed()
+// MARK: SFTPClientProtocol + Files
 
-        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
-              metadata.isRegularFile else {
-            return nil
-        }
-
-        return metadata
-    }
-
-    public func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata? {
-        try checkClosed()
-
-        guard let metadata = try await stat(path: path.sanitizePath, followLink: followLink),
-              metadata.isDirectory else {
-            return nil
-        }
-
-        return metadata
-    }
-
-    public func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws {
-        try checkClosed()
-
-        let sanitizedPath = path.sanitizePath
-        try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
-    }
-
-    public func openFile(
+public extension SFTPClient {
+    func openFile(
         _ flags: OpenFlags,
         path: String,
         permissions: POSIXPermissions = [.serverDefault]
@@ -466,6 +480,37 @@ public final class SFTPClient: SFTPClientProtocol {
         )
     }
 }
+
+// MARK: Private state
+
+private extension SFTPClient {
+    /// Returns the SFTP Session or throws NotLoggedIn if inexistent
+    var sftp: LibSSH2SFTP {
+        get throws {
+            let session = internalStateQueue.sync {
+                _sftp
+            }
+
+            guard let session else {
+                throw NotLoggedIn()
+            }
+
+            return session
+        }
+    }
+
+    func checkClosed() throws(AlreadyClosed) {
+        let status = internalStateQueue.sync {
+            _closed
+        }
+
+        if status {
+            throw AlreadyClosed()
+        }
+    }
+}
+
+// MARK: Private implementation
 
 private extension SFTPClient {
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {

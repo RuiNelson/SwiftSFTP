@@ -20,11 +20,9 @@ struct Cookbook {
         }
         defer { try? FileManager.default.removeItem(at: URL(filePath: "myfile.zip")) }
 
-        //
         // Example to be included in `README.md`
         //
         // A simple quick-start example to "sell" the library to users
-        //
 
         // - Instantiate a SFTP client
         
