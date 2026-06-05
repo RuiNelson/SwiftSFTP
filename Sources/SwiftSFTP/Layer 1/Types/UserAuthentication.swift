@@ -3,6 +3,11 @@ import Foundation
 public struct UserAuthentication: Codable, Equatable, Sendable {
     let name: String
     let auth: UserAuthenticationMode
+    
+    public init(name: String, auth: UserAuthenticationMode) {
+        self.name = name
+        self.auth = auth
+    }
 }
 
 public enum UserAuthenticationMode: Codable, Equatable, Sendable {
