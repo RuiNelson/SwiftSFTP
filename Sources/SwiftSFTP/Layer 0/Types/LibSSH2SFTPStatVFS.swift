@@ -29,7 +29,7 @@ public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
     }
 }
 
-extension LibSSH2SFTPStatVFS {
+public extension LibSSH2SFTPStatVFS {
     var freeSize: UInt64 {
         blockSize * freeBlocks
     }
