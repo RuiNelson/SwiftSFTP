@@ -272,6 +272,41 @@ public extension SFTPClient {
             _closed
         }
     }
+    
+    var timeout: TimeInterval {
+        get {
+            guard !closed else {
+                return .zero
+            }
+            
+            let value = SessionGetTimeout(session: session)
+            
+            if value == 0 {
+                return .infinity
+            }
+            else {
+                return TimeInterval(value) / 1000.0
+            }
+        }
+        set {
+            guard !closed else {
+                return
+            }
+            
+            guard newValue != .infinity else {
+                SessionSetTimeout(session: session, timeoutMilliseconds: 0)
+                return
+            }
+            
+            guard !newValue.isInfinite, newValue > 0 else {
+                return
+            }
+            
+            let intValue = Int((newValue * 1000).rounded())
+            
+            SessionSetTimeout(session: session, timeoutMilliseconds: intValue)
+        }
+    }
 }
 
 // MARK: SFTPClientProtocol + Session

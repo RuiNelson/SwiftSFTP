@@ -91,6 +91,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
     var latency: TimeInterval { get async throws }
+    
+    /// Gets/Sets the session's timeout interval
+    ///
+    /// Non-positive numbers will be ignored, set to positive infinity to disable timeout.  Silent no-op if the session
+    /// was closed
+    var timeout: TimeInterval { get set }
 
     // MARK: Inspection
 
