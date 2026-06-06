@@ -298,7 +298,7 @@ public extension SFTPClient {
                 return
             }
             
-            guard !newValue.isInfinite, newValue > 0 else {
+            guard newValue.isFinite, newValue > 0 else {
                 return
             }
             
