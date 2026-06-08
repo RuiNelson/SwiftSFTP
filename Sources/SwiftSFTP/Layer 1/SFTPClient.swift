@@ -1,5 +1,5 @@
 import Foundation
-import OSLog
+import Logging
 import PathWorks
 
 public final class SFTPClient: SFTPClientProtocol {

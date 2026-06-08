@@ -20,6 +20,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
     targets: [
         .binaryTarget(
@@ -107,6 +108,7 @@ let package = Package(
                 "libssh2",
                 "OpenSSLCrypto",
                 .product(name: "PathWorks", package: "PathWorks"),
+                .product(name: "Logging", package: "swift-log"),
             ]
         ),
         .testTarget(

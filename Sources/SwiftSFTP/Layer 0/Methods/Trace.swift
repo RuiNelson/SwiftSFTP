@@ -1,8 +1,8 @@
 import Foundation
 import libssh2
-import OSLog
+import Logging
 
-private let _traceLogger = Logger(subsystem: "com.ruinelson.SwiftSFTP", category: "libssh2.trace")
+private let _traceLogger = Logger(label: "com.ruinelson.SwiftSFTP.libssh2.trace")
 
 private let _traceLoggerHandler: LibSSH2TraceHandler = { _, _, data, length in
     guard
@@ -11,7 +11,7 @@ private let _traceLoggerHandler: LibSSH2TraceHandler = { _, _, data, length in
     }
 
     let message = String(decoding: data.data(count: length), as: UTF8.self)
-    _traceLogger.trace("\(message, privacy: .public)")
+    _traceLogger.trace("\(message)")
 }
 
 /// Receives libssh2 trace output for a session.
@@ -60,11 +60,11 @@ public func TraceSetHandler(
     )
 }
 
-/// Enables tracing and sends trace output to Swift's unified logger.
+/// Enables tracing and sends trace output to a swift-log logger.
 ///
-/// Trace bytes are decoded as UTF-8 and logged at `trace` level with the
-/// `com.ruinelson.SwiftSFTP` subsystem and `libssh2.trace` category. Invalid
-/// UTF-8 bytes are replaced using Swift's standard decoding behavior.
+/// Trace bytes are decoded as UTF-8 and logged at `trace` level with the label
+/// `com.ruinelson.SwiftSFTP.libssh2.trace`. Invalid UTF-8 bytes are replaced
+/// using Swift's standard decoding behavior.
 ///
 /// - Parameters:
 ///   - session: The session to configure tracing on.

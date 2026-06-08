@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 
 /// An open SFTP file handle.
 ///

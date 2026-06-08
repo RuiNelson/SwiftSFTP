@@ -76,7 +76,7 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
-| `logger` | `Logger?` | `nil` | OSLog logger for close/deinit warnings |
+| `logger` | `Logger?` | `nil` | swift-log logger for close/deinit warnings |
 | `trapOnDeInitWithoutClose` | `Bool` | `true` | `SIGTRAP` if deinit without `close()` (`SFTPClient.init` defaults to `false`) |
 
 ### Closing the connection

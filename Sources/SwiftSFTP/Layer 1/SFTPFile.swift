@@ -1,5 +1,5 @@
 import Foundation
-import OSLog
+import Logging
 
 public final class SFTPFile: SFTPFileProtocol {
     // MARK: Handle and parent
