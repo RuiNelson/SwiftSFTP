@@ -24,7 +24,7 @@ public extension SFTPFileProtocol {
             throw FileTransferErrors.invalidBufferSize
         }
 
-        let localPath = file.path(percentEncoded: false)
+        let localPath = file.path
         guard FileManager.default.fileExists(atPath: localPath) else {
             throw FileTransferErrors.localFileNotFound
         }
@@ -91,7 +91,7 @@ public extension SFTPFileProtocol {
             throw FileTransferErrors.invalidBufferSize
         }
 
-        let localPath = file.path(percentEncoded: false)
+        let localPath = file.path
         var isDirectory = ObjCBool(false)
         if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory) {
             if isDirectory.boolValue {

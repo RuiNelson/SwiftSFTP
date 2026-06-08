@@ -2,7 +2,7 @@ import Foundation
 
 extension FileManager {
     func localFileSize(at url: URL) throws -> Int64 {
-        try localFileSize(atPath: url.path(percentEncoded: false))
+        try localFileSize(atPath: url.path)
     }
 
     func localFileSize(atPath path: String) throws -> Int64 {

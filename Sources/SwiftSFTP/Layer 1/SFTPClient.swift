@@ -62,7 +62,7 @@ public final class SFTPClient: SFTPClientProtocol {
             }
 
         case let .privateKeyFile(file, _):
-            let filePath = file.path(percentEncoded: false)
+            let filePath = file.path
             guard FileManager.default.fileExists(atPath: filePath) else {
                 throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
             }

@@ -23,7 +23,7 @@ extension SFTPClient {
                 
             case let .loadFromFile(file):
                 let kH = try KnownHostInit(session: session)
-                _ = try KnownHostReadFile(hosts: kH, filename: file.path(percentEncoded: false))
+                _ = try KnownHostReadFile(hosts: kH, filename: file.path)
                 
             case let .loadFromFileString(str):
                 let kH = try KnownHostInit(session: session)

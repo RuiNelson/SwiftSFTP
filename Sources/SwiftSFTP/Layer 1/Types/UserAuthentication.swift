@@ -43,7 +43,7 @@ extension SFTPClient {
                 session: session,
                 username: username,
                 publicKeyPath: nil,
-                privateKeyPath: file.path(percentEncoded: false),
+                privateKeyPath: file.path,
                 passphrase: passphrase
             )
         }
