@@ -10,7 +10,7 @@ struct Hostkeys {
             firstConnection = try connectToTestServer()
         }
         catch {
-            Issue.record("Could not reach: \(error)", severity: .error)
+            Issue.record("Could not reach: \(error)")
             return
         }
         defer { firstConnection.close() }

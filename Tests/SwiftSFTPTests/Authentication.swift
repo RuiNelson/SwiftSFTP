@@ -62,7 +62,7 @@ struct Authentication {
             sftp = try SFTPInit(session: session)
         }
         catch {
-            Issue.record("SFTPInit failed: \(error)", severity: .error)
+            Issue.record("SFTPInit failed: \(error)")
             throw error
         }
         defer { try? SFTPShutdown(sftp: sftp) }
@@ -253,7 +253,7 @@ private func requireTestServer() -> Bool {
         return true
     }
     catch {
-        Issue.record("Test server unavailable: \(error)", severity: .error)
+        Issue.record("Test server unavailable: \(error)")
         return false
     }
 }
@@ -280,7 +280,7 @@ private func loadPrivateKeysFromTestServer() throws -> [String: [Authentication.
         return keys
     }
     catch {
-        Issue.record("Could not load keys from test server: \(error)", severity: .error)
+        Issue.record("Could not load keys from test server: \(error)")
         return nil
     }
 }
