@@ -168,15 +168,15 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Throws: ``AlreadyClosed``, ``FileTransferErrors``, ``NotLoggedIn``, or libssh2/SFTP errors.
     func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws
 
-    /// Sets attributes on an existing remote directory.
+    /// Sets attributes on an existing remote filesystem object.
     ///
-    /// The concrete implementation applies path-based `setstat` to the directory.
+    /// The concrete implementation applies path-based `setstat` to the path.
     ///
     /// - Parameters:
-    ///   - path: Remote directory path. The path is sanitized before use.
+    ///   - path: Remote path to modify. The path is sanitized before use.
     ///   - attributes: Attributes to write. Only fields selected by `attributes.flags` are sent.
     /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
-    func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws
+    func setAttributes(path: String, attributes: FileAttributes) async throws
 
     /// Renames or moves a remote filesystem object using the OpenSSH POSIX rename extension.
     ///

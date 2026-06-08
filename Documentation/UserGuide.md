@@ -222,6 +222,19 @@ let dirMeta  = try await client.statDirectory(path: "/data", followLink: false)
 
 All stat methods return `FileMetadata?` — `nil` when the path does not exist.
 
+### Set attributes
+
+Sets attributes on any remote path (file, directory, or symlink) using path-based `setstat`. Only fields selected in `attributes.flags` are sent to the server.
+
+```swift
+var attrs = FileAttributes()
+attrs.flags = .permissions
+attrs.permissions = [.ownerRead, .ownerWrite, .groupRead]
+try await client.setAttributes(path: "/data/report.pdf", attributes: attrs)
+```
+
+For an open file handle, use `file.set(_:)` instead.
+
 ### Check latency
 
 ```swift

@@ -433,7 +433,7 @@ public extension SFTPClient {
         try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
     }
 
-    func setDirectoryAttributes(path: String, attributes: FileAttributes) async throws {
+    func setAttributes(path: String, attributes: FileAttributes) async throws {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath

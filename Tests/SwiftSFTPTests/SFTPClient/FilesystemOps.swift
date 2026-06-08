@@ -282,12 +282,12 @@ struct SFTPClientFilesystemOps {
         }
     }
 
-    // MARK: - setDirectoryAttributes
+    // MARK: - setAttributes
 
-    @Test("setDirectoryAttributes modifies permissions")
-    func setDirectoryAttributes() async throws {
+    @Test("setAttributes modifies directory permissions")
+    func setAttributesDirectory() async throws {
         try await withClient { client in
-            let path = uniqueRemotePath("setattr")
+            let path = uniqueRemotePath("setattr-dir")
             try await client.createDirectory(
                 path: path,
                 makePath: false,
@@ -297,13 +297,37 @@ struct SFTPClientFilesystemOps {
             var attrs = FileAttributes()
             attrs.flags = .permissions
             attrs.permissions = [.ownerReadWriteExecute, .groupRead, .groupExecute, .otherRead, .otherExecute]
-            try await client.setDirectoryAttributes(path: path, attributes: attrs)
+            try await client.setAttributes(path: path, attributes: attrs)
 
             let after = try await client.statDirectory(path: path, followLink: false)
             let m = try #require(after)
             #expect(m.attributes.permissions.contains(.groupExecute))
 
             try await client.deleteDirectory(path: path)
+        }
+    }
+
+    @Test("setAttributes modifies file permissions")
+    func setAttributesFile() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("setattr-file")
+            let path = "\(dir)/file.txt"
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let handle = try await client.openFile([.write, .create], path: path, permissions: .serverDefault)
+            try await handle.write(Data("content".utf8))
+            try await handle.close()
+
+            var attrs = FileAttributes()
+            attrs.flags = .permissions
+            attrs.permissions = [.ownerRead, .groupRead, .otherRead]
+            try await client.setAttributes(path: path, attributes: attrs)
+
+            let after = try await client.statFile(path: path, followLink: false)
+            let m = try #require(after)
+            #expect(!m.attributes.permissions.contains(.ownerWrite))
+            #expect(m.attributes.permissions.contains(.ownerRead))
+
+            try await client.delete(path: dir)
         }
     }
 
