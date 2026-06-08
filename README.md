@@ -1,7 +1,12 @@
 # SwiftSFTP
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
+[![macOS](https://img.shields.io/badge/macOS-11+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
 
 ![SwiftSFTP Banner](Documentation/banner.jpg)
 
@@ -116,4 +121,4 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 
 ## License
 
-SwiftSFTP is available under the MIT license. See the [LICENSE](LICENSE) file for more info.
+SwiftSFTP is available under the Apache License 2.0. See the [LICENSE](LICENSE) file for more info.
