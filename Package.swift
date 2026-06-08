@@ -3,6 +3,55 @@
 
 import PackageDescription
 
+let applePlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS]
+
+#if os(Linux)
+let opensslTargets: [Target] = [
+    .systemLibrary(
+        name: "COpenSSL",
+        path: "Sources/OpenSSL",
+        providers: [
+            .apt(["libssl-dev"]),
+            .yum(["openssl-devel"]),
+        ]
+    ),
+]
+
+let libssh2OpenSSLDependencies: [Target.Dependency] = [
+    "COpenSSL",
+]
+
+let swiftSFTPOpenSSLDependencies: [Target.Dependency] = [
+    "COpenSSL",
+]
+
+let libssh2LinkerSettings: [LinkerSetting] = [
+    .linkedLibrary("ssl"),
+    .linkedLibrary("crypto"),
+]
+#else
+let opensslTargets: [Target] = [
+    .binaryTarget(
+        name: "OpenSSLCrypto",
+        path: "Artifacts/OpenSSL/OpenSSLCrypto.xcframework"
+    ),
+    .binaryTarget(
+        name: "OpenSSLSSL",
+        path: "Artifacts/OpenSSL/OpenSSLSSL.xcframework"
+    ),
+]
+
+let libssh2OpenSSLDependencies: [Target.Dependency] = [
+    "OpenSSLCrypto",
+]
+
+let swiftSFTPOpenSSLDependencies: [Target.Dependency] = [
+    "OpenSSLCrypto",
+]
+
+let libssh2LinkerSettings: [LinkerSetting] = []
+#endif
+
 let package = Package(
     name: "SwiftSFTP",
     platforms: [
@@ -22,18 +71,10 @@ let package = Package(
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
-    targets: [
-        .binaryTarget(
-            name: "OpenSSLCrypto",
-            path: "Artifacts/OpenSSL/OpenSSLCrypto.xcframework"
-        ),
-        .binaryTarget(
-            name: "OpenSSLSSL",
-            path: "Artifacts/OpenSSL/OpenSSLSSL.xcframework"
-        ),
+    targets: opensslTargets + [
         .target(
             name: "libssh2",
-            dependencies: ["OpenSSLCrypto"],
+            dependencies: libssh2OpenSSLDependencies,
             path: "vendor/libssh2",
             exclude: [
                 ".github",
@@ -100,20 +141,24 @@ let package = Package(
                 .define("HAVE_SYS_UIO_H"),
                 .define("HAVE_UNISTD_H"),
                 .define("LIBSSH2_OPENSSL"),
-            ]
+            ],
+            linkerSettings: libssh2LinkerSettings
         ),
         .target(
             name: "SwiftSFTP",
             dependencies: [
                 "libssh2",
-                "OpenSSLCrypto",
+            ] + swiftSFTPOpenSSLDependencies + [
                 .product(name: "PathWorks", package: "PathWorks"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
         .testTarget(
             name: "SwiftSFTPTests",
-            dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"]
+            dependencies: [
+                "SwiftSFTP",
+                "libssh2",
+            ] + swiftSFTPOpenSSLDependencies
         ),
     ],
     swiftLanguageModes: [.v6]

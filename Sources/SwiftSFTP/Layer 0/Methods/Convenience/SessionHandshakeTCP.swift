@@ -24,16 +24,7 @@ public func CloseSocket(_ socket: SwiftSFTPSocket) throws {
 /// - Returns: The connected socket descriptor.
 /// - Throws: ``LibSSH2Error`` for address lookup, connection, or handshake failures.
 public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int) throws -> SwiftSFTPSocket {
-    var hints = addrinfo(
-        ai_flags: 0,
-        ai_family: AF_UNSPEC,
-        ai_socktype: SOCK_STREAM,
-        ai_protocol: IPPROTO_TCP,
-        ai_addrlen: 0,
-        ai_canonname: nil,
-        ai_addr: nil,
-        ai_next: nil
-    )
+    var hints = tcpAddrInfoHints()
     var results: UnsafeMutablePointer<addrinfo>?
     let lookupResult = getaddrinfo(host, String(port), &hints, &results)
     guard lookupResult == 0, let results else {

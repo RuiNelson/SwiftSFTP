@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import libssh2
 import Testing
@@ -161,16 +160,7 @@ private func authenticateBulbasaur(session: OpaquePointer, methods: String?) thr
 }
 
 private func connectTCP(host: String, port: Int) throws -> Int32 {
-    var hints = addrinfo(
-        ai_flags: 0,
-        ai_family: AF_UNSPEC,
-        ai_socktype: SOCK_STREAM,
-        ai_protocol: IPPROTO_TCP,
-        ai_addrlen: 0,
-        ai_canonname: nil,
-        ai_addr: nil,
-        ai_next: nil
-    )
+    var hints = tcpAddrInfoHints()
     var results: UnsafeMutablePointer<addrinfo>?
     let portString = String(port)
     let lookupResult = getaddrinfo(host, portString, &hints, &results)

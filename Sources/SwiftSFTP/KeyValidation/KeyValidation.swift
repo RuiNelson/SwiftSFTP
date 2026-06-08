@@ -1,5 +1,9 @@
 import Foundation
-import OpenSSLCrypto
+#if canImport(OpenSSLCrypto)
+    import OpenSSLCrypto
+#elseif canImport(OpenSSL)
+    import OpenSSL
+#endif
 
 public protocol KeyValidation {
     var isValid_PrivateKey: Bool { get }
