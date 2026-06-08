@@ -66,6 +66,24 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
     func set(_ attributes: FileAttributes) async throws
 
+    /// Updates selected attributes on the open file handle, applying only the non-nil parameters.
+    ///
+    /// When `size` is provided and the current position is at or beyond the new size, the position is moved to
+    /// `size - 1` before the request is sent. Calling with all parameters `nil` is a no-op.
+    ///
+    /// - Parameters:
+    ///   - size: New file size in bytes.
+    ///   - owner: New owning user and group IDs.
+    ///   - date: New last-modification and last-access timestamps.
+    ///   - permissions: New POSIX permission bits.
+    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    func set(
+        size: Int64?,
+        owner: (uid: Int, gid: Int)?,
+        date: (modification: Date, access: Date)?,
+        permissions: POSIXPermissions?
+    ) async throws
+
     /// Attributes for the open remote file handle.
     ///
     /// This is backed by handle-based `fstat`.

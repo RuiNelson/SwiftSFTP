@@ -178,6 +178,25 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
     func setAttributes(path: String, attributes: FileAttributes) async throws
 
+    /// Updates selected attributes on an existing remote filesystem object, applying only the non-nil parameters.
+    ///
+    /// Calling with all parameters after `path` set to `nil` is a no-op.
+    ///
+    /// - Parameters:
+    ///   - path: Remote path to modify. The path is sanitized before use.
+    ///   - size: New file size in bytes.
+    ///   - owner: New owning user and group IDs.
+    ///   - date: New last-modification and last-access timestamps.
+    ///   - permissions: New POSIX permission bits.
+    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    func setAttributes(
+        path: String,
+        size: Int64?,
+        owner: (uid: Int, gid: Int)?,
+        date: (modification: Date, access: Date)?,
+        permissions: POSIXPermissions?
+    ) async throws
+
     /// Renames or moves a remote filesystem object using the OpenSSH POSIX rename extension.
     ///
     /// - Parameters:

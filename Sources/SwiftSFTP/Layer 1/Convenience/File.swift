@@ -48,76 +48,70 @@ extension SFTPFileProtocol {
         try await set(new)
     }
 
-    /// Updates selected attributes on the open file handle by reading the current state and applying only the non-nil
-    /// parameters.
-    ///
-    /// When `fileSize` is provided and the current position is at or beyond the new size, the position is moved to
-    /// `fileSize - 1` before the request is sent. Calling with all parameters `nil` is a no-op.
-    ///
-    /// - Parameters:
-    ///   - fileSize: New file size in bytes.
-    ///   - permissions: New POSIX permission bits.
-    ///   - accessTime: New last-access timestamp.
-    ///   - modificationTime: New last-modification timestamp.
-    ///   - userID: New owning user ID.
-    ///   - groupID: New owning group ID.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
-    func set(
-        fileSize: UInt64? = nil,
-        permissions: POSIXPermissions? = nil,
-        accessTime: Date? = nil,
-        modificationTime: Date? = nil,
-        userID: UInt? = nil,
-        groupID: UInt? = nil
+    public func set(
+        size: Int64? = nil,
+        owner: (uid: Int, gid: Int)? = nil,
+        date: (modification: Date, access: Date)? = nil,
+        permissions: POSIXPermissions? = nil
     ) async throws {
-        guard fileSize != nil ||
-            permissions != nil ||
-            accessTime != nil ||
-            modificationTime != nil ||
-            userID != nil ||
-            groupID != nil else {
+        guard size != nil || owner != nil || date != nil || permissions != nil else {
             return
         }
 
-        var attrs = try await stat
-
-        if let fileSize {
+        if let size, size >= 0 {
+            let fileSize = UInt64(size)
             if fileSize == 0 {
                 offset = 0
             }
             else if offset >= fileSize {
                 offset = fileSize - 1
             }
-
-            attrs.fileSize = fileSize
-            attrs.flags.insert(.size)
         }
 
-        if let permissions {
-            attrs.permissions = permissions
-            attrs.flags.insert(.permissions)
-        }
-
-        if let accessTime {
-            attrs.accessTime = accessTime.secondSince1970
-            attrs.flags.insert(.accessModificationTime)
-        }
-
-        if let modificationTime {
-            attrs.modificationTime = modificationTime.secondSince1970
-            attrs.flags.insert(.accessModificationTime)
-        }
-
-        if let userID {
-            attrs.uid = userID
-            attrs.flags.insert(.uidGID)
-        }
-
-        if let groupID {
-            attrs.gid = groupID
-            attrs.flags.insert(.uidGID)
+        var attrs = FileAttributes()
+        guard attrs.apply(size: size, owner: owner, date: date, permissions: permissions) else {
+            return
         }
 
         try await set(attrs)
+    }
+}
+
+extension FileAttributes {
+    mutating func apply(
+        size: Int64?,
+        owner: (uid: Int, gid: Int)?,
+        date: (modification: Date, access: Date)?,
+        permissions: POSIXPermissions?
+    ) -> Bool {
+        var changed = false
+
+        if let size, size >= 0 {
+            fileSize = UInt64(size)
+            flags.insert(.size)
+            changed = true
+        }
+
+        if let owner {
+            uid = UInt(owner.uid)
+            gid = UInt(owner.gid)
+            flags.insert(.uidGID)
+            changed = true
+        }
+
+        if let date {
+            modificationTime = date.modification.secondSince1970
+            accessTime = date.access.secondSince1970
+            flags.insert(.accessModificationTime)
+            changed = true
+        }
+
+        if let permissions {
+            self.permissions = permissions
+            flags.insert(.permissions)
+            changed = true
+        }
+
+        return changed
     }
 }

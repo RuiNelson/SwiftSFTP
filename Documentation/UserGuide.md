@@ -224,16 +224,23 @@ All stat methods return `FileMetadata?` — `nil` when the path does not exist.
 
 ### Set attributes
 
-Sets attributes on any remote path (file, directory, or symlink) using path-based `setstat`. Only fields selected in `attributes.flags` are sent to the server.
+Sets attributes on any remote path (file, directory, or symlink) using path-based `setstat`.
 
 ```swift
+// Convenience — only non-nil parameters are sent
+try await client.setAttributes(
+    path: "/data/report.pdf",
+    permissions: [.ownerRead, .ownerWrite, .groupRead]
+)
+
+// Low-level — build a FileAttributes value explicitly
 var attrs = FileAttributes()
 attrs.flags = .permissions
 attrs.permissions = [.ownerRead, .ownerWrite, .groupRead]
 try await client.setAttributes(path: "/data/report.pdf", attributes: attrs)
 ```
 
-For an open file handle, use `file.set(_:)` instead.
+For an open file handle, use `file.set(_:)` or the convenience overload below.
 
 ### Check latency
 
@@ -299,14 +306,11 @@ try await handle.close()
 // Read attributes
 let attrs = try await file.stat
 
-// Write attributes
+// Write attributes — only non-nil parameters are sent
 try await file.set(
-    fileSize: nil,
     permissions: [.ownerRead, .ownerWrite],
-    accessTime: Date(),
-    modificationTime: Date(),
-    userID: 1000,
-    groupID: 1000
+    date: (modification: Date(), access: Date()),
+    owner: (uid: 1000, gid: 1000)
 )
 
 // Truncate

@@ -594,7 +594,7 @@ struct SFTPClientFileHandleTransfer {
             try await wh.close()
 
             let h = try await client.openFile(.write, path: filePath, permissions: [])
-            try await h.set(fileSize: 30)
+            try await h.set(size: 30)
             try await h.close()
 
             let after = try await client.stat(path: filePath, followLink: false)
@@ -618,7 +618,7 @@ struct SFTPClientFileHandleTransfer {
 
             let newTime = Date(timeIntervalSince1970: 1_700_000_000)
             let h = try await client.openFile(.write, path: filePath, permissions: [])
-            try await h.set(modificationTime: newTime)
+            try await h.set(date: (modification: newTime, access: newTime))
             try await h.close()
 
             let after = try await client.stat(path: filePath, followLink: false)
