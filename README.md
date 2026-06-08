@@ -3,6 +3,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
 
+![SwiftSFTP Banner](Documentation/banner.jpg)
+
 SwiftSFTP is a modern, ergonomic Swift Package Manager library that wraps `libssh2` and `OpenSSL`. It provides a high-level `async/await` API for seamless SFTP file transfers and SSH-based interactions, while also exposing the underlying C APIs for advanced use cases. 
 
 Whether you need to quickly upload files, manage a remote filesystem, or validate SSH keys, SwiftSFTP offers a robust and asynchronous interface built on industry-standard libraries.
