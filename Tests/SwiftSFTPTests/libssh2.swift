@@ -27,12 +27,10 @@ struct LibSSH2DirectTests {
             libssh2.libssh2_exit()
         }
 
-        print("1/7 connect…", terminator: "\n")
-        fflush(stdout)
+        print("1/7 connect…")
         socket = try connectTCP(host: TS.hostname, port: TS.port)
 
-        print("2/7 session init + handshake…", terminator: "\n")
-        fflush(stdout)
+        print("2/7 session init + handshake…")
         guard let openedSession = libssh2.libssh2_session_init_ex(nil, nil, nil, nil) else {
             throw Libssh2TestError("libssh2_session_init_ex returned nil")
         }
@@ -42,37 +40,31 @@ struct LibSSH2DirectTests {
         libssh2.libssh2_session_set_timeout(openedSession, 15000)
         try libssh2.libssh2_session_handshake(openedSession, socket).check()
 
-        print("3/7 list auth methods…", terminator: "\n")
-        fflush(stdout)
+        print("3/7 list auth methods…")
         let methods = "bulbasaur".withCString { username in
             libssh2.libssh2_userauth_list(openedSession, username, UInt32(strlen(username)))
         }
         if let methods {
-            print("   methods: \(String(cString: methods))", terminator: "\n")
-            fflush(stdout)
+            print("   methods: \(String(cString: methods))")
         }
 
-        print("4/7 authenticate…", terminator: "\n")
-        fflush(stdout)
+        print("4/7 authenticate…")
         try authenticateBulbasaur(session: openedSession, methods: methods.map { String(cString: $0) })
         guard libssh2.libssh2_userauth_authenticated(openedSession) != 0 else {
             throw Libssh2TestError("libssh2_userauth_authenticated returned false")
         }
 
-        print("5/7 SFTP init…", terminator: "\n")
-        fflush(stdout)
+        print("5/7 SFTP init…")
         guard let sftp = libssh2.libssh2_sftp_init(openedSession) else {
             throw Libssh2TestError(
                 "libssh2_sftp_init failed: \(lastError(session: openedSession))"
             )
         }
         defer { libssh2.libssh2_sftp_shutdown(sftp) }
-        print("   SFTP ready", terminator: "\n")
-        fflush(stdout)
+        print("   SFTP ready")
 
         let remotePath = "KeyPairs/rsa-private-openssh-clear"
-        print("6/7 SFTP open \(remotePath)…", terminator: "\n")
-        fflush(stdout)
+        print("6/7 SFTP open \(remotePath)…")
         let handle = remotePath.withCString { path in
             libssh2.libssh2_sftp_open_ex(
                 sftp,
@@ -90,8 +82,7 @@ struct LibSSH2DirectTests {
         }
         defer { libssh2.libssh2_sftp_close_handle(handle) }
 
-        print("7/7 SFTP read…", terminator: "\n")
-        fflush(stdout)
+        print("7/7 SFTP read…")
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65536)
         while true {
@@ -113,8 +104,7 @@ struct LibSSH2DirectTests {
         }
 
         let text = try #require(String(data: data, encoding: .utf8))
-        print("   read \(data.count) bytes", terminator: "\n")
-        fflush(stdout)
+        print("   read \(data.count) bytes")
         #expect(text.contains("BEGIN OPENSSH PRIVATE KEY"))
     }
 }
@@ -143,8 +133,7 @@ private func lastError(session: OpaquePointer) -> String {
 
 private func authenticateBulbasaur(session: OpaquePointer, methods: String?) throws {
     _ = methods
-    print("   using password", terminator: "\n")
-    fflush(stdout)
+    print("   using password")
     try "bulbasaur".withCString { username in
         try TS.password.withCString { password in
             try libssh2.libssh2_userauth_password_ex(
