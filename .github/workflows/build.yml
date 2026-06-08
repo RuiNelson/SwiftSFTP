@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Build
+        run: swift build --scratch-path /tmp/swift-build -v
+
+      - name: Test (offline)
+        run: swift test --scratch-path /tmp/swift-test --filter "Key Validation"
+
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Cache OpenSSL XCFrameworks
+        id: openssl-cache
+        uses: actions/cache@v4
+        with:
+          path: Artifacts/OpenSSL
+          key: >-
+            openssl-xcframeworks-${{ runner.os }}-
+            ${{ hashFiles('Scripts/build-openssl-xcframeworks.sh', 'vendor/openssl/Configure') }}
+
+      - name: Build OpenSSL XCFrameworks
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
+        run: ./Scripts/build-openssl-xcframeworks.sh
+
+      - name: Build
+        run: swift build --scratch-path /tmp/swift-build -v
+
+      - name: Test (offline)
+        run: swift test --scratch-path /tmp/swift-test --filter "Key Validation"
