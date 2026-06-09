@@ -62,35 +62,6 @@ private func passwordCallback(
 
 // MARK: - OpenSSH format parsing
 
-private struct SSHBuffer {
-    let data: Data
-    var offset: Int
-
-    mutating func readUInt32() -> UInt32? {
-        guard offset + 4 <= data.count else { return nil }
-        let value = UInt32(data[offset]) << 24
-            | UInt32(data[offset + 1]) << 16
-            | UInt32(data[offset + 2]) << 8
-            | UInt32(data[offset + 3])
-        offset += 4
-        return value
-    }
-
-    mutating func readString() -> String? {
-        guard let length = readUInt32() else { return nil }
-        guard offset + Int(length) <= data.count else { return nil }
-        defer { offset += Int(length) }
-        return String(data: data[offset ..< (offset + Int(length))], encoding: .utf8)
-    }
-
-    mutating func readData() -> Data? {
-        guard let length = readUInt32() else { return nil }
-        guard offset + Int(length) <= data.count else { return nil }
-        defer { offset += Int(length) }
-        return Data(data[offset ..< (offset + Int(length))])
-    }
-}
-
 private let openSSHKeyV1Magic = Data("openssh-key-v1\0".utf8)
 
 /// Returns the key type of an unencrypted OpenSSH private key, or `nil` if the string is not in OpenSSH format or the
@@ -105,14 +76,14 @@ private func parseOpenSSHKeyType(_ pem: String) -> (nid: Int32, bits: Int32?)? {
     guard raw.count >= openSSHKeyV1Magic.count,
           raw.prefix(openSSHKeyV1Magic.count) == openSSHKeyV1Magic else { return nil }
 
-    var buf = SSHBuffer(data: raw, offset: openSSHKeyV1Magic.count)
+    var buf = SSHWireBuffer(data: raw, offset: openSSHKeyV1Magic.count)
     guard let cipher = buf.readString(), cipher == "none" else { return nil }
     guard buf.readString() != nil else { return nil } // kdfname
     guard buf.readData() != nil else { return nil } // kdfoptions
     guard let numKeys = buf.readUInt32(), numKeys >= 1 else { return nil }
     guard let pubKeyData = buf.readData() else { return nil }
 
-    var pubBuf = SSHBuffer(data: pubKeyData, offset: 0)
+    var pubBuf = SSHWireBuffer(data: pubKeyData, offset: 0)
     guard let keyType = pubBuf.readString() else { return nil }
 
     let mapping: [String: (nid: Int32, bits: Int32?)] = [

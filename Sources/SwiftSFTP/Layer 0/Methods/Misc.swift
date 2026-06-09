@@ -8,9 +8,8 @@ import libssh2
 /// multiple threads or tasks.
 ///
 /// Each call invokes `libssh2_init` and increments a wrapper reference count. libssh2 maintains its own init counter as
-/// well. Pair ``Init(noCrypto:)`` with
-/// ``Exit()`` for balanced teardown: ``Exit()`` calls `libssh2_exit` only when
-/// the wrapper count returns to zero. On libssh2, crypto setup runs only on the first transition from uninitialized to
+/// well. Pair ``Init(noCrypto:)`` with ``Exit()`` for balanced teardown: ``Exit()`` calls `libssh2_exit` only when the
+/// wrapper count returns to zero. On libssh2, crypto setup runs only on the first transition from uninitialized to
 /// initialized; the `noCrypto` flag is consulted during that first transition.
 ///
 /// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.

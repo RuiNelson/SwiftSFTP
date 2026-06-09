@@ -81,6 +81,7 @@ public final class SFTPClient: SFTPClientProtocol {
         // init session
 
         do {
+            try SSHInit()
             session = try SessionInit()
         }
         catch {
@@ -252,7 +253,10 @@ public extension SFTPClient {
             do { try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user") }
             catch { firstError = firstError ?? error }
 
-            do { try SessionFree(session: session) }
+            do {
+                try SessionFree(session: session)
+                SSHExit()
+            }
             catch { firstError = firstError ?? error }
 
             if let socket = _socket {

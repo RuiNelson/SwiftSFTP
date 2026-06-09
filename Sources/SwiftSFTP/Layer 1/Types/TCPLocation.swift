@@ -48,6 +48,22 @@ extension TCPLocation {
 }
 
 extension TCPLocation {
+    /// Returns whether `hostField` is a valid OpenSSH `known_hosts` host specifier.
+    static func isValidKnownHostsHostField(_ hostField: String) -> Bool {
+        let trimmed = hostField.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let entries = trimmed.split(separator: ",", omittingEmptySubsequences: false)
+        guard !entries.isEmpty else { return false }
+
+        for entry in entries {
+            if !isValidKnownHostsHostEntry(String(entry)) {
+                return false
+            }
+        }
+        return true
+    }
+
     var knownHostsHost: String {
         let host = trimmedHostname
         let isDefaultPort = port == 22
@@ -73,6 +89,66 @@ extension TCPLocation {
 }
 
 // MARK: - Private helpers
+
+private func isValidKnownHostsHostEntry(_ entry: String) -> Bool {
+    let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+
+    if trimmed.hasPrefix("|1|") {
+        return isValidHashedKnownHostsHost(trimmed)
+    }
+
+    let hostPart: String
+
+    if trimmed.first == "[" {
+        guard let closeBracket = trimmed.firstIndex(of: "]") else { return false }
+        hostPart = String(trimmed[trimmed.index(after: trimmed.startIndex) ..< closeBracket])
+
+        let remainder = trimmed[trimmed.index(after: closeBracket)...]
+        if remainder.isEmpty {
+            return isValidKnownHostsHostName(hostPart)
+        }
+
+        guard remainder.first == ":", remainder.count > 1 else { return false }
+        let portString = String(remainder[remainder.index(after: remainder.startIndex)...])
+        guard let port = Int(portString), (1 ... 65535).contains(port) else { return false }
+        return isValidKnownHostsHostName(hostPart)
+    }
+
+    if let colonIndex = trimmed.lastIndex(of: ":") {
+        let possibleHost = String(trimmed[..<colonIndex])
+        if isIPv4Address(possibleHost) {
+            let portString = String(trimmed[trimmed.index(after: colonIndex)...])
+            guard let port = Int(portString), (1 ... 65535).contains(port) else { return false }
+            hostPart = possibleHost
+            return true
+        }
+    }
+
+    hostPart = trimmed
+    return isValidKnownHostsHostName(hostPart)
+}
+
+private func isValidHashedKnownHostsHost(_ host: String) -> Bool {
+    let parts = host.split(separator: "|", omittingEmptySubsequences: false)
+    guard parts.count == 4, parts[0].isEmpty, parts[1] == "1" else { return false }
+
+    let salt = String(parts[2])
+    let hash = String(parts[3])
+    guard !salt.isEmpty, !hash.isEmpty else { return false }
+    guard Data(base64Encoded: salt) != nil, Data(base64Encoded: hash) != nil else { return false }
+    return true
+}
+
+private func isValidKnownHostsHostName(_ host: String) -> Bool {
+    if isIPv4Address(host) {
+        return true
+    }
+    if isIPv6Address(host) {
+        return true
+    }
+    return isValidHostname(host)
+}
 
 private func isIPv4Address(_ string: String) -> Bool {
     var addr = in_addr()
