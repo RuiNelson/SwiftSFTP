@@ -17,7 +17,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or validat
 **Features:**
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
 - **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored and statically linked via XCFrameworks for convenience).
-- **Key Validation**: Exposed OpenSSL helpers to validate private keys effortlessly.
+- **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus Ed25519 key generation — see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
 
 ## Cookbook
@@ -83,7 +83,7 @@ try await myClient.delete(path: "myfolder")
 try await myClient.close()
 ```
 
-A complete user guide can be found [here](Documentation/UserGuide.md).
+A complete user guide can be found [here](Documentation/UserGuide.md). For offline key validation, host key checks, and Ed25519 key generation, see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 
 ## Adding SwiftSFTP to your Project
 
