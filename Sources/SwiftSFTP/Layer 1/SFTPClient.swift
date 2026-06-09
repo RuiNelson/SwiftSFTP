@@ -37,7 +37,7 @@ public final class SFTPClient: SFTPClientProtocol {
         trapOnDeInitWithoutClose: Bool = false
     ) throws(SFTPClientInvalidConfig) {
         // initial validation
-        guard openSocketIn.validHostname else {
+        guard openSocketIn.hostnameCheckup != .invalid else {
             throw SFTPClientInvalidConfig.invalidHostname
         }
 

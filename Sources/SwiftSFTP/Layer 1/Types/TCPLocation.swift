@@ -16,6 +16,13 @@ extension TCPLocation {
     }
 }
 
+enum HostnameCheckupResult: Int, CaseIterable {
+    case invalid
+    case validHostname
+    case validIPv4
+    case validIPv6
+}
+
 extension TCPLocation {
     var validPort: Bool {
         guard port > 0, port <= 65535 else {
@@ -25,33 +32,42 @@ extension TCPLocation {
         return true
     }
     
-    /// Checks if it's an IPv4 or IPv6 address
-    var isIPAddress: Bool {
-        let host = trimmedHostname
-        return isIPv4Address(host) || isIPv6Address(host)
-    }
-    
-    /// Validates an IPv4, IPv6 or valid hostname
-    var validHostname: Bool {
-        if isIPAddress {
-            true
+    var hostnameCheckup: HostnameCheckupResult {
+        let hostname = hostname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isIPv4Address(hostname) {
+            return .validIPv4
         }
-        else {
-            isValidHostname(trimmedHostname)
+        if isIPv6Address(hostname) {
+            return .validIPv6
         }
+        if isValidHostname(hostname) {
+            return .validHostname
+        }
+        return .invalid
     }
 }
 
 extension TCPLocation {
     var knownHostsHost: String {
-        let trimmed = trimmedHostname
+        let host = trimmedHostname
         let isDefaultPort = port == 22
         
-        return switch (isIPAddress, isDefaultPort) {
-        case (false, false): "[\(trimmed)]:\(port)"
-        case (false, true): "[\(trimmed)]"
-        case (true, false): "\(trimmed):\(port)"
-        case (true, true): "\(trimmed)"
+        switch hostnameCheckup {
+        case .invalid, .validHostname, .validIPv6:
+            if isDefaultPort {
+                return "[\(host)]"
+            }
+            else {
+                return "[\(host)]:\(port)"
+            }
+            
+        case .validIPv4:
+            if isDefaultPort {
+                return host
+            }
+            else {
+                return "\(host):\(port)"
+            }
         }
     }
 }
