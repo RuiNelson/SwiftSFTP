@@ -5,27 +5,47 @@ import Foundation
     import OpenSSL
 #endif
 
+/// Validates PEM, PKCS#8, OpenSSH private key, and OpenSSH one-line public key (`algorithm base64`) strings via
+/// OpenSSL.
 public protocol KeyValidation {
+    /// Returns whether the string is a parseable private key of any supported algorithm.
     var isValid_PrivateKey: Bool { get }
+    /// Returns whether the string is a parseable public key of any supported algorithm.
     var isValid_PublicKey: Bool { get }
+    /// Returns whether the string is a decryptable encrypted private key for any supported algorithm.
     func isValid_PrivateKey(password: String) -> Bool
 
+    /// Returns whether the string is a parseable RSA private key.
     var isValid_RSA_PrivateKey: Bool { get }
+    /// Returns whether the string is a parseable P-256 private key.
     var isValid_P256_PrivateKey: Bool { get }
+    /// Returns whether the string is a parseable P-384 private key.
     var isValid_P384_PrivateKey: Bool { get }
+    /// Returns whether the string is a parseable P-521 private key.
     var isValid_P521_PrivateKey: Bool { get }
+    /// Returns whether the string is a parseable Curve25519 (Ed25519) private key.
     var isValid_Curve25519_PrivateKey: Bool { get }
 
+    /// Returns whether the string is a parseable RSA public key.
     var isValid_RSA_PublicKey: Bool { get }
+    /// Returns whether the string is a parseable P-256 public key.
     var isValid_P256_PublicKey: Bool { get }
+    /// Returns whether the string is a parseable P-384 public key.
     var isValid_P384_PublicKey: Bool { get }
+    /// Returns whether the string is a parseable P-521 public key.
     var isValid_P521_PublicKey: Bool { get }
+    /// Returns whether the string is a parseable Curve25519 (Ed25519) public key.
     var isValid_Curve25519_PublicKey: Bool { get }
 
+    /// Returns whether the string is a decryptable encrypted RSA private key.
     func isValid_RSA_PrivateKey(password: String) -> Bool
+    /// Returns whether the string is a decryptable encrypted P-256 private key.
     func isValid_P256_PrivateKey(password: String) -> Bool
+    /// Returns whether the string is a decryptable encrypted P-384 private key.
     func isValid_P384_PrivateKey(password: String) -> Bool
+    /// Returns whether the string is a decryptable encrypted P-521 private key.
     func isValid_P521_PrivateKey(password: String) -> Bool
+    /// Returns whether the string is a decryptable encrypted Curve25519 (Ed25519) private key.
     func isValid_Curve25519_PrivateKey(password: String) -> Bool
 }
 
@@ -97,8 +117,27 @@ private func parseOpenSSHKeyType(_ pem: String) -> (nid: Int32, bits: Int32?)? {
     return mapping[keyType]
 }
 
+private let openSSHPublicKeyAlgorithms: [String: (nid: Int32, bits: Int32?)] = [
+    "ssh-rsa": (Int32(NID_rsaEncryption), nil),
+    "ecdsa-sha2-nistp256": (Int32(NID_X9_62_id_ecPublicKey), 256),
+    "ecdsa-sha2-nistp384": (Int32(NID_X9_62_id_ecPublicKey), 384),
+    "ecdsa-sha2-nistp521": (Int32(NID_X9_62_id_ecPublicKey), 521),
+    "ssh-ed25519": (Int32(NID_ED25519), nil),
+]
+
+/// Returns the key type of an OpenSSH one-line public key (`algorithm base64`), or `nil` when parsing or validation
+/// fails.
+private func parseOpenSSHShorthandPublicKey(_ line: String) -> (nid: Int32, bits: Int32?)? {
+    let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+    guard fields.count == 2,
+          let info = openSSHPublicKeyAlgorithms[fields[0]],
+          SSHHostKeyValidator.validate(algorithm: fields[0], base64: fields[1]) else { return nil }
+    return (info.nid, info.bits)
+}
+
 // MARK: - String conformance
 
+/// OpenSSL-backed key validation for PEM, PKCS#8, and OpenSSH user authentication key strings.
 extension String: KeyValidation {
     private func validate(
         expectedID: Int32,
@@ -154,12 +193,12 @@ extension String: KeyValidation {
         expectedBits: Int32? = nil
     ) -> Bool {
         let cStr = utf8CString
-        return cStr.withUnsafeBufferPointer { buffer in
-            guard let baseAddr = buffer.baseAddress else { return false }
-            guard let bio = BIO_new_mem_buf(baseAddr, Int32(buffer.count - 1)) else { return false }
+        let pemResult: Bool? = cStr.withUnsafeBufferPointer { buffer in
+            guard let baseAddr = buffer.baseAddress else { return nil }
+            guard let bio = BIO_new_mem_buf(baseAddr, Int32(buffer.count - 1)) else { return nil }
             defer { BIO_free(bio) }
 
-            guard let pkey = PEM_read_bio_PUBKEY(bio, nil, nil, nil) else { return false }
+            guard let pkey = PEM_read_bio_PUBKEY(bio, nil, nil, nil) else { return nil }
             defer { EVP_PKEY_free(pkey) }
 
             guard EVP_PKEY_get_base_id(pkey) == expectedID else { return false }
@@ -169,6 +208,15 @@ extension String: KeyValidation {
             }
             return true
         }
+
+        if let pemResult { return pemResult }
+
+        guard let shorthand = parseOpenSSHShorthandPublicKey(self) else { return false }
+        guard shorthand.nid == expectedID else { return false }
+        if let expectedBits {
+            return shorthand.bits == expectedBits
+        }
+        return true
     }
 
     private func validateAny(password: String? = nil) -> Bool {
@@ -208,15 +256,18 @@ extension String: KeyValidation {
 
     private func validateAnyPublic() -> Bool {
         let cStr = utf8CString
-        return cStr.withUnsafeBufferPointer { buffer in
-            guard let baseAddr = buffer.baseAddress else { return false }
-            guard let bio = BIO_new_mem_buf(baseAddr, Int32(buffer.count - 1)) else { return false }
+        let pemResult: Bool? = cStr.withUnsafeBufferPointer { buffer in
+            guard let baseAddr = buffer.baseAddress else { return nil }
+            guard let bio = BIO_new_mem_buf(baseAddr, Int32(buffer.count - 1)) else { return nil }
             defer { BIO_free(bio) }
 
-            guard let pkey = PEM_read_bio_PUBKEY(bio, nil, nil, nil) else { return false }
+            guard let pkey = PEM_read_bio_PUBKEY(bio, nil, nil, nil) else { return nil }
             EVP_PKEY_free(pkey)
             return true
         }
+
+        if let pemResult { return pemResult }
+        return parseOpenSSHShorthandPublicKey(self) != nil
     }
 
     public var isValid_PrivateKey: Bool {

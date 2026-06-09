@@ -5,7 +5,9 @@ import Foundation
     import OpenSSL
 #endif
 
+/// Validates OpenSSH host key blobs by decoding base64 wire data and checking the public key with OpenSSL.
 enum SSHHostKeyValidator {
+    /// Returns whether `base64` is a valid SSH public key blob for `algorithm`.
     static func validate(algorithm: String, base64: String) -> Bool {
         guard let wire = Data(base64Encoded: base64) else { return false }
         var buffer = SSHWireBuffer(data: wire, offset: 0)

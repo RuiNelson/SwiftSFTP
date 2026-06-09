@@ -1,13 +1,16 @@
 import Foundation
 
+/// OpenSSH `known_hosts` host key validation for `String` values.
 public extension String {
-    /// Validates a shorthand host key (`algorithm base64-key`).
+    /// Returns whether the string is a valid shorthand host key (`algorithm base64-key`) for RSA, ECDSA, Ed25519, or
+    /// DSA.
     var isValid_ShortHandHostKey: Bool {
         guard let (algorithm, key) = Self.parsedShorthandHostKeyFields(from: self) else { return false }
         return SSHHostKeyValidator.validate(algorithm: algorithm, base64: key)
     }
 
-    /// Validates a full OpenSSH `known_hosts` line (`host algorithm base64-key`).
+    /// Returns whether the string is a valid full OpenSSH `known_hosts` line (`host algorithm base64-key`) for RSA,
+    /// ECDSA, Ed25519, or DSA.
     var isValid_HostKey: Bool {
         guard let (_, algorithm, key) = Self.parsedKnownHostsLineFields(from: self) else { return false }
         return SSHHostKeyValidator.validate(algorithm: algorithm, base64: key)
