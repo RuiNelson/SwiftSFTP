@@ -6,6 +6,7 @@
 [![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![watchOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
 
 ![SwiftSFTP Banner](Documentation/banner.jpg)
