@@ -35,6 +35,16 @@ struct ED25519Tests {
         )
     }
 
+    @Test("extracts public key from PKCS#8 private key")
+    func extractPKCS8PublicKey() throws {
+        let privateKey = KeyValidationTestData.Curve25519.privateKey
+        let publicKey = try #require(
+            SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat: privateKey)
+        )
+        #expect(publicKey.hasPrefix("ssh-ed25519 "))
+        #expect(publicKey.isValid_ShortHandHostKey)
+    }
+
     @Test("returns nil for invalid private key input")
     func invalidPrivateKey() {
         #expect(SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat: "not a key") == nil)

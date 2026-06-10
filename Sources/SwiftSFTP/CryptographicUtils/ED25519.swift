@@ -5,6 +5,15 @@ import Foundation
     import OpenSSL
 #endif
 
+private func ed25519NoPasswordCallback(
+    _: UnsafeMutablePointer<CChar>?,
+    _: Int32,
+    _: Int32,
+    _: UnsafeMutableRawPointer?
+) -> Int32 {
+    -1
+}
+
 /// An unencrypted Ed25519 key pair in OpenSSH formats.
 public struct OpenSSHKeyPair: Sendable, Equatable {
     /// OpenSSH private key PEM (`-----BEGIN OPENSSH PRIVATE KEY-----`).
@@ -25,10 +34,13 @@ public enum SwiftSFTP_Curve25519 {
         OpenSSHEd25519Codec.generateKeyPair()
     }
 
-    /// Returns the OpenSSH public key (`ssh-ed25519 <base64>`) encoded from an unencrypted OpenSSH private key, or
-    /// `nil` when parsing fails.
+    /// Returns the OpenSSH public key (`ssh-ed25519 <base64>`) encoded from an unencrypted private key in OpenSSH or
+    /// PKCS#8 PEM format, or `nil` when parsing fails.
     public static func generatePublicKeyFromPrivateKey(openSSHFormat: String) -> String? {
-        OpenSSHEd25519Codec.decodePublicKeySSH(fromOpenSSHPrivateKeyPEM: openSSHFormat)
+        if let publicKey = OpenSSHEd25519Codec.decodePublicKeySSH(fromOpenSSHPrivateKeyPEM: openSSHFormat) {
+            return publicKey
+        }
+        return OpenSSHEd25519Codec.decodePublicKeySSH(fromGenericPrivateKeyPEM: openSSHFormat)
     }
 }
 
@@ -71,7 +83,36 @@ private enum OpenSSHEd25519Codec {
         guard let keyType = buffer.readString(), keyType == Self.keyType,
               let publicKey = buffer.readData(), publicKey.count == 32,
               buffer.isAtEnd else { return nil }
-        return "\(keyType) \(base64Encode(encodePublicWire(publicKey: publicKey)))"
+        return encodePublicKeySSH(publicKey: publicKey)
+    }
+
+    static func decodePublicKeySSH(fromGenericPrivateKeyPEM pem: String) -> String? {
+        let cStr = pem.utf8CString
+        return cStr.withUnsafeBufferPointer { buffer in
+            guard let baseAddr = buffer.baseAddress else { return nil }
+            guard let bio = BIO_new_mem_buf(baseAddr, Int32(buffer.count - 1)) else { return nil }
+            defer { BIO_free(bio) }
+
+            guard let pkey = PEM_read_bio_PrivateKey(bio, nil, ed25519NoPasswordCallback, nil) else { return nil }
+            defer { EVP_PKEY_free(pkey) }
+
+            guard EVP_PKEY_get_base_id(pkey) == EVP_PKEY_ED25519 else { return nil }
+
+            var publicLength = 0
+            guard EVP_PKEY_get_raw_public_key(pkey, nil, &publicLength) == 1, publicLength == 32 else { return nil }
+
+            var publicKey = Data(count: 32)
+            let ok = publicKey.withUnsafeMutableBytes { publicBuffer in
+                EVP_PKEY_get_raw_public_key(
+                    pkey,
+                    publicBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                    &publicLength
+                ) == 1
+            }
+            guard ok else { return nil }
+
+            return encodePublicKeySSH(publicKey: publicKey)
+        }
     }
 
     private static func encodePublicWire(publicKey: Data) -> Data {
