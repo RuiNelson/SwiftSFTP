@@ -1,7 +1,7 @@
 # SwiftSFTP
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
+
 [![macOS](https://img.shields.io/badge/macOS-11+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
@@ -9,6 +9,11 @@
 [![watchOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
 [![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](AndroidBuild/build.sh)
+
+[![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
+[![Release](https://img.shields.io/github/v/release/RuiNelson/SwiftSFTP)](https://github.com/RuiNelson/SwiftSFTP/releases)
+[![CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/build.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/build.yml)
+
 
 ![SwiftSFTP Banner](Documentation/banner.jpg)
 
