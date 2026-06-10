@@ -8,6 +8,7 @@
 [![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![watchOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
+[![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](AndroidBuild/build.sh)
 
 ![SwiftSFTP Banner](Documentation/banner.jpg)
 
