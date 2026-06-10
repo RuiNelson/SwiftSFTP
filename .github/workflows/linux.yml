@@ -16,18 +16,26 @@ env:
 jobs:
   linux:
     name: Linux
-    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@0.0.11
-    with:
-      enable_macos_checks: false
-      enable_windows_checks: false
-      enable_android_sdk_build: false
-      linux_swift_versions: '["6.3"]'
-      linux_os_versions: '["jammy"]'
-      linux_host_archs: '["x86_64"]'
-      linux_pre_build_command: |
-        git submodule update --init --recursive
-        apt-get update -q
-        apt-get install -y libssl-dev pkg-config
-      linux_build_command: |
-        swift build --scratch-path /tmp/swift-build -v
-        swift test --scratch-path /tmp/swift-test --filter "Key Validation"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: swift:6.3-noble
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Install system dependencies
+        run: |
+          apt-get update -q
+          apt-get install -y libssl-dev pkg-config
+
+      - name: Build
+        run: swift build --scratch-path /tmp/swift-build -v
+
+      - name: Test (offline)
+        run: swift test --scratch-path /tmp/swift-test --filter "Key Validation"
