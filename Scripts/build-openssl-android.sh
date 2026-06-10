@@ -82,7 +82,7 @@ build_abi() {
   local install_dir="$OUTPUT_DIR/lib/$abi"
 
   rm -rf "$work_dir"
-  mkdir -p "$install_dir"
+  mkdir -p "$work_dir" "$install_dir"
   rsync -a --exclude .git "$OPENSSL_SOURCE_DIR/" "$work_dir/"
 
   (
@@ -100,7 +100,7 @@ build_abi() {
 }
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$OUTPUT_DIR/include" "$OUTPUT_DIR/lib"
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR/include" "$OUTPUT_DIR/lib"
 
 build_abi "arm64-v8a" "android-arm64" "aarch64-linux-android"
 build_abi "x86_64" "android-x86_64" "x86_64-linux-android"

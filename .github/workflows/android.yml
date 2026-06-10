@@ -28,6 +28,4 @@ jobs:
       android_sdk_triples: '["aarch64-unknown-linux-android28"]'
       android_sdk_pre_build_command: |
         git submodule update --init --recursive
-      android_sdk_build_command: |
-        ./Scripts/build-openssl-android.sh
-        ./AndroidBuild/build.sh build --build-tests --scratch-path /tmp/swift-android-build
+      android_sdk_build_command: ./Scripts/ci-android-swift-build.sh build --scratch-path /tmp/swift-android-build
