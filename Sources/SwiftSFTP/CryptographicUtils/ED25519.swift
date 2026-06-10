@@ -11,6 +11,11 @@ public struct OpenSSHKeyPair: Sendable, Equatable {
     public let privateKey: String
     /// OpenSSH public key (`ssh-ed25519 <base64>`).
     public let publicKey: String
+    
+    public init(privateKey: String, publicKey: String) {
+        self.privateKey = privateKey
+        self.publicKey = publicKey
+    }
 }
 
 /// Ed25519 key generation and conversion helpers for OpenSSH private and public key formats.
