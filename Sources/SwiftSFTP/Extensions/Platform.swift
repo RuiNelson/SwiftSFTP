@@ -1,5 +1,7 @@
 #if canImport(Darwin)
     @_exported import Darwin
+#elseif canImport(Android)
+    @_exported import Android
 #elseif canImport(Glibc)
     @_exported import Glibc
 #endif
@@ -12,7 +14,7 @@ func tcpAddrInfoHints() -> addrinfo {
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
         hints.ai_protocol = IPPROTO_TCP
-    #elseif canImport(Glibc)
+    #elseif canImport(Glibc) || canImport(Android)
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = Int32(bitPattern: SOCK_STREAM.rawValue)
         hints.ai_protocol = Int32(IPPROTO_TCP)

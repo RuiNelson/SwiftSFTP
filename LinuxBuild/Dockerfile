@@ -1,4 +1,4 @@
-FROM swift:6.2.0-noble
+FROM swift:6.3.0-noble
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libssl-dev pkg-config \

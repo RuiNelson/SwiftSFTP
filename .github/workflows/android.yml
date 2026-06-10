@@ -1,0 +1,58 @@
+name: Android
+
+on:
+  push:
+    branches: [android-support]
+  pull_request:
+    branches: [android-support, main]
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TARGET_TRIPLE: aarch64-unknown-linux-android28
+  ANDROID_ABI: arm64-v8a
+
+jobs:
+  android:
+    name: Android (aarch64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.3"
+
+      - name: Setup Swift Android SDK
+        uses: orchetect/setup-swift-android-sdk@v1
+        with:
+          target-triple: ${{ env.TARGET_TRIPLE }}
+
+      - name: Cache OpenSSL Android artifacts
+        id: openssl-cache
+        uses: actions/cache@v5
+        with:
+          path: Artifacts/OpenSSL/Android
+          key: >-
+            openssl-android-${{ runner.os }}-${{ env.ANDROID_ABI }}-
+            ${{ hashFiles('Scripts/build-openssl-android.sh', 'vendor/openssl/Configure') }}
+
+      - name: Build OpenSSL for Android
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: ./Scripts/build-openssl-android.sh
+
+      - name: Build SwiftSFTP for Android
+        run: ./AndroidBuild/build.sh -v
+
+      - name: Test (offline, Android)
+        run: ./AndroidBuild/build.sh test --scratch-path /tmp/swift-android-test --filter "Key Validation"
