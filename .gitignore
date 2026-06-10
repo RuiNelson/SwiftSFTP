@@ -67,3 +67,4 @@ fastlane/test_output
 /Artifacts
 /TestServer/Fixtures
 /TestServer/KeyPairs
+/.openssl-android-build

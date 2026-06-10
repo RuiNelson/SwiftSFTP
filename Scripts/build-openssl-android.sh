@@ -51,6 +51,7 @@ if [[ -z "$NDK_HOME" || ! -d "$NDK_HOME" ]]; then
   echo "ANDROID_NDK_HOME (or ANDROID_NDK_ROOT) must point at a valid Android NDK." >&2
   exit 1
 fi
+export ANDROID_NDK_ROOT="$NDK_HOME"
 
 case "$(uname -s)" in
   Darwin)

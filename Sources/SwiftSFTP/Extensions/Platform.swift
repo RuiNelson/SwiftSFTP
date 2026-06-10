@@ -14,7 +14,11 @@ func tcpAddrInfoHints() -> addrinfo {
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
         hints.ai_protocol = IPPROTO_TCP
-    #elseif canImport(Glibc) || canImport(Android)
+    #elseif canImport(Android)
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        hints.ai_protocol = Int32(IPPROTO_TCP)
+    #elseif canImport(Glibc)
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = Int32(bitPattern: SOCK_STREAM.rawValue)
         hints.ai_protocol = Int32(IPPROTO_TCP)

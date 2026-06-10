@@ -33,6 +33,13 @@ if [[ ! -d .git ]]; then
 fi
 
 ROOT="$(pwd)"
+
+# Prefer the swiftly toolchain; Xcode's Swift can mismatch the Android SDK Foundation module.
+if [[ -x "$HOME/.swiftly/bin/swift" ]]; then
+    export PATH="$HOME/.swiftly/bin:$PATH"
+    swiftly use 6.3.2 >/dev/null 2>&1 || true
+fi
+
 SWIFT_ANDROID_SDK="${SWIFT_ANDROID_SDK:-aarch64-unknown-linux-android28}"
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
 OPENSSL_LIB_DIR="$ROOT/Artifacts/OpenSSL/Android/lib/$ANDROID_ABI/lib"
@@ -47,9 +54,12 @@ fi
 export LDFLAGS="-L$OPENSSL_LIB_DIR ${LDFLAGS:-}"
 export CPPFLAGS="-I$OPENSSL_INCLUDE_DIR ${CPPFLAGS:-}"
 export CFLAGS="${CPPFLAGS} ${CFLAGS:-}"
+export C_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+export CPLUS_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
 
 if [[ $# -eq 0 ]]; then
     set -- build --scratch-path /tmp/swift-android-build
 fi
 
-swift "$@" --swift-sdk "$SWIFT_ANDROID_SDK"
+# --swift-sdk must follow the subcommand (build/test), not precede it.
+swift "${@:1:1}" --swift-sdk "$SWIFT_ANDROID_SDK" "${@:2}"

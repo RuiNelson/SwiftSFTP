@@ -95,6 +95,7 @@ let libssh2Sources = [
 
 let libssh2CSettings: [CSetting] = [
     .headerSearchPath("src"),
+    .headerSearchPath("../../Artifacts/OpenSSL/Android/include", .when(platforms: [.android])),
     .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
     .define("HAVE_O_NONBLOCK"),
