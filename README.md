@@ -12,7 +12,9 @@
 
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
 [![Release](https://img.shields.io/github/v/release/RuiNelson/SwiftSFTP)](https://github.com/RuiNelson/SwiftSFTP/releases)
-[![CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/build.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/build.yml)
+[![CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml)
+[![Linux](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml)
+[![Android](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml)
 
 
 ![SwiftSFTP Banner](Documentation/banner.jpg)

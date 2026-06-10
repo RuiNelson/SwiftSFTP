@@ -2,9 +2,9 @@ name: Android
 
 on:
   push:
-    branches: [main, android-support]
+    branches: [main]
   pull_request:
-    branches: [main, android-support]
+    branches: [main]
 
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
@@ -12,53 +12,22 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  TARGET_TRIPLE: aarch64-unknown-linux-android28
-  ANDROID_ABI: arm64-v8a
 
 jobs:
   android:
     name: Android (aarch64)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          submodules: true
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.3.2"
-
-      - name: Setup Swift Android SDK
-        uses: orchetect/setup-swift-android-sdk@v1
-        with:
-          target-triple: ${{ env.TARGET_TRIPLE }}
-
-      - name: Verify Android toolchain
-        run: |
-          swift --version
-          swift sdk list
-          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
-          test -n "${ANDROID_NDK_HOME}"
-          test -d "${ANDROID_NDK_HOME}"
-
-      - name: Cache OpenSSL Android artifacts
-        id: openssl-cache
-        uses: actions/cache@v5
-        with:
-          path: Artifacts/OpenSSL/Android
-          key: >-
-            openssl-android-${{ runner.os }}-${{ env.ANDROID_ABI }}-
-            ${{ hashFiles('Scripts/build-openssl-android.sh', 'vendor/openssl/Configure') }}
-
-      - name: Build OpenSSL for Android
-        if: steps.openssl-cache.outputs.cache-hit != 'true'
-        run: ./Scripts/build-openssl-android.sh
-
-      - name: Build SwiftSFTP for Android
-        run: ./AndroidBuild/build.sh
-
-      - name: Build tests (Android)
-        run: ./AndroidBuild/build.sh build --build-tests --scratch-path /tmp/swift-android-test
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@0.0.11
+    with:
+      enable_linux_checks: false
+      enable_macos_checks: false
+      enable_windows_checks: false
+      enable_android_sdk_build: true
+      enable_android_sdk_checks: false
+      android_sdk_versions: '["6.3"]'
+      android_ndk_versions: '["r27d"]'
+      android_sdk_triples: '["aarch64-unknown-linux-android28"]'
+      android_sdk_pre_build_command: |
+        git submodule update --init --recursive
+      android_sdk_build_command: |
+        ./Scripts/build-openssl-android.sh
+        ./AndroidBuild/build.sh build --build-tests --scratch-path /tmp/swift-android-build
