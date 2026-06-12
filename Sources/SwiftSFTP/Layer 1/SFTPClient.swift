@@ -121,7 +121,10 @@ public extension SFTPClient {
         guard timeOut > 0, timeOut.isFinite else {
             throw SFTPClientInvalidConfig.invalidTimeOutValue
         }
-
+        
+        try SSHInit()
+        defer { SSHExit() }
+        
         let session = try SessionInit()
         defer { try? SessionFree(session: session) }
 
@@ -131,7 +134,7 @@ public extension SFTPClient {
             throw SFTPClientInvalidConfig.invalidTimeOutValue
         }
 
-        SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
+        SessionSetTimeout(session: session, timeOut: timeOut)
 
         let socket = try SessionHandshakeTCP(
             session: session,
@@ -211,7 +214,7 @@ public extension SFTPClient {
         }
 
         let oldTimeout = operationsTimeOut?.milliseconds ?? SessionGetTimeout(session: session)
-        SessionSetTimeout(session: session, timeoutMilliseconds: timeOut.milliseconds)
+        SessionSetTimeout(session: session, timeOut: timeOut)
         defer {
             SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
         }
@@ -306,9 +309,7 @@ public extension SFTPClient {
                 return
             }
             
-            let intValue = Int((newValue * 1000).rounded())
-            
-            SessionSetTimeout(session: session, timeoutMilliseconds: intValue)
+            SessionSetTimeout(session: session, timeOut: newValue)
         }
     }
 }

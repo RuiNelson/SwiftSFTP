@@ -343,6 +343,11 @@ public func SessionSetTimeout(session: LibSSH2Session, timeoutMilliseconds: Int)
     libssh2.libssh2_session_set_timeout(session.rawValue, CLong(timeoutMilliseconds))
 }
 
+public func SessionSetTimeout(session: LibSSH2Session, timeOut: TimeInterval) {
+    let milliseconds = timeOut.milliseconds
+    libssh2.libssh2_session_set_timeout(session.rawValue, milliseconds)
+}
+
 /// Returns the current blocking-call timeout, in milliseconds.
 ///
 /// Returns `0` when no timeout is set (the default).
@@ -350,7 +355,7 @@ public func SessionSetTimeout(session: LibSSH2Session, timeoutMilliseconds: Int)
 /// - Parameter session: The session to inspect.
 /// - Returns: The current timeout in milliseconds.
 public func SessionGetTimeout(session: LibSSH2Session) -> Int {
-    Int(libssh2.libssh2_session_get_timeout(session.rawValue))
+    libssh2.libssh2_session_get_timeout(session.rawValue)
 }
 
 /// Sets the timeout, in seconds, used by packet read functions on a session.
