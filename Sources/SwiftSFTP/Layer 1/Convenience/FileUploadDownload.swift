@@ -3,11 +3,50 @@ import Foundation
 /// Reports transfer progress as completed bytes, total bytes, last chunk size, and elapsed time since the last update.
 public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) -> Bool
 
+/// Serializes blocking `FileHandle` operations on a dedicated dispatch queue so local disk I/O can run concurrently
+/// with in-flight SFTP network calls instead of blocking the calling task.
+private final class LocalFileIO: @unchecked Sendable {
+    /// Serial queue owning all access to `handle`.
+    private let queue = DispatchQueue(label: "SwiftSFTP.FileUploadDownload.LocalFileIO")
+
+    private let handle: FileHandle
+
+    init(_ handle: FileHandle) {
+        self.handle = handle
+    }
+
+    /// Reads up to `count` bytes from the file handle without blocking the caller's thread.
+    func read(upToCount count: Int) async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try self.handle.read(upToCount: count) })
+            }
+        }
+    }
+
+    /// Writes `data` to the file handle without blocking the caller's thread.
+    func write(contentsOf data: Data) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try self.handle.write(contentsOf: data) })
+            }
+        }
+    }
+
+    /// Closes the file handle, blocking until any already-queued operations have drained first.
+    func close() {
+        queue.sync {
+            try? self.handle.close()
+        }
+    }
+}
+
 public extension SFTPFileProtocol {
     /// Uploads a local file into this remote SFTP file handle.
     ///
-    /// The file is read in `bufferSize` chunks and each chunk is written to the current remote file position. Returning
-    /// `false` from `continuation` cancels the transfer after the current chunk is written.
+    /// The file is read in `bufferSize` chunks and each chunk is written to the current remote file position. While a
+    /// chunk is in flight on the network, the next chunk is read from disk concurrently. Returning `false` from
+    /// `continuation` cancels the transfer after the current chunk is written.
     ///
     /// - Parameters:
     ///   - file: Local file URL to read.
@@ -29,9 +68,9 @@ public extension SFTPFileProtocol {
             throw FileTransferErrors.localFileNotFound
         }
 
-        let localFileHandle = try FileHandle(forReadingFrom: file)
+        let localIO = try LocalFileIO(FileHandle(forReadingFrom: file))
         defer {
-            try? localFileHandle.close()
+            localIO.close()
         }
 
         let fileSize = try FileManager.default.localFileSize(atPath: localPath)
@@ -40,29 +79,34 @@ public extension SFTPFileProtocol {
 
         var startTime = Date()
         var endTime = Date()
-        while let data = try localFileHandle.read(upToCount: bufferSize) {
-            guard data.isEmpty == false else {
-                break
+        try await withThrowingTaskGroup(of: Data?.self) { group in
+            var pendingChunk = try await localIO.read(upToCount: bufferSize)
+            while let data = pendingChunk, data.isEmpty == false {
+                // The group waits for this read on every exit path before `localIO` is closed.
+                group.addTask {
+                    try await localIO.read(upToCount: bufferSize)
+                }
+
+                let size = try await write(data)
+                guard size == data.count else {
+                    throw FileTransferErrors.shortWrite(expected: data.count, actual: size)
+                }
+
+                completed += Int64(size)
+
+                endTime = .init()
+                var interval: TimeInterval {
+                    endTime.timeIntervalSince(startTime)
+                }
+
+                if continuation(completed, fileSize, size, interval) == false {
+                    wasCancelled = true
+                    break
+                }
+
+                startTime = endTime
+                pendingChunk = try await group.next() ?? nil
             }
-
-            let size = try await write(data)
-            guard size == data.count else {
-                throw FileTransferErrors.shortWrite(expected: data.count, actual: size)
-            }
-
-            completed += Int64(size)
-
-            endTime = .init()
-            var interval: TimeInterval {
-                endTime.timeIntervalSince(startTime)
-            }
-
-            if continuation(completed, fileSize, size, interval) == false {
-                wasCancelled = true
-                break
-            }
-
-            startTime = endTime
         }
 
         guard !wasCancelled else {
@@ -73,8 +117,10 @@ public extension SFTPFileProtocol {
     /// Downloads this remote SFTP file handle into a local file.
     ///
     /// The local destination must not already exist. If it does not exist, the local file is created before data is
-    /// written. Transfer starts at this handle's current ``position``. Returning `false` from `continuation` cancels
-    /// the transfer after the current chunk is written.
+    /// written. Transfer starts at this handle's current ``position``. While the next chunk is being read from the
+    /// network, the previous chunk is written to disk concurrently; `continuation` is invoked as each chunk arrives
+    /// from the network, and every received chunk is flushed to disk before the method returns or throws. Returning
+    /// `false` from `continuation` cancels the transfer after the current chunk is written.
     ///
     /// - Parameters:
     ///   - file: Local file URL to create.
@@ -103,9 +149,9 @@ public extension SFTPFileProtocol {
         }
 
         try Data().write(to: file)
-        let localFileHandle = try FileHandle(forWritingTo: file)
+        let localIO = try LocalFileIO(FileHandle(forWritingTo: file))
         defer {
-            try? localFileHandle.close()
+            localIO.close()
         }
 
         let startingPosition = offset
@@ -116,25 +162,35 @@ public extension SFTPFileProtocol {
 
         var startTime = Date()
         var endTime = Date()
-        while let data = try await read(upTo: bufferSize) {
-            guard data.isEmpty == false else {
-                break
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            while let data = try await read(upTo: bufferSize) {
+                guard data.isEmpty == false else {
+                    break
+                }
+
+                // Surface any disk error from the previous chunk before queueing the next one, so at most one chunk is
+                // buffered in memory beyond `data`.
+                _ = try await group.next()
+                group.addTask {
+                    try await localIO.write(contentsOf: data)
+                }
+
+                completed += Int64(data.count)
+
+                endTime = .init()
+                var interval: TimeInterval {
+                    endTime.timeIntervalSince(startTime)
+                }
+
+                if continuation(completed, totalBytes, data.count, interval) == false {
+                    wasCancelled = true
+                    break
+                }
+
+                startTime = endTime
             }
 
-            try localFileHandle.write(contentsOf: data)
-            completed += Int64(data.count)
-
-            endTime = .init()
-            var interval: TimeInterval {
-                endTime.timeIntervalSince(startTime)
-            }
-
-            if continuation(completed, totalBytes, data.count, interval) == false {
-                wasCancelled = true
-                break
-            }
-
-            startTime = endTime
+            _ = try await group.next()
         }
 
         guard !wasCancelled else {
