@@ -70,3 +70,6 @@ fastlane/test_output
 /.openssl-android-build
 /.openssl-android-build-test
 /.openssl-android-build-quick
+
+# Temporary local-network benchmark (private test server, do not commit)
+Tests/SwiftSFTPTests/WiFiBenchmark.swift
