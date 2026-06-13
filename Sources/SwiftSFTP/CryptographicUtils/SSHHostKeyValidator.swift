@@ -65,47 +65,27 @@ enum SSHHostKeyValidator {
             BN_free(nBN)
             return false
         }
-
-        guard let rsa = RSA_new() else {
+        defer {
             BN_free(eBN)
             BN_free(nBN)
-            return false
         }
 
-        guard RSA_set0_key(rsa, nBN, eBN, nil) == 1 else {
-            BN_free(eBN)
-            BN_free(nBN)
-            RSA_free(rsa)
-            return false
-        }
-
-        guard let pkey = EVP_PKEY_new() else {
-            RSA_free(rsa)
-            return false
-        }
+        guard let pkey = makePublicKey(
+            algorithm: "RSA",
+            parameters: [("n", nBN), ("e", eBN)]
+        ) else { return false }
         defer { EVP_PKEY_free(pkey) }
-
-        guard EVP_PKEY_set1_RSA(pkey, rsa) == 1 else {
-            RSA_free(rsa)
-            return false
-        }
-        RSA_free(rsa)
 
         if publicKeyIsValid(pkey) {
             return true
         }
 
-        guard let rsaKey = EVP_PKEY_get0_RSA(pkey) else { return false }
-        let modulusBN = RSA_get0_n(rsaKey)
-        let exponentBN = RSA_get0_e(rsaKey)
-        guard let modulusBN, let exponentBN else { return false }
-
-        guard BN_num_bits(modulusBN) >= 1024 else { return false }
+        guard BN_num_bits(nBN) >= 1024 else { return false }
 
         guard let one = BN_new() else { return false }
         defer { BN_free(one) }
         BN_set_word(one, 1)
-        return BN_ucmp(exponentBN, one) > 0
+        return BN_ucmp(eBN, one) > 0
     }
 
     private static func validateECDSA(
@@ -161,37 +141,72 @@ enum SSHHostKeyValidator {
             BN_free(yBN)
             return false
         }
-
-        guard let dsa = DSA_new() else {
+        defer {
             BN_free(pBN)
             BN_free(qBN)
             BN_free(gBN)
             BN_free(yBN)
-            return false
         }
 
-        guard DSA_set0_pqg(dsa, pBN, qBN, gBN) == 1,
-              DSA_set0_key(dsa, yBN, nil) == 1 else {
-            BN_free(pBN)
-            BN_free(qBN)
-            BN_free(gBN)
-            BN_free(yBN)
-            DSA_free(dsa)
-            return false
-        }
-
-        guard let pkey = EVP_PKEY_new() else { return false }
+        guard let pkey = makePublicKey(
+            algorithm: "DSA",
+            parameters: [("p", pBN), ("q", qBN), ("g", gBN), ("pub", yBN)]
+        ) else { return false }
         defer { EVP_PKEY_free(pkey) }
 
-        guard EVP_PKEY_set1_DSA(pkey, dsa) == 1 else { return false }
-        DSA_free(dsa)
         return publicKeyIsValid(pkey)
     }
 
-    private static func publicKeyIsValid(_ pkey: OpaquePointer) -> Bool {
-        if EVP_PKEY_public_check(pkey) == 1 {
-            return true
+    private static func makePublicKey(
+        algorithm: String,
+        parameters: [(name: StaticString, value: OpaquePointer)]
+    ) -> OpaquePointer? {
+        var buffers: [UnsafeMutablePointer<UInt8>] = []
+        var openSSLParameters: [OSSL_PARAM] = []
+        defer {
+            for buffer in buffers {
+                buffer.deallocate()
+            }
         }
-        return EVP_PKEY_check(pkey) == 1
+
+        for parameter in parameters {
+            let byteCount = max(1, (Int(BN_num_bits(parameter.value)) + 7) / 8)
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+            buffers.append(buffer)
+
+            guard BN_bn2nativepad(parameter.value, buffer, Int32(byteCount)) == byteCount else {
+                return nil
+            }
+            let parameterName = UnsafeRawPointer(parameter.name.utf8Start)
+                .assumingMemoryBound(to: CChar.self)
+            openSSLParameters.append(
+                OSSL_PARAM_construct_BN(parameterName, buffer, byteCount)
+            )
+        }
+        openSSLParameters.append(OSSL_PARAM_construct_end())
+
+        guard let context = EVP_PKEY_CTX_new_from_name(nil, algorithm, nil) else { return nil }
+        defer { EVP_PKEY_CTX_free(context) }
+        guard EVP_PKEY_fromdata_init(context) == 1 else { return nil }
+
+        var publicKey: OpaquePointer?
+        let publicKeySelection =
+            OSSL_KEYMGMT_SELECT_PUBLIC_KEY
+                | OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS
+                | OSSL_KEYMGMT_SELECT_OTHER_PARAMETERS
+        let result = openSSLParameters.withUnsafeMutableBufferPointer {
+            EVP_PKEY_fromdata(context, &publicKey, publicKeySelection, $0.baseAddress)
+        }
+        guard result == 1 else {
+            EVP_PKEY_free(publicKey)
+            return nil
+        }
+        return publicKey
+    }
+
+    private static func publicKeyIsValid(_ pkey: OpaquePointer) -> Bool {
+        guard let context = EVP_PKEY_CTX_new_from_pkey(nil, pkey, nil) else { return false }
+        defer { EVP_PKEY_CTX_free(context) }
+        return EVP_PKEY_public_check(context) == 1
     }
 }
