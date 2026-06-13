@@ -144,6 +144,65 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("upload resume continues from existing remote file size")
+    func uploadResumeContinuesFromExistingRemoteFileSize() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("upload-resume")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/uploaded.bin"
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-upload-\(UUID().uuidString).bin"
+            )
+            let payload = Data((0 ..< 1024).map { UInt8($0 % 256) })
+            try payload.write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let partial = try await client.openFile([.write, .create], path: remotePath, permissions: .serverDefault)
+            try await partial.write(payload.prefix(256))
+            try await partial.close()
+
+            try await client.upload(from: localFile, to: remotePath, resume: true) { _, _, _, _ in true }
+
+            let verification = try await client.openFile(.read, path: remotePath, permissions: [])
+            let uploaded = try await Self.readAll(verification)
+            try await verification.close()
+
+            let data = try #require(uploaded)
+            #expect(data == payload)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("upload resume falls back to a fresh upload if remote file does not exist")
+    func uploadResumeFallsBackIfRemoteFileMissing() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("upload-resume-missing")
+            let remotePath = "\(dir)/uploaded.bin"
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-upload-\(UUID().uuidString).bin"
+            )
+            let payload = Data("payload".utf8)
+            try payload.write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            try await client.upload(from: localFile, to: remotePath, resume: true) { _, _, _, _ in true }
+
+            let verification = try await client.openFile(.read, path: remotePath, permissions: [])
+            let uploaded = try await Self.readAll(verification)
+            try await verification.close()
+
+            let data = try #require(uploaded)
+            #expect(data == payload)
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("read to local file downloads from current position")
     func readToLocalFileDownloadsFromCurrentPosition() async throws {
         try await withClient { client in
@@ -235,6 +294,63 @@ struct SFTPClientFileConvenience {
             try await source.close()
 
             #expect(FileManager.default.fileExists(atPath: localFile.path) == false)
+        }
+    }
+
+    @Test("download resume continues from existing local file size")
+    func downloadResumeContinuesFromExistingLocalFileSize() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("download-resume")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/source.bin"
+            let payload = Data((0 ..< 1024).map { UInt8($0 % 256) })
+
+            let remote = try await client.openFile([.write, .create], path: remotePath, permissions: .serverDefault)
+            try await remote.write(payload)
+            try await remote.close()
+
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+            try payload.prefix(256).write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            try await client.download(from: remotePath, to: localFile, resume: true) { _, _, _, _ in true }
+
+            let data = try Data(contentsOf: localFile)
+            #expect(data == payload)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("download resume falls back to a fresh download if local file does not exist")
+    func downloadResumeFallsBackIfLocalFileMissing() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("download-resume-missing")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/source.bin"
+            let payload = Data("payload".utf8)
+
+            let remote = try await client.openFile([.write, .create], path: remotePath, permissions: .serverDefault)
+            try await remote.write(payload)
+            try await remote.close()
+
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            try await client.download(from: remotePath, to: localFile, resume: true) { _, _, _, _ in true }
+
+            let data = try Data(contentsOf: localFile)
+            #expect(data == payload)
+
+            try await client.delete(path: dir)
         }
     }
 
