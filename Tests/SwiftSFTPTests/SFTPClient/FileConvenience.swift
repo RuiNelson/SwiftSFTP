@@ -44,6 +44,78 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("write from local file returns total bytes written")
+    func writeFromLocalFileReturnsTotalBytesWritten() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("local-upload-return")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/uploaded.bin"
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-upload-\(UUID().uuidString).bin"
+            )
+            let payload = Data((0 ..< 1024).map { UInt8($0 % 256) })
+            try payload.write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let destination = try await client.openFile(
+                [.write, .create, .truncate],
+                path: remotePath,
+                permissions: .serverDefault
+            )
+
+            let written = try await destination.write(from: localFile, bufferSize: 128) { _, _, _, _ in true }
+            try await destination.close()
+
+            #expect(written == UInt64(payload.count))
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("write from local file with startFromFileOffset and upTo uploads partial range")
+    func writeFromLocalFileWithOffsetAndLimitUploadsPartialRange() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("local-upload-range")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/uploaded.bin"
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-upload-\(UUID().uuidString).bin"
+            )
+            let payload = Data((0 ..< 1024).map { UInt8($0 % 256) })
+            try payload.write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let destination = try await client.openFile(
+                [.write, .create, .truncate],
+                path: remotePath,
+                permissions: .serverDefault
+            )
+
+            let written = try await destination.write(
+                from: localFile,
+                startFromFileOffset: 100,
+                upTo: 256,
+                bufferSize: 128
+            ) { _, _, _, _ in true }
+            try await destination.close()
+
+            #expect(written == 256)
+
+            let verification = try await client.openFile(.read, path: remotePath, permissions: [])
+            let uploaded = try await Self.readAll(verification)
+            try await verification.close()
+
+            let data = try #require(uploaded)
+            #expect(data == payload[100 ..< 356])
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("upload refuses to overwrite existing remote file")
     func uploadRefusesExistingRemoteFile() async throws {
         try await withClient { client in
@@ -96,6 +168,73 @@ struct SFTPClientFileConvenience {
             #expect(data.count == 896)
             #expect(data.allSatisfy { $0 == 0xAA })
             #expect(totals.allSatisfy { $0 == 896 })
+        }
+    }
+
+    @Test("read to local file returns total bytes written and respects upTo")
+    func readToLocalFileReturnsTotalBytesWrittenAndRespectsUpTo() async throws {
+        try await withClient { client in
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+
+            let written = try await source.read(to: localFile, upTo: 256, bufferSize: 128) { _, _, _, _ in true }
+            try await source.close()
+
+            #expect(written == 256)
+
+            let data = try Data(contentsOf: localFile)
+            #expect(data.count == 256)
+            #expect(data.allSatisfy { $0 == 0xAA })
+        }
+    }
+
+    @Test("read to local file with append appends to existing local file")
+    func readToLocalFileWithAppendAppendsToExistingLocalFile() async throws {
+        try await withClient { client in
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+            let existingContent = Data("prefix".utf8)
+            try existingContent.write(to: localFile)
+            defer {
+                try? FileManager.default.removeItem(at: localFile)
+            }
+
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+
+            let written = try await source.read(to: localFile, append: true, bufferSize: 128) { _, _, _, _ in true }
+            try await source.close()
+
+            #expect(written == 1024)
+
+            let data = try Data(contentsOf: localFile)
+            #expect(data.count == existingContent.count + 1024)
+            #expect(data.prefix(existingContent.count) == existingContent)
+            #expect(data.suffix(1024).allSatisfy { $0 == 0xAA })
+        }
+    }
+
+    @Test("read to local file with append throws if local file is missing")
+    func readToLocalFileWithAppendThrowsIfLocalFileMissing() async throws {
+        try await withClient { client in
+            let localFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-download-\(UUID().uuidString).bin"
+            )
+
+            let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
+
+            await #expect(throws: FileTransferErrors.self) {
+                try await source.read(to: localFile, append: true) { _, _, _, _ in true }
+            }
+            try await source.close()
+
+            #expect(FileManager.default.fileExists(atPath: localFile.path) == false)
         }
     }
 

@@ -24,6 +24,24 @@ private final class LocalFileIO: @unchecked Sendable {
         }
     }
 
+    /// Moves the file offset to `offset` without blocking the caller's thread.
+    func seek(toOffset offset: UInt64) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try self.handle.seek(toOffset: offset) })
+            }
+        }
+    }
+
+    /// Moves the file offset to the end of the file without blocking the caller's thread.
+    @discardableResult func seekToEnd() async throws -> UInt64 {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try self.handle.seekToEnd() })
+            }
+        }
+    }
+
     /// Writes `data` to the file handle without blocking the caller's thread.
     func write(contentsOf data: Data) async throws {
         try await withCheckedThrowingContinuation { continuation in
@@ -50,11 +68,20 @@ public extension SFTPFileProtocol {
     ///
     /// - Parameters:
     ///   - file: Local file URL to read.
+    ///   - startFromFileOffset: Local file offset to start reading from.
+    ///   - upTo: Maximum number of bytes to read from the local file. Pass `nil` to read until EOF.
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
+    /// - Returns: The number of bytes successfully written to the remote file.
     /// - Throws: ``FileTransferErrors`` for invalid local input, cancellation, invalid buffer sizes, or short writes;
     /// otherwise forwards `FileHandle` and SFTP write errors.
-    func write(from file: URL, bufferSize: Int = 512 * 1024, continuation: @escaping TransferProgress) async throws {
+    @discardableResult func write(
+        from file: URL,
+        startFromFileOffset: UInt64 = 0,
+        upTo: UInt64? = nil,
+        bufferSize: Int = 512 * 1024,
+        continuation: @escaping TransferProgress
+    ) async throws -> UInt64 {
         guard file.isFileURL else {
             throw FileTransferErrors.notAFileURL
         }
@@ -73,18 +100,32 @@ public extension SFTPFileProtocol {
             localIO.close()
         }
 
-        let fileSize = try FileManager.default.localFileSize(atPath: localPath)
+        if startFromFileOffset != 0 {
+            try await localIO.seek(toOffset: startFromFileOffset)
+        }
+
+        let localFileSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
+        let availableBytes = localFileSize > startFromFileOffset ? localFileSize - startFromFileOffset : 0
+        let fileSize = Int64(clamping: min(upTo ?? UInt64.max, availableBytes))
+        var remainingBytes = fileSize
         var completed = Int64()
         var wasCancelled = false
+
+        func nextChunkSize() -> Int {
+            remainingBytes > 0 ? Int(min(Int64(bufferSize), remainingBytes)) : 0
+        }
 
         var startTime = Date()
         var endTime = Date()
         try await withThrowingTaskGroup(of: Data?.self) { group in
-            var pendingChunk = try await localIO.read(upToCount: bufferSize)
+            var pendingChunk = try await localIO.read(upToCount: nextChunkSize())
             while let data = pendingChunk, data.isEmpty == false {
+                remainingBytes -= Int64(data.count)
+
                 // The group waits for this read on every exit path before `localIO` is closed.
+                let nextSize = nextChunkSize()
                 group.addTask {
-                    try await localIO.read(upToCount: bufferSize)
+                    nextSize > 0 ? try await localIO.read(upToCount: nextSize) : nil
                 }
 
                 let size = try await write(data)
@@ -112,23 +153,35 @@ public extension SFTPFileProtocol {
         guard !wasCancelled else {
             throw FileTransferErrors.transferCancelled
         }
+
+        return UInt64(completed)
     }
 
     /// Downloads this remote SFTP file handle into a local file.
     ///
-    /// The local destination must not already exist. If it does not exist, the local file is created before data is
-    /// written. Transfer starts at this handle's current ``position``. While the next chunk is being read from the
+    /// If `append` is `false` (the default), the local destination must not already exist and is created before data is
+    /// written. If `append` is `true`, the local destination must already exist and the downloaded data is appended to
+    /// its end. Transfer starts at this handle's current ``position``. While the next chunk is being read from the
     /// network, the previous chunk is written to disk concurrently; `continuation` is invoked as each chunk arrives
     /// from the network, and every received chunk is flushed to disk before the method returns or throws. Returning
     /// `false` from `continuation` cancels the transfer after the current chunk is written.
     ///
     /// - Parameters:
-    ///   - file: Local file URL to create.
+    ///   - file: Local file URL to create or append to.
+    ///   - append: When `true`, append to an existing local file instead of creating a new one.
+    ///   - upTo: Maximum number of bytes to read from the remote file. Pass `nil` to read until EOF.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid local input, existing local destinations, directory destinations,
-    /// cancellation, or invalid buffer sizes; otherwise forwards `FileHandle` and SFTP read errors.
-    func read(to file: URL, bufferSize: Int = 512 * 1024, continuation: @escaping TransferProgress) async throws {
+    /// - Returns: The number of bytes successfully written to the local file.
+    /// - Throws: ``FileTransferErrors`` for invalid local input, existing or missing local destinations, directory
+    /// destinations, cancellation, or invalid buffer sizes; otherwise forwards `FileHandle` and SFTP read errors.
+    @discardableResult func read(
+        to file: URL,
+        append: Bool = false,
+        upTo: UInt64? = nil,
+        bufferSize: Int = 512 * 1024,
+        continuation: @escaping TransferProgress
+    ) async throws -> UInt64 {
         guard file.isFileURL else {
             throw FileTransferErrors.notAFileURL
         }
@@ -139,32 +192,48 @@ public extension SFTPFileProtocol {
 
         let localPath = file.path
         var isDirectory = ObjCBool(false)
-        if FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory) {
-            if isDirectory.boolValue {
-                throw FileTransferErrors.remotePathIsADirectory(path: localPath)
-            }
-            else {
-                throw FileTransferErrors.localFileAlreadyExists(path: localPath)
-            }
+        let localFileExists = FileManager.default.fileExists(atPath: localPath, isDirectory: &isDirectory)
+
+        if isDirectory.boolValue {
+            throw FileTransferErrors.remotePathIsADirectory(path: localPath)
         }
 
-        try Data().write(to: file)
+        if append {
+            guard localFileExists else {
+                throw FileTransferErrors.localFileNotFound
+            }
+        }
+        else {
+            guard !localFileExists else {
+                throw FileTransferErrors.localFileAlreadyExists(path: localPath)
+            }
+
+            try Data().write(to: file)
+        }
+
         let localIO = try LocalFileIO(FileHandle(forWritingTo: file))
         defer {
             localIO.close()
         }
 
+        if append {
+            try await localIO.seekToEnd()
+        }
+
         let startingPosition = offset
-        let fileSize = try await stat.fileSize
-        let totalBytes = Int64(clamping: fileSize > startingPosition ? fileSize - startingPosition : 0)
+        let remoteFileSize = try await stat.fileSize
+        let availableBytes = remoteFileSize > startingPosition ? remoteFileSize - startingPosition : 0
+        let totalBytes = Int64(clamping: min(upTo ?? UInt64.max, availableBytes))
+        var remainingBytes = totalBytes
         var completed = Int64()
         var wasCancelled = false
 
         var startTime = Date()
         var endTime = Date()
         try await withThrowingTaskGroup(of: Void.self) { group in
-            while let data = try await read(upTo: bufferSize) {
-                guard data.isEmpty == false else {
+            while remainingBytes > 0 {
+                let chunkSize = Int(min(Int64(bufferSize), remainingBytes))
+                guard let data = try await read(upTo: chunkSize), data.isEmpty == false else {
                     break
                 }
 
@@ -176,6 +245,7 @@ public extension SFTPFileProtocol {
                 }
 
                 completed += Int64(data.count)
+                remainingBytes -= Int64(data.count)
 
                 endTime = .init()
                 var interval: TimeInterval {
@@ -196,6 +266,8 @@ public extension SFTPFileProtocol {
         guard !wasCancelled else {
             throw FileTransferErrors.transferCancelled
         }
+
+        return UInt64(completed)
     }
 
     /// Reads data from another SFTP file handle into this handle.
