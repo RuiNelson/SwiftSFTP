@@ -532,6 +532,67 @@ struct SFTPClientFileConvenience {
         }
     }
 
+    @Test("upload and download round trip resumes after cancellation")
+    func uploadAndDownloadRoundTripResumesAfterCancellation() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("round-trip-resume")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+            let remotePath = "\(dir)/payload.bin"
+
+            let sourceFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-roundtrip-source-\(UUID().uuidString).bin"
+            )
+            let destinationFile = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swiftsftp-roundtrip-destination-\(UUID().uuidString).bin"
+            )
+            defer {
+                try? FileManager.default.removeItem(at: sourceFile)
+                try? FileManager.default.removeItem(at: destinationFile)
+            }
+
+            let payload = Self.randomData(count: 10 * 1024 * 1024)
+            try payload.write(to: sourceFile)
+
+            // Upload, cancelling partway through once at least half the file has been sent.
+            do {
+                try await client.upload(from: sourceFile, to: remotePath) { completed, total, _, _ in
+                    completed < total / 2
+                }
+                Issue.record("Expected the upload to be cancelled")
+            }
+            catch FileTransferErrors.transferCancelled {
+                // expected
+            }
+
+            // Resume and complete the upload.
+            try await client.upload(from: sourceFile, to: remotePath, resume: true) { _, _, _, _ in true }
+
+            let verification = try await client.openFile(.read, path: remotePath, permissions: [])
+            let uploaded = try await Self.readAll(verification)
+            try await verification.close()
+            #expect(uploaded == payload)
+
+            // Download, cancelling partway through once at least half the file has been received.
+            do {
+                try await client.download(from: remotePath, to: destinationFile) { completed, total, _, _ in
+                    completed < total / 2
+                }
+                Issue.record("Expected the download to be cancelled")
+            }
+            catch FileTransferErrors.transferCancelled {
+                // expected
+            }
+
+            // Resume and complete the download.
+            try await client.download(from: remotePath, to: destinationFile, resume: true) { _, _, _, _ in true }
+
+            let downloaded = try Data(contentsOf: destinationFile)
+            #expect(downloaded == payload)
+
+            try await client.delete(path: dir)
+        }
+    }
+
     private static func readAll(_ handle: any SFTPFileProtocol) async throws -> Data? {
         var buffer = Data()
         while let chunk = try await handle.read(upTo: 32 * 1024) {
@@ -539,5 +600,24 @@ struct SFTPClientFileConvenience {
         }
 
         return buffer.isEmpty ? nil : buffer
+    }
+
+    /// Generates `count` bytes of pseudo-random data for round-trip fixtures.
+    private static func randomData(count: Int) -> Data {
+        var data = Data(count: count)
+        var generator = SystemRandomNumberGenerator()
+        data.withUnsafeMutableBytes { buffer in
+            var offset = 0
+            while offset < count {
+                let value = generator.next()
+                withUnsafeBytes(of: value) { bytes in
+                    let chunkSize = min(count - offset, bytes.count)
+                    buffer.baseAddress!.advanced(by: offset).copyMemory(from: bytes.baseAddress!, byteCount: chunkSize)
+                }
+                offset += MemoryLayout<UInt64>.size
+            }
+        }
+
+        return data
     }
 }
