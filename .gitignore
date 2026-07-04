@@ -73,3 +73,4 @@ fastlane/test_output
 
 # Temporary local-network benchmark (private test server, do not commit)
 Tests/SwiftSFTPTests/WiFiBenchmark.swift
+/.vscode
