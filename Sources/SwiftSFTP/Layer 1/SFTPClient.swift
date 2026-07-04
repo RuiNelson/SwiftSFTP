@@ -13,6 +13,8 @@ public final class SFTPClient: SFTPClientProtocol {
     private nonisolated(unsafe) var _closed: Bool = false
     private nonisolated(unsafe) var _sftp: LibSSH2SFTP?
     private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
+    /// Accepted host keys to verify against at login, or `nil` when any host key is accepted.
+    private nonisolated(unsafe) var _knownHosts: LibSSH2KnownHosts?
 
     // MARK: Configuration
 
@@ -90,7 +92,11 @@ public final class SFTPClient: SFTPClientProtocol {
 
         // HostKeys
 
-        try Self.loadHostKeyAcceptanceSettings(to: session, with: hostKeyAcceptance, location: openSocketIn)
+        _knownHosts = try Self.loadHostKeyAcceptanceSettings(
+            to: session,
+            with: hostKeyAcceptance,
+            location: openSocketIn
+        )
 
         if let operationsTimeOut {
             SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
@@ -228,6 +234,8 @@ public extension SFTPClient {
             self._socket = socket
         }
 
+        try verifyHostKey()
+
         try authenticate()
 
         let sftp = try SFTPInit(session: session)
@@ -251,6 +259,11 @@ public extension SFTPClient {
                 do { try SFTPShutdown(sftp: sftpSession) }
                 catch { firstError = firstError ?? error }
                 _sftp = nil
+            }
+
+            if let knownHosts = _knownHosts {
+                KnownHostFree(hosts: knownHosts)
+                _knownHosts = nil
             }
 
             do { try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user") }
@@ -594,6 +607,36 @@ private extension SFTPClient {
 // MARK: Private implementation
 
 private extension SFTPClient {
+    /// Verifies the server's host key (available after the handshake) against the accepted host keys, if configured.
+    func verifyHostKey() throws {
+        guard let knownHosts = internalStateQueue.sync(execute: { _knownHosts }) else {
+            return
+        }
+
+        guard let hostKey = SessionHostKey(session: session) else {
+            throw LibSSH2Error.nullPointer(function: "SessionHostKey")
+        }
+
+        let check = try KnownHostCheckPort(
+            hosts: knownHosts,
+            host: tcpLocation.trimmedHostname,
+            port: tcpLocation.port,
+            key: hostKey.key,
+            typeMask: [.plain, .rawKey]
+        )
+
+        switch check.result {
+        case .match:
+            ()
+
+        case .mismatch:
+            throw HostKeyVerificationError.keyMismatch
+
+        case .notFound, .failure:
+            throw HostKeyVerificationError.unknownHostKey
+        }
+    }
+
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         do {
             return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)

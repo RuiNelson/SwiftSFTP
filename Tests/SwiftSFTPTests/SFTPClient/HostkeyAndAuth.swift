@@ -214,6 +214,36 @@ struct SFTPClientHostkeyAndAuth {
         try await client.close()
     }
 
+    @Test("shortHandAcceptedKeys rejects a non-matching key")
+    func shortHandAcceptedKeysRejectsWrongKey() async throws {
+        let wrongKey = try #require(SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()?.publicKey)
+
+        let client = try makeClient(
+            hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey])
+        )
+        await #expect(throws: HostKeyVerificationError.keyMismatch) {
+            try await client.login(timeOut: 10.0)
+        }
+        try? await client.close()
+    }
+
+    @Test("loadFromFileString rejects a key stored for another host")
+    func loadFromFileStringRejectsUnknownHost() async throws {
+        let shortKey = try await SFTPClient.getServerHostKey(
+            openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
+            timeOut: 10.0,
+            shortHandForm: true
+        )
+
+        let client = try makeClient(
+            hostKeyAcceptance: .loadFromFileString(file: "other-host.example.com \(shortKey)")
+        )
+        await #expect(throws: HostKeyVerificationError.unknownHostKey) {
+            try await client.login(timeOut: 10.0)
+        }
+        try? await client.close()
+    }
+
     // MARK: - Login
 
     @Test("password login succeeds for bulbasaur")

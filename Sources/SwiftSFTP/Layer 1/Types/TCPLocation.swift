@@ -64,26 +64,16 @@ extension TCPLocation {
         return true
     }
 
+    /// The host field for an OpenSSH `known_hosts` line: the bare host for the default port 22, or `[host]:port`
+    /// otherwise.
     var knownHostsHost: String {
         let host = trimmedHostname
-        let isDefaultPort = port == 22
-        
-        switch hostnameCheckup {
-        case .invalid, .validHostname, .validIPv6:
-            if isDefaultPort {
-                return "[\(host)]"
-            }
-            else {
-                return "[\(host)]:\(port)"
-            }
-            
-        case .validIPv4:
-            if isDefaultPort {
-                return host
-            }
-            else {
-                return "\(host):\(port)"
-            }
+
+        if port == 22 {
+            return host
+        }
+        else {
+            return "[\(host)]:\(port)"
         }
     }
 }

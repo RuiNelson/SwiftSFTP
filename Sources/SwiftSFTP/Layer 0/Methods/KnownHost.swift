@@ -1,3 +1,4 @@
+import Foundation
 import libssh2
 
 /// The result of checking a host key against a known-hosts collection.
@@ -198,6 +199,49 @@ public func KnownHostCheckPort(
                 Int32(port),
                 keyPointer,
                 key.utf8.count,
+                typeMask.rawValue,
+                &store
+            )
+        }
+    }
+    guard let result = LibSSH2KnownHostCheckResult(rawValue: rawResult) else {
+        throw LibSSH2Error.unknown(code: rawResult, message: nil)
+    }
+    if result == .failure { throw LibSSH2Error.knownHosts(nil) }
+    return (result, store.map { LibSSH2KnownHost($0.pointee) })
+}
+
+/// Checks a raw binary host key and port against a known-hosts collection.
+///
+/// Use this overload with the raw key bytes returned by ``SessionHostKey(session:)``; include ``rawKey`` in
+/// `typeMask`. `port` is the port number the host is reached on, or a negative value to check the generic host without
+/// a port qualifier.
+///
+/// - Parameters:
+///   - hosts: The collection to check against.
+///   - host: The host name in plain text.
+///   - port: The port number, or a negative value to ignore the port.
+///   - key: The raw host key bytes to check.
+///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
+/// - Returns: A tuple containing the ``LibSSH2KnownHostCheckResult`` and the matched ``LibSSH2KnownHost`` (if any).
+/// - Throws: ``LibSSH2Error`` with ``LibSSH2Error/knownHosts(_:)`` if the check could not be performed, or
+/// ``LibSSH2Error/unknown(code:message:)`` for an unrecognized raw result.
+public func KnownHostCheckPort(
+    hosts: LibSSH2KnownHosts,
+    host: String,
+    port: Int,
+    key: Data,
+    typeMask: LibSSH2KnownHostTypeMask
+) throws -> (result: LibSSH2KnownHostCheckResult, knownHost: LibSSH2KnownHost?) {
+    var store: UnsafeMutablePointer<libssh2_knownhost>?
+    let rawResult = host.withCString { hostPointer in
+        key.withUnsafeBytes { keyBuffer in
+            libssh2.libssh2_knownhost_checkp(
+                hosts.rawValue,
+                hostPointer,
+                Int32(port),
+                keyBuffer.bindMemory(to: CChar.self).baseAddress,
+                key.count,
                 typeMask.rawValue,
                 &store
             )

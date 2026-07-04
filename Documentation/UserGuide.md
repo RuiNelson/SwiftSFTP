@@ -131,6 +131,11 @@ Supported algorithms: RSA, ECDSA P-256 / P-384 / P-521, Ed25519.
 
 ## Host Key Verification
 
+The server's host key is verified right after the SSH handshake inside `login(timeOut:)`. If the key does not match
+the configured acceptance settings, login throws `HostKeyVerificationError.keyMismatch` (the host is known but
+presented a different key — a possible man-in-the-middle) or `HostKeyVerificationError.unknownHostKey` (no entry for
+the host).
+
 ### Accept any host key (development only)
 
 ```swift
@@ -509,6 +514,15 @@ Thrown synchronously from `SFTPClient.init` (including when called by `initAndLo
 | `.invalidHostKeyFormat(Error)` | Malformed known_hosts file or string |
 | `.invalidPrivateKey(Error)` | Private key file missing at init time |
 | `.authenticationFailed(Error)` | Server rejected credentials during `login()` |
+
+### Host key verification errors (`HostKeyVerificationError`)
+
+Thrown from `login()` after the handshake when a host key acceptance other than `.acceptAny` is configured:
+
+| Case | Cause |
+|------|-------|
+| `.keyMismatch` | Host is in the accepted keys but presented a different key (possible man-in-the-middle) |
+| `.unknownHostKey` | Host has no entry in the accepted keys |
 
 ### Transfer errors (`FileTransferErrors`)
 
