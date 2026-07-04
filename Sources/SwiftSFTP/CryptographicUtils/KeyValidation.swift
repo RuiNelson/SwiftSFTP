@@ -153,12 +153,15 @@ extension String: KeyValidation {
             let pkey: OpaquePointer?
             if let password {
                 let box = PasswordBox(password)
-                pkey = PEM_read_bio_PrivateKey(
-                    bio,
-                    nil,
-                    passwordCallback,
-                    Unmanaged.passUnretained(box).toOpaque()
-                )
+                // Keep `box` alive for the whole C call; the callback reads it through an unretained pointer.
+                pkey = withExtendedLifetime(box) {
+                    PEM_read_bio_PrivateKey(
+                        bio,
+                        nil,
+                        passwordCallback,
+                        Unmanaged.passUnretained(box).toOpaque()
+                    )
+                }
             }
             else {
                 pkey = PEM_read_bio_PrivateKey(bio, nil, noPasswordCallback, nil)
@@ -229,12 +232,15 @@ extension String: KeyValidation {
             let pkey: OpaquePointer?
             if let password {
                 let box = PasswordBox(password)
-                pkey = PEM_read_bio_PrivateKey(
-                    bio,
-                    nil,
-                    passwordCallback,
-                    Unmanaged.passUnretained(box).toOpaque()
-                )
+                // Keep `box` alive for the whole C call; the callback reads it through an unretained pointer.
+                pkey = withExtendedLifetime(box) {
+                    PEM_read_bio_PrivateKey(
+                        bio,
+                        nil,
+                        passwordCallback,
+                        Unmanaged.passUnretained(box).toOpaque()
+                    )
+                }
             }
             else {
                 pkey = PEM_read_bio_PrivateKey(bio, nil, noPasswordCallback, nil)

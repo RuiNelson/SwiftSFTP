@@ -5,10 +5,8 @@ public typealias SwiftSFTPSocket = Int32
 
 /// Closes a socket descriptor returned by ``SessionHandshakeTCP(session:host:port:)``.
 public func CloseSocket(_ socket: SwiftSFTPSocket) throws {
-    let code = close(socket)
-    
-    guard code == 0 else {
-        throw POSIXError(POSIXErrorCode(rawValue: code)!)
+    guard close(socket) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 }
 
