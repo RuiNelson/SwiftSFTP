@@ -65,19 +65,25 @@ public extension FileMetadata {
 }
 
 public extension FileMetadata {
+    /// The POSIX file-type bits isolated with the `S_IFMT` mask. File types are values under the mask, not independent
+    /// flags, so they must be compared after masking (e.g. `S_IFLNK` shares bits with `S_IFREG`).
+    private var fileType: POSIXPermissions {
+        POSIXPermissions(rawValue: attributes.permissions.rawValue & POSIXPermissions.fileTypeMask.rawValue)
+    }
+
     /// Whether the entry is a regular file according to the POSIX file-type bits.
     var isRegularFile: Bool {
-        attributes.permissions.contains(.regularFile)
+        fileType == .regularFile
     }
 
     /// Whether the entry is a directory according to the POSIX file-type bits.
     var isDirectory: Bool {
-        attributes.permissions.contains(.directory)
+        fileType == .directory
     }
 
     /// Whether the entry is a symbolic link according to the POSIX file-type bits.
     var isSymLink: Bool {
-        attributes.permissions.contains(.symbolicLink)
+        fileType == .symbolicLink
     }
 }
 

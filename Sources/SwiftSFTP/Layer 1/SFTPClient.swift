@@ -435,7 +435,8 @@ public extension SFTPClient {
             if metadata.isDirectory {
                 return
             }
-            else if metadata.isRegularFile {
+            else {
+                // Any existing non-directory entry (regular file, symlink, socket, …) blocks directory creation.
                 throw FileTransferErrors.remotePathIsAFile(path: path)
             }
         }
