@@ -251,6 +251,10 @@ public func SessionLastError(
         wantsBuffer ? 1 : 0
     )
     let message = messagePointer.map { String(cString: $0) }
+    if wantsBuffer {
+        // With want_buf != 0 libssh2 hands ownership of the buffer to the caller; free it after copying.
+        libssh2.libssh2_free(session.rawValue, messagePointer)
+    }
     return (LibSSH2Error(code: code, message: message), message)
 }
 
