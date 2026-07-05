@@ -136,10 +136,6 @@ public extension SFTPClient {
 
         SessionSetBlocking(session: session, blocking: true)
 
-        guard timeOut > 0, timeOut.isFinite else {
-            throw SFTPClientInvalidConfig.invalidTimeOutValue
-        }
-
         SessionSetTimeout(session: session, timeOut: timeOut)
 
         let socket = try SessionHandshakeTCP(
