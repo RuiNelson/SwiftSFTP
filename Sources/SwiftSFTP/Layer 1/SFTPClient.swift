@@ -270,11 +270,10 @@ public extension SFTPClient {
             do { try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user") }
             catch { firstError = firstError ?? error }
 
-            do {
-                try SessionFree(session: session)
-                SSHExit()
-            }
+            do { try SessionFree(session: session) }
             catch { firstError = firstError ?? error }
+            // Always balance the SSHInit from init, even when SessionFree fails.
+            SSHExit()
 
             if let socket = _socket {
                 do { try CloseSocket(socket) }
