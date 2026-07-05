@@ -148,8 +148,9 @@ public extension SFTPClient {
             port: openSocketIn.port
         )
 
-        defer { try? SessionDisconnect(session: session, description: "Goodbye") }
+        // Defers run in reverse order: disconnect must happen while the socket is still open.
         defer { try? CloseSocket(socket) }
+        defer { try? SessionDisconnect(session: session, description: "Goodbye") }
 
         let shortHand = try SessionHostKeyString(session: session)
 
