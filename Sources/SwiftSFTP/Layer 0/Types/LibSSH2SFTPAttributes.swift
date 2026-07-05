@@ -86,6 +86,7 @@ extension Date {
     }
     
     var secondSince1970: UInt {
-        UInt(timeIntervalSince1970.rounded())
+        // Clamp pre-1970 dates to 0 — SFTP timestamps are unsigned and a negative interval would trap.
+        UInt(max(0, timeIntervalSince1970.rounded()))
     }
 }
