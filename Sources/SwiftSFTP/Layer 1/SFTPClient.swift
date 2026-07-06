@@ -202,8 +202,16 @@ public extension SFTPClient {
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
         
-        try await instance.login(timeOut: loginTimeOut)
-        
+        do {
+            try await instance.login(timeOut: loginTimeOut)
+        }
+        catch {
+            // Nobody else can close the never-returned instance; avoid leaking the session and tripping the
+            // deinit-without-close trap.
+            try? await instance.close()
+            throw error
+        }
+
         return instance
     }
 }
