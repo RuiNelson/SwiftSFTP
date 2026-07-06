@@ -38,11 +38,18 @@ public extension SFTPClientProtocol {
         }
 
         let sourceHandle = try await openFile([.read], path: source, permissions: [.serverDefault])
-        let destinationHandle = try await openFile(
-            [.create, .write, .exclusive],
-            path: destination,
-            permissions: permissions
-        )
+        let destinationHandle: any SFTPFileProtocol
+        do {
+            destinationHandle = try await openFile(
+                [.create, .write, .exclusive],
+                path: destination,
+                permissions: permissions
+            )
+        }
+        catch {
+            try? await sourceHandle.close()
+            throw error
+        }
 
         do {
             try await destinationHandle.read(
