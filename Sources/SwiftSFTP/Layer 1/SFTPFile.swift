@@ -130,8 +130,9 @@ public extension SFTPFile {
                 return
             }
 
-            try SFTPCloseHandle(handle: self.handle)
+            // libssh2 frees the handle even when close fails, so mark closed first to prevent any further use.
             _closed = true
+            try SFTPCloseHandle(handle: self.handle)
         }
     }
 
