@@ -92,11 +92,19 @@ public final class SFTPClient: SFTPClientProtocol {
 
         // HostKeys
 
-        _knownHosts = try Self.loadHostKeyAcceptanceSettings(
-            to: session,
-            with: hostKeyAcceptance,
-            location: openSocketIn
-        )
+        do {
+            _knownHosts = try Self.loadHostKeyAcceptanceSettings(
+                to: session,
+                with: hostKeyAcceptance,
+                location: openSocketIn
+            )
+        }
+        catch {
+            // Balance SessionInit and SSHInit from above; deinit does not free them.
+            try? SessionFree(session: session)
+            SSHExit()
+            throw error
+        }
 
         if let operationsTimeOut {
             SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
