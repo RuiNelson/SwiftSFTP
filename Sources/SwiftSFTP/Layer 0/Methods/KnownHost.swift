@@ -46,7 +46,7 @@ public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
 ///   - typeMask: An option set describing the host format, key encoding, and key algorithm.
 /// - Returns: A ``LibSSH2KnownHost`` referencing the added entry, or
 ///   `nil` if `store` was not filled in.
-/// - Throws: ``LibSSH2Error`` if the underlying `libssh2_knownhost_add` call fails.
+/// - Throws: ``LibSSH2Error`` if adding the host fails.
 public func KnownHostAdd(
     hosts: LibSSH2KnownHosts,
     host: String,
@@ -54,25 +54,14 @@ public func KnownHostAdd(
     key: String,
     typeMask: LibSSH2KnownHostTypeMask
 ) throws -> LibSSH2KnownHost? {
-    var store: UnsafeMutablePointer<libssh2_knownhost>?
-    try host.withCString { hostPointer in
-        try salt.withCString { saltPointer in
-            try key.withCString { keyPointer in
-                try (
-                    libssh2.libssh2_knownhost_add(
-                        hosts.rawValue,
-                        hostPointer,
-                        saltPointer,
-                        keyPointer,
-                        key.utf8.count,
-                        typeMask.rawValue,
-                        &store
-                    )
-                ).checkReturnValue()
-            }
-        }
-    }
-    return store.map { LibSSH2KnownHost($0.pointee) }
+    try KnownHostAdd(
+        hosts: hosts,
+        host: host,
+        salt: salt,
+        key: key,
+        comment: nil,
+        typeMask: typeMask
+    )
 }
 
 /// Adds a host key with an associated comment to a known-hosts collection.

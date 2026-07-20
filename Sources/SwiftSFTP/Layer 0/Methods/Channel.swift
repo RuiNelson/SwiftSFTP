@@ -403,23 +403,6 @@ public func ChannelRead(
     return Data(bytes: buffer, count: count)
 }
 
-/// Reports whether a channel has data available in its read buffer.
-///
-/// The libssh2 documentation marks this helper as deprecated; prefer
-/// ``libssh2_poll`` for full polling support. The underlying call only
-/// inspects buffered channel data and does not see if packets are waiting to be processed on the transport.
-///
-/// - Parameters:
-///   - channel: The channel to poll.
-///   - extended: If `true`, check the extended-data substream instead of the standard I/O substream.
-/// - Returns: `1` when data is available, `0` otherwise.
-/// - Throws: ``LibSSH2Error`` on failure.
-public func PollChannelRead(channel: LibSSH2Channel, extended: Bool) throws -> Int {
-    let result = libssh2.libssh2_poll_channel_read(channel.rawValue, extended ? 1 : 0)
-    if result < 0 { throw LibSSH2Error(code: result) }
-    return Int(result)
-}
-
 /// Returns the current status of a channel's read window.
 ///
 /// - Parameter channel: The channel to inspect.
