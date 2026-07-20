@@ -11,12 +11,6 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 
 `vendor/libssh2` and `vendor/openssl` are read-only submodules; do not edit them except when explicitly upgrading vendored sources.
 
-## Human Code
-
-- Code written by the human maintainer should be treated with upmost respect.
-- Do not delete or modify human-written code unless explicitly instructed to do so. If you find issues, ask the user first what to do.
-- Prefer additive, narrowly scoped changes that preserve the maintainer's existing structure and intent.
-
 ## Layer 0 — libssh2 wrappers (`Sources/SwiftSFTP/Layer 0`)
 
 - Put wrapper methods in `Layer 0/Methods/`, one file per API category.
