@@ -1,9 +1,11 @@
 [submodule "vendor/libssh2"]
 	path = vendor/libssh2
 	url = https://github.com/RuiNelson/libssh2.git
+	branch = master
 [submodule "vendor/openssl"]
 	path = vendor/openssl
 	url = https://github.com/openssl/openssl.git
+	branch = master
 [submodule "vendor/PathWorks"]
 	path = vendor/PathWorks
 	url = https://github.com/RuiNelson/PathWorks.git
