@@ -250,9 +250,30 @@ typedef struct srtp_protection_profile_st {
 SKM_DEFINE_STACK_OF_INTERNAL(SRTP_PROTECTION_PROFILE, SRTP_PROTECTION_PROFILE, SRTP_PROTECTION_PROFILE)
 #define sk_SRTP_PROTECTION_PROFILE_num(sk) OPENSSL_sk_num(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk))
 #define sk_SRTP_PROTECTION_PROFILE_value(sk, idx) ((SRTP_PROTECTION_PROFILE *)OPENSSL_sk_value(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk), (idx)))
-#define sk_SRTP_PROTECTION_PROFILE_new(cmp) ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_SRTP_PROTECTION_PROFILE_compfunc_type(cmp)), sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk))
-#define sk_SRTP_PROTECTION_PROFILE_new_null() ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
-#define sk_SRTP_PROTECTION_PROFILE_new_reserve(cmp, n) ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_SRTP_PROTECTION_PROFILE_compfunc_type(cmp), (n)), sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk))
+#define sk_SRTP_PROTECTION_PROFILE_new(cmp) \
+    ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_SRTP_PROTECTION_PROFILE_compfunc_type(cmp)), \
+                sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), \
+            sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), \
+        sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
+#define sk_SRTP_PROTECTION_PROFILE_new_null() \
+    ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), \
+            sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), \
+        sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
+#define sk_SRTP_PROTECTION_PROFILE_new_reserve(cmp, n) \
+    ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_SRTP_PROTECTION_PROFILE_compfunc_type(cmp), (n)), \
+                sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), \
+            sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), \
+        sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
 #define sk_SRTP_PROTECTION_PROFILE_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk), (n))
 #define sk_SRTP_PROTECTION_PROFILE_free(sk) OPENSSL_sk_free(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk))
 #define sk_SRTP_PROTECTION_PROFILE_zero(sk) OPENSSL_sk_zero(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk))
@@ -270,8 +291,25 @@ SKM_DEFINE_STACK_OF_INTERNAL(SRTP_PROTECTION_PROFILE, SRTP_PROTECTION_PROFILE, S
 #define sk_SRTP_PROTECTION_PROFILE_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk), ossl_check_SRTP_PROTECTION_PROFILE_type(ptr), pnum)
 #define sk_SRTP_PROTECTION_PROFILE_sort(sk) OPENSSL_sk_sort(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk))
 #define sk_SRTP_PROTECTION_PROFILE_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk))
-#define sk_SRTP_PROTECTION_PROFILE_dup(sk) ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_dup(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk)))
-#define sk_SRTP_PROTECTION_PROFILE_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_deep_copy(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk), ossl_check_SRTP_PROTECTION_PROFILE_copyfunc_type(copyfunc), ossl_check_SRTP_PROTECTION_PROFILE_freefunc_type(freefunc)))
+#define sk_SRTP_PROTECTION_PROFILE_dup(sk) \
+    ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk)), \
+                sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), \
+            sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), \
+        sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
+#define sk_SRTP_PROTECTION_PROFILE_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(SRTP_PROTECTION_PROFILE) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_SRTP_PROTECTION_PROFILE_sk_type(sk), \
+                    ossl_check_SRTP_PROTECTION_PROFILE_copyfunc_type(copyfunc), \
+                    ossl_check_SRTP_PROTECTION_PROFILE_freefunc_type(freefunc)), \
+                sk_SRTP_PROTECTION_PROFILE_cmpfunc_thunk), \
+            sk_SRTP_PROTECTION_PROFILE_copyfunc_thunk), \
+        sk_SRTP_PROTECTION_PROFILE_freefunc_thunk))
 #define sk_SRTP_PROTECTION_PROFILE_set_cmp_func(sk, cmp) ((sk_SRTP_PROTECTION_PROFILE_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_SRTP_PROTECTION_PROFILE_sk_type(sk), ossl_check_SRTP_PROTECTION_PROFILE_compfunc_type(cmp)))
 
 /* clang-format on */
@@ -369,7 +407,7 @@ typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
 /* In TLSv1.3 allow a non-(ec)dhe based kex_mode */
 #define SSL_OP_ALLOW_NO_DHE_KEX SSL_OP_BIT(10)
 /*
- * Disable SSL 3.0/TLS 1.0 CBC vulnerability workaround that was added
+ * Disable TLS 1.0 CBC vulnerability workaround that was added
  * in OpenSSL 0.9.6d.  Usually (depending on the application protocol)
  * the workaround is not needed.  Unfortunately some broken SSL/TLS
  * implementations cannot handle it at all, which is why we include it
@@ -1030,9 +1068,30 @@ extern "C" {
 SKM_DEFINE_STACK_OF_INTERNAL(SSL_CIPHER, const SSL_CIPHER, SSL_CIPHER)
 #define sk_SSL_CIPHER_num(sk) OPENSSL_sk_num(ossl_check_const_SSL_CIPHER_sk_type(sk))
 #define sk_SSL_CIPHER_value(sk, idx) ((const SSL_CIPHER *)OPENSSL_sk_value(ossl_check_const_SSL_CIPHER_sk_type(sk), (idx)))
-#define sk_SSL_CIPHER_new(cmp) ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_SSL_CIPHER_compfunc_type(cmp)), sk_SSL_CIPHER_cmpfunc_thunk), sk_SSL_CIPHER_copyfunc_thunk))
-#define sk_SSL_CIPHER_new_null() ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_SSL_CIPHER_copyfunc_thunk), sk_SSL_CIPHER_freefunc_thunk))
-#define sk_SSL_CIPHER_new_reserve(cmp, n) ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_SSL_CIPHER_compfunc_type(cmp), (n)), sk_SSL_CIPHER_cmpfunc_thunk), sk_SSL_CIPHER_copyfunc_thunk))
+#define sk_SSL_CIPHER_new(cmp) \
+    ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_SSL_CIPHER_compfunc_type(cmp)), \
+                sk_SSL_CIPHER_cmpfunc_thunk), \
+            sk_SSL_CIPHER_copyfunc_thunk), \
+        sk_SSL_CIPHER_freefunc_thunk))
+#define sk_SSL_CIPHER_new_null() \
+    ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_SSL_CIPHER_cmpfunc_thunk), \
+            sk_SSL_CIPHER_copyfunc_thunk), \
+        sk_SSL_CIPHER_freefunc_thunk))
+#define sk_SSL_CIPHER_new_reserve(cmp, n) \
+    ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_SSL_CIPHER_compfunc_type(cmp), (n)), \
+                sk_SSL_CIPHER_cmpfunc_thunk), \
+            sk_SSL_CIPHER_copyfunc_thunk), \
+        sk_SSL_CIPHER_freefunc_thunk))
 #define sk_SSL_CIPHER_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_SSL_CIPHER_sk_type(sk), (n))
 #define sk_SSL_CIPHER_free(sk) OPENSSL_sk_free(ossl_check_SSL_CIPHER_sk_type(sk))
 #define sk_SSL_CIPHER_zero(sk) OPENSSL_sk_zero(ossl_check_SSL_CIPHER_sk_type(sk))
@@ -1050,8 +1109,25 @@ SKM_DEFINE_STACK_OF_INTERNAL(SSL_CIPHER, const SSL_CIPHER, SSL_CIPHER)
 #define sk_SSL_CIPHER_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_SSL_CIPHER_sk_type(sk), ossl_check_SSL_CIPHER_type(ptr), pnum)
 #define sk_SSL_CIPHER_sort(sk) OPENSSL_sk_sort(ossl_check_SSL_CIPHER_sk_type(sk))
 #define sk_SSL_CIPHER_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_SSL_CIPHER_sk_type(sk))
-#define sk_SSL_CIPHER_dup(sk) ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_dup(ossl_check_const_SSL_CIPHER_sk_type(sk)))
-#define sk_SSL_CIPHER_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_deep_copy(ossl_check_const_SSL_CIPHER_sk_type(sk), ossl_check_SSL_CIPHER_copyfunc_type(copyfunc), ossl_check_SSL_CIPHER_freefunc_type(freefunc)))
+#define sk_SSL_CIPHER_dup(sk) \
+    ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_SSL_CIPHER_sk_type(sk)), \
+                sk_SSL_CIPHER_cmpfunc_thunk), \
+            sk_SSL_CIPHER_copyfunc_thunk), \
+        sk_SSL_CIPHER_freefunc_thunk))
+#define sk_SSL_CIPHER_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(SSL_CIPHER) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_SSL_CIPHER_sk_type(sk), \
+                    ossl_check_SSL_CIPHER_copyfunc_type(copyfunc), \
+                    ossl_check_SSL_CIPHER_freefunc_type(freefunc)), \
+                sk_SSL_CIPHER_cmpfunc_thunk), \
+            sk_SSL_CIPHER_copyfunc_thunk), \
+        sk_SSL_CIPHER_freefunc_thunk))
 #define sk_SSL_CIPHER_set_cmp_func(sk, cmp) ((sk_SSL_CIPHER_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_SSL_CIPHER_sk_type(sk), ossl_check_SSL_CIPHER_compfunc_type(cmp)))
 
 /* clang-format on */
@@ -2742,8 +2818,18 @@ const CTLOG_STORE *SSL_CTX_get0_ctlog_store(const SSL_CTX *ctx);
 #define SSL_SECOP_OTHER_SIGALG (5 << 16)
 #define SSL_SECOP_OTHER_CERT (6 << 16)
 
-/* Indicated operation refers to peer key or certificate */
+/*
+ * Unused values - these do nothing and are never set.
+ * They are retained because of API. They should
+ * be removed next major
+ */
 #define SSL_SECOP_PEER 0x1000
+/* Peer EE key in certificate */
+#define SSL_SECOP_PEER_EE_KEY (SSL_SECOP_EE_KEY | SSL_SECOP_PEER)
+/* Peer CA key in certificate */
+#define SSL_SECOP_PEER_CA_KEY (SSL_SECOP_CA_KEY | SSL_SECOP_PEER)
+/* Peer CA digest algorithm in certificate */
+#define SSL_SECOP_PEER_CA_MD (SSL_SECOP_CA_MD | SSL_SECOP_PEER)
 
 /* Values for "op" parameter in security callback */
 
@@ -2782,12 +2868,6 @@ const CTLOG_STORE *SSL_CTX_get0_ctlog_store(const SSL_CTX *ctx);
 #define SSL_SECOP_CA_KEY (17 | SSL_SECOP_OTHER_CERT)
 /* CA digest algorithm in certificate */
 #define SSL_SECOP_CA_MD (18 | SSL_SECOP_OTHER_CERT)
-/* Peer EE key in certificate */
-#define SSL_SECOP_PEER_EE_KEY (SSL_SECOP_EE_KEY | SSL_SECOP_PEER)
-/* Peer CA key in certificate */
-#define SSL_SECOP_PEER_CA_KEY (SSL_SECOP_CA_KEY | SSL_SECOP_PEER)
-/* Peer CA digest algorithm in certificate */
-#define SSL_SECOP_PEER_CA_MD (SSL_SECOP_CA_MD | SSL_SECOP_PEER)
 
 void SSL_set_security_level(SSL *s, int level);
 __owur int SSL_get_security_level(const SSL *s);
@@ -2827,7 +2907,10 @@ __owur void *SSL_CTX_get0_security_ex_data(const SSL_CTX *ctx);
 int OPENSSL_init_ssl(uint64_t opts, const OPENSSL_INIT_SETTINGS *settings);
 
 #ifndef OPENSSL_NO_UNIT_TEST
+#ifndef OPENSSL_NO_DEPRECATED_4_1
+OSSL_DEPRECATEDIN_4_1
 __owur const struct openssl_ssl_test_functions *SSL_test_functions(void);
+#endif
 #endif
 
 __owur int SSL_free_buffers(SSL *ssl);

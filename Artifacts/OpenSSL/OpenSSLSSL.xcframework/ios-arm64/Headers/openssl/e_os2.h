@@ -72,14 +72,11 @@ extern "C" {
 #if defined(OPENSSL_SYS_WINNT)
 #undef OPENSSL_SYS_UNIX
 #endif
-#if defined(OPENSSL_SYS_WINCE)
-#undef OPENSSL_SYS_UNIX
-#endif
 #endif
 #endif
 
 /* Anything that tries to look like Microsoft is "Windows" */
-#if defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_WIN64) || defined(OPENSSL_SYS_WINNT) || defined(OPENSSL_SYS_WINCE)
+#if defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_WIN64) || defined(OPENSSL_SYS_WINNT)
 #undef OPENSSL_SYS_UNIX
 #define OPENSSL_SYS_WINDOWS
 #ifndef OPENSSL_SYS_MSDOS
@@ -256,7 +253,7 @@ typedef uint64_t ossl_uintmax_t;
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 /* just use inline */
 #define ossl_inline inline
-#elif defined(__GNUC__) && __GNUC__ >= 2
+#elif defined(__GNUC__)
 #define ossl_inline __inline__
 #elif defined(_MSC_VER)
 /*
@@ -274,7 +271,7 @@ typedef uint64_t ossl_uintmax_t;
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__cplusplus)
 #define ossl_noreturn _Noreturn
-#elif defined(__GNUC__) && __GNUC__ >= 2
+#elif defined(__GNUC__)
 #define ossl_noreturn __attribute__((noreturn))
 #else
 #define ossl_noreturn

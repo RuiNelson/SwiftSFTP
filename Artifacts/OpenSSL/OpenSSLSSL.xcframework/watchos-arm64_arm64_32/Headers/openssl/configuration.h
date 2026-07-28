@@ -50,6 +50,9 @@ extern "C" {
 # ifndef OPENSSL_NO_ASM
 #  define OPENSSL_NO_ASM
 # endif
+# ifndef OPENSSL_NO_ATEXIT
+#  define OPENSSL_NO_ATEXIT
+# endif
 # ifndef OPENSSL_NO_BROTLI
 #  define OPENSSL_NO_BROTLI
 # endif
@@ -157,6 +160,9 @@ extern "C" {
 # endif
 # ifndef OPENSSL_NO_UNIT_TEST
 #  define OPENSSL_NO_UNIT_TEST
+# endif
+# ifndef OPENSSL_NO_UNIT_TESTS
+#  define OPENSSL_NO_UNIT_TESTS
 # endif
 # ifndef OPENSSL_NO_UPLINK
 #  define OPENSSL_NO_UPLINK

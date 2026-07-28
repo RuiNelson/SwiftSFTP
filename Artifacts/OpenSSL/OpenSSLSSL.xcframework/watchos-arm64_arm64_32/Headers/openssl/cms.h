@@ -49,9 +49,30 @@ typedef struct CMS_OtherKeyAttribute_st CMS_OtherKeyAttribute;
 SKM_DEFINE_STACK_OF_INTERNAL(CMS_SignerInfo, CMS_SignerInfo, CMS_SignerInfo)
 #define sk_CMS_SignerInfo_num(sk) OPENSSL_sk_num(ossl_check_const_CMS_SignerInfo_sk_type(sk))
 #define sk_CMS_SignerInfo_value(sk, idx) ((CMS_SignerInfo *)OPENSSL_sk_value(ossl_check_const_CMS_SignerInfo_sk_type(sk), (idx)))
-#define sk_CMS_SignerInfo_new(cmp) ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_CMS_SignerInfo_compfunc_type(cmp)), sk_CMS_SignerInfo_cmpfunc_thunk), sk_CMS_SignerInfo_copyfunc_thunk))
-#define sk_CMS_SignerInfo_new_null() ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_CMS_SignerInfo_copyfunc_thunk), sk_CMS_SignerInfo_freefunc_thunk))
-#define sk_CMS_SignerInfo_new_reserve(cmp, n) ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_CMS_SignerInfo_compfunc_type(cmp), (n)), sk_CMS_SignerInfo_cmpfunc_thunk), sk_CMS_SignerInfo_copyfunc_thunk))
+#define sk_CMS_SignerInfo_new(cmp) \
+    ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_CMS_SignerInfo_compfunc_type(cmp)), \
+                sk_CMS_SignerInfo_cmpfunc_thunk), \
+            sk_CMS_SignerInfo_copyfunc_thunk), \
+        sk_CMS_SignerInfo_freefunc_thunk))
+#define sk_CMS_SignerInfo_new_null() \
+    ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_CMS_SignerInfo_cmpfunc_thunk), \
+            sk_CMS_SignerInfo_copyfunc_thunk), \
+        sk_CMS_SignerInfo_freefunc_thunk))
+#define sk_CMS_SignerInfo_new_reserve(cmp, n) \
+    ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_CMS_SignerInfo_compfunc_type(cmp), (n)), \
+                sk_CMS_SignerInfo_cmpfunc_thunk), \
+            sk_CMS_SignerInfo_copyfunc_thunk), \
+        sk_CMS_SignerInfo_freefunc_thunk))
 #define sk_CMS_SignerInfo_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_CMS_SignerInfo_sk_type(sk), (n))
 #define sk_CMS_SignerInfo_free(sk) OPENSSL_sk_free(ossl_check_CMS_SignerInfo_sk_type(sk))
 #define sk_CMS_SignerInfo_zero(sk) OPENSSL_sk_zero(ossl_check_CMS_SignerInfo_sk_type(sk))
@@ -69,15 +90,53 @@ SKM_DEFINE_STACK_OF_INTERNAL(CMS_SignerInfo, CMS_SignerInfo, CMS_SignerInfo)
 #define sk_CMS_SignerInfo_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_CMS_SignerInfo_sk_type(sk), ossl_check_CMS_SignerInfo_type(ptr), pnum)
 #define sk_CMS_SignerInfo_sort(sk) OPENSSL_sk_sort(ossl_check_CMS_SignerInfo_sk_type(sk))
 #define sk_CMS_SignerInfo_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_CMS_SignerInfo_sk_type(sk))
-#define sk_CMS_SignerInfo_dup(sk) ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_dup(ossl_check_const_CMS_SignerInfo_sk_type(sk)))
-#define sk_CMS_SignerInfo_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_deep_copy(ossl_check_const_CMS_SignerInfo_sk_type(sk), ossl_check_CMS_SignerInfo_copyfunc_type(copyfunc), ossl_check_CMS_SignerInfo_freefunc_type(freefunc)))
+#define sk_CMS_SignerInfo_dup(sk) \
+    ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_CMS_SignerInfo_sk_type(sk)), \
+                sk_CMS_SignerInfo_cmpfunc_thunk), \
+            sk_CMS_SignerInfo_copyfunc_thunk), \
+        sk_CMS_SignerInfo_freefunc_thunk))
+#define sk_CMS_SignerInfo_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(CMS_SignerInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_CMS_SignerInfo_sk_type(sk), \
+                    ossl_check_CMS_SignerInfo_copyfunc_type(copyfunc), \
+                    ossl_check_CMS_SignerInfo_freefunc_type(freefunc)), \
+                sk_CMS_SignerInfo_cmpfunc_thunk), \
+            sk_CMS_SignerInfo_copyfunc_thunk), \
+        sk_CMS_SignerInfo_freefunc_thunk))
 #define sk_CMS_SignerInfo_set_cmp_func(sk, cmp) ((sk_CMS_SignerInfo_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_CMS_SignerInfo_sk_type(sk), ossl_check_CMS_SignerInfo_compfunc_type(cmp)))
 SKM_DEFINE_STACK_OF_INTERNAL(CMS_RecipientEncryptedKey, CMS_RecipientEncryptedKey, CMS_RecipientEncryptedKey)
 #define sk_CMS_RecipientEncryptedKey_num(sk) OPENSSL_sk_num(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk))
 #define sk_CMS_RecipientEncryptedKey_value(sk, idx) ((CMS_RecipientEncryptedKey *)OPENSSL_sk_value(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk), (idx)))
-#define sk_CMS_RecipientEncryptedKey_new(cmp) ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_CMS_RecipientEncryptedKey_compfunc_type(cmp)), sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), sk_CMS_RecipientEncryptedKey_copyfunc_thunk))
-#define sk_CMS_RecipientEncryptedKey_new_null() ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_CMS_RecipientEncryptedKey_copyfunc_thunk), sk_CMS_RecipientEncryptedKey_freefunc_thunk))
-#define sk_CMS_RecipientEncryptedKey_new_reserve(cmp, n) ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_CMS_RecipientEncryptedKey_compfunc_type(cmp), (n)), sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), sk_CMS_RecipientEncryptedKey_copyfunc_thunk))
+#define sk_CMS_RecipientEncryptedKey_new(cmp) \
+    ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_CMS_RecipientEncryptedKey_compfunc_type(cmp)), \
+                sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), \
+            sk_CMS_RecipientEncryptedKey_copyfunc_thunk), \
+        sk_CMS_RecipientEncryptedKey_freefunc_thunk))
+#define sk_CMS_RecipientEncryptedKey_new_null() \
+    ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), \
+            sk_CMS_RecipientEncryptedKey_copyfunc_thunk), \
+        sk_CMS_RecipientEncryptedKey_freefunc_thunk))
+#define sk_CMS_RecipientEncryptedKey_new_reserve(cmp, n) \
+    ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_CMS_RecipientEncryptedKey_compfunc_type(cmp), (n)), \
+                sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), \
+            sk_CMS_RecipientEncryptedKey_copyfunc_thunk), \
+        sk_CMS_RecipientEncryptedKey_freefunc_thunk))
 #define sk_CMS_RecipientEncryptedKey_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk), (n))
 #define sk_CMS_RecipientEncryptedKey_free(sk) OPENSSL_sk_free(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk))
 #define sk_CMS_RecipientEncryptedKey_zero(sk) OPENSSL_sk_zero(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk))
@@ -95,15 +154,53 @@ SKM_DEFINE_STACK_OF_INTERNAL(CMS_RecipientEncryptedKey, CMS_RecipientEncryptedKe
 #define sk_CMS_RecipientEncryptedKey_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk), ossl_check_CMS_RecipientEncryptedKey_type(ptr), pnum)
 #define sk_CMS_RecipientEncryptedKey_sort(sk) OPENSSL_sk_sort(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk))
 #define sk_CMS_RecipientEncryptedKey_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk))
-#define sk_CMS_RecipientEncryptedKey_dup(sk) ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_dup(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk)))
-#define sk_CMS_RecipientEncryptedKey_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_deep_copy(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk), ossl_check_CMS_RecipientEncryptedKey_copyfunc_type(copyfunc), ossl_check_CMS_RecipientEncryptedKey_freefunc_type(freefunc)))
+#define sk_CMS_RecipientEncryptedKey_dup(sk) \
+    ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk)), \
+                sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), \
+            sk_CMS_RecipientEncryptedKey_copyfunc_thunk), \
+        sk_CMS_RecipientEncryptedKey_freefunc_thunk))
+#define sk_CMS_RecipientEncryptedKey_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(CMS_RecipientEncryptedKey) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_CMS_RecipientEncryptedKey_sk_type(sk), \
+                    ossl_check_CMS_RecipientEncryptedKey_copyfunc_type(copyfunc), \
+                    ossl_check_CMS_RecipientEncryptedKey_freefunc_type(freefunc)), \
+                sk_CMS_RecipientEncryptedKey_cmpfunc_thunk), \
+            sk_CMS_RecipientEncryptedKey_copyfunc_thunk), \
+        sk_CMS_RecipientEncryptedKey_freefunc_thunk))
 #define sk_CMS_RecipientEncryptedKey_set_cmp_func(sk, cmp) ((sk_CMS_RecipientEncryptedKey_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_CMS_RecipientEncryptedKey_sk_type(sk), ossl_check_CMS_RecipientEncryptedKey_compfunc_type(cmp)))
 SKM_DEFINE_STACK_OF_INTERNAL(CMS_RecipientInfo, CMS_RecipientInfo, CMS_RecipientInfo)
 #define sk_CMS_RecipientInfo_num(sk) OPENSSL_sk_num(ossl_check_const_CMS_RecipientInfo_sk_type(sk))
 #define sk_CMS_RecipientInfo_value(sk, idx) ((CMS_RecipientInfo *)OPENSSL_sk_value(ossl_check_const_CMS_RecipientInfo_sk_type(sk), (idx)))
-#define sk_CMS_RecipientInfo_new(cmp) ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_CMS_RecipientInfo_compfunc_type(cmp)), sk_CMS_RecipientInfo_cmpfunc_thunk), sk_CMS_RecipientInfo_copyfunc_thunk))
-#define sk_CMS_RecipientInfo_new_null() ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_CMS_RecipientInfo_copyfunc_thunk), sk_CMS_RecipientInfo_freefunc_thunk))
-#define sk_CMS_RecipientInfo_new_reserve(cmp, n) ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_CMS_RecipientInfo_compfunc_type(cmp), (n)), sk_CMS_RecipientInfo_cmpfunc_thunk), sk_CMS_RecipientInfo_copyfunc_thunk))
+#define sk_CMS_RecipientInfo_new(cmp) \
+    ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_CMS_RecipientInfo_compfunc_type(cmp)), \
+                sk_CMS_RecipientInfo_cmpfunc_thunk), \
+            sk_CMS_RecipientInfo_copyfunc_thunk), \
+        sk_CMS_RecipientInfo_freefunc_thunk))
+#define sk_CMS_RecipientInfo_new_null() \
+    ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_CMS_RecipientInfo_cmpfunc_thunk), \
+            sk_CMS_RecipientInfo_copyfunc_thunk), \
+        sk_CMS_RecipientInfo_freefunc_thunk))
+#define sk_CMS_RecipientInfo_new_reserve(cmp, n) \
+    ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_CMS_RecipientInfo_compfunc_type(cmp), (n)), \
+                sk_CMS_RecipientInfo_cmpfunc_thunk), \
+            sk_CMS_RecipientInfo_copyfunc_thunk), \
+        sk_CMS_RecipientInfo_freefunc_thunk))
 #define sk_CMS_RecipientInfo_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_CMS_RecipientInfo_sk_type(sk), (n))
 #define sk_CMS_RecipientInfo_free(sk) OPENSSL_sk_free(ossl_check_CMS_RecipientInfo_sk_type(sk))
 #define sk_CMS_RecipientInfo_zero(sk) OPENSSL_sk_zero(ossl_check_CMS_RecipientInfo_sk_type(sk))
@@ -121,15 +218,53 @@ SKM_DEFINE_STACK_OF_INTERNAL(CMS_RecipientInfo, CMS_RecipientInfo, CMS_Recipient
 #define sk_CMS_RecipientInfo_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_CMS_RecipientInfo_sk_type(sk), ossl_check_CMS_RecipientInfo_type(ptr), pnum)
 #define sk_CMS_RecipientInfo_sort(sk) OPENSSL_sk_sort(ossl_check_CMS_RecipientInfo_sk_type(sk))
 #define sk_CMS_RecipientInfo_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_CMS_RecipientInfo_sk_type(sk))
-#define sk_CMS_RecipientInfo_dup(sk) ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_dup(ossl_check_const_CMS_RecipientInfo_sk_type(sk)))
-#define sk_CMS_RecipientInfo_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_deep_copy(ossl_check_const_CMS_RecipientInfo_sk_type(sk), ossl_check_CMS_RecipientInfo_copyfunc_type(copyfunc), ossl_check_CMS_RecipientInfo_freefunc_type(freefunc)))
+#define sk_CMS_RecipientInfo_dup(sk) \
+    ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_CMS_RecipientInfo_sk_type(sk)), \
+                sk_CMS_RecipientInfo_cmpfunc_thunk), \
+            sk_CMS_RecipientInfo_copyfunc_thunk), \
+        sk_CMS_RecipientInfo_freefunc_thunk))
+#define sk_CMS_RecipientInfo_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(CMS_RecipientInfo) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_CMS_RecipientInfo_sk_type(sk), \
+                    ossl_check_CMS_RecipientInfo_copyfunc_type(copyfunc), \
+                    ossl_check_CMS_RecipientInfo_freefunc_type(freefunc)), \
+                sk_CMS_RecipientInfo_cmpfunc_thunk), \
+            sk_CMS_RecipientInfo_copyfunc_thunk), \
+        sk_CMS_RecipientInfo_freefunc_thunk))
 #define sk_CMS_RecipientInfo_set_cmp_func(sk, cmp) ((sk_CMS_RecipientInfo_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_CMS_RecipientInfo_sk_type(sk), ossl_check_CMS_RecipientInfo_compfunc_type(cmp)))
 SKM_DEFINE_STACK_OF_INTERNAL(CMS_RevocationInfoChoice, CMS_RevocationInfoChoice, CMS_RevocationInfoChoice)
 #define sk_CMS_RevocationInfoChoice_num(sk) OPENSSL_sk_num(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk))
 #define sk_CMS_RevocationInfoChoice_value(sk, idx) ((CMS_RevocationInfoChoice *)OPENSSL_sk_value(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk), (idx)))
-#define sk_CMS_RevocationInfoChoice_new(cmp) ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new(ossl_check_CMS_RevocationInfoChoice_compfunc_type(cmp)), sk_CMS_RevocationInfoChoice_cmpfunc_thunk), sk_CMS_RevocationInfoChoice_copyfunc_thunk))
-#define sk_CMS_RevocationInfoChoice_new_null() ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks(OPENSSL_sk_set_copy_thunks(OPENSSL_sk_new_null(), sk_CMS_RevocationInfoChoice_copyfunc_thunk), sk_CMS_RevocationInfoChoice_freefunc_thunk))
-#define sk_CMS_RevocationInfoChoice_new_reserve(cmp, n) ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_copy_thunks(OPENSSL_sk_set_cmp_thunks(OPENSSL_sk_new_reserve(ossl_check_CMS_RevocationInfoChoice_compfunc_type(cmp), (n)), sk_CMS_RevocationInfoChoice_cmpfunc_thunk), sk_CMS_RevocationInfoChoice_copyfunc_thunk))
+#define sk_CMS_RevocationInfoChoice_new(cmp) \
+    ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new(ossl_check_CMS_RevocationInfoChoice_compfunc_type(cmp)), \
+                sk_CMS_RevocationInfoChoice_cmpfunc_thunk), \
+            sk_CMS_RevocationInfoChoice_copyfunc_thunk), \
+        sk_CMS_RevocationInfoChoice_freefunc_thunk))
+#define sk_CMS_RevocationInfoChoice_new_null() \
+    ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_null(), \
+                sk_CMS_RevocationInfoChoice_cmpfunc_thunk), \
+            sk_CMS_RevocationInfoChoice_copyfunc_thunk), \
+        sk_CMS_RevocationInfoChoice_freefunc_thunk))
+#define sk_CMS_RevocationInfoChoice_new_reserve(cmp, n) \
+    ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_new_reserve(ossl_check_CMS_RevocationInfoChoice_compfunc_type(cmp), (n)), \
+                sk_CMS_RevocationInfoChoice_cmpfunc_thunk), \
+            sk_CMS_RevocationInfoChoice_copyfunc_thunk), \
+        sk_CMS_RevocationInfoChoice_freefunc_thunk))
 #define sk_CMS_RevocationInfoChoice_reserve(sk, n) OPENSSL_sk_reserve(ossl_check_CMS_RevocationInfoChoice_sk_type(sk), (n))
 #define sk_CMS_RevocationInfoChoice_free(sk) OPENSSL_sk_free(ossl_check_CMS_RevocationInfoChoice_sk_type(sk))
 #define sk_CMS_RevocationInfoChoice_zero(sk) OPENSSL_sk_zero(ossl_check_CMS_RevocationInfoChoice_sk_type(sk))
@@ -147,8 +282,25 @@ SKM_DEFINE_STACK_OF_INTERNAL(CMS_RevocationInfoChoice, CMS_RevocationInfoChoice,
 #define sk_CMS_RevocationInfoChoice_find_all(sk, ptr, pnum) OPENSSL_sk_find_all(ossl_check_CMS_RevocationInfoChoice_sk_type(sk), ossl_check_CMS_RevocationInfoChoice_type(ptr), pnum)
 #define sk_CMS_RevocationInfoChoice_sort(sk) OPENSSL_sk_sort(ossl_check_CMS_RevocationInfoChoice_sk_type(sk))
 #define sk_CMS_RevocationInfoChoice_is_sorted(sk) OPENSSL_sk_is_sorted(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk))
-#define sk_CMS_RevocationInfoChoice_dup(sk) ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_dup(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk)))
-#define sk_CMS_RevocationInfoChoice_deep_copy(sk, copyfunc, freefunc) ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_deep_copy(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk), ossl_check_CMS_RevocationInfoChoice_copyfunc_type(copyfunc), ossl_check_CMS_RevocationInfoChoice_freefunc_type(freefunc)))
+#define sk_CMS_RevocationInfoChoice_dup(sk) \
+    ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_dup(ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk)), \
+                sk_CMS_RevocationInfoChoice_cmpfunc_thunk), \
+            sk_CMS_RevocationInfoChoice_copyfunc_thunk), \
+        sk_CMS_RevocationInfoChoice_freefunc_thunk))
+#define sk_CMS_RevocationInfoChoice_deep_copy(sk, copyfunc, freefunc) \
+    ((STACK_OF(CMS_RevocationInfoChoice) *)OPENSSL_sk_set_thunks( \
+        OPENSSL_sk_set_copy_thunks( \
+            OPENSSL_sk_set_cmp_thunks( \
+                OPENSSL_sk_deep_copy( \
+                    ossl_check_const_CMS_RevocationInfoChoice_sk_type(sk), \
+                    ossl_check_CMS_RevocationInfoChoice_copyfunc_type(copyfunc), \
+                    ossl_check_CMS_RevocationInfoChoice_freefunc_type(freefunc)), \
+                sk_CMS_RevocationInfoChoice_cmpfunc_thunk), \
+            sk_CMS_RevocationInfoChoice_copyfunc_thunk), \
+        sk_CMS_RevocationInfoChoice_freefunc_thunk))
 #define sk_CMS_RevocationInfoChoice_set_cmp_func(sk, cmp) ((sk_CMS_RevocationInfoChoice_compfunc)OPENSSL_sk_set_cmp_func(ossl_check_CMS_RevocationInfoChoice_sk_type(sk), ossl_check_CMS_RevocationInfoChoice_compfunc_type(cmp)))
 
 /* clang-format on */
