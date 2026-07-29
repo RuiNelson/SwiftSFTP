@@ -1,6 +1,6 @@
 [submodule "vendor/libssh2"]
 	path = vendor/libssh2
-	url = https://github.com/RuiNelson/libssh2.git
+	url = https://github.com/libssh2/libssh2.git
 	branch = master
 [submodule "vendor/openssl"]
 	path = vendor/openssl
