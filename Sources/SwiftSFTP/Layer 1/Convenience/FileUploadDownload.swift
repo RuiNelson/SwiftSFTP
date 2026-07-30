@@ -5,7 +5,7 @@ public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) -> Bool
 
 /// Serializes blocking `FileHandle` operations on a dedicated dispatch queue so local disk I/O can run concurrently
 /// with in-flight SFTP network calls instead of blocking the calling task.
-private final class LocalFileIO: @unchecked Sendable {
+final class LocalFileIO: @unchecked Sendable {
     /// Serial queue owning all access to `handle`.
     private let queue = DispatchQueue(label: "SwiftSFTP.FileUploadDownload.LocalFileIO")
 
@@ -38,6 +38,15 @@ private final class LocalFileIO: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result { try self.handle.seekToEnd() })
+            }
+        }
+    }
+
+    /// Truncates or extends the file without blocking the caller's thread.
+    func truncate(atOffset offset: UInt64) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try self.handle.truncate(atOffset: offset) })
             }
         }
     }

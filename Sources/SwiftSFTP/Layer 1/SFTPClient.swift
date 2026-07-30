@@ -347,7 +347,7 @@ public extension SFTPClient {
         }
     }
 
-    func fork(loggedIn: Bool) async throws -> Self {
+    func fork(loggedIn: Bool = true) async throws -> Self {
         try checkClosed()
 
         let loginTimeOut = internalStateQueue.sync {

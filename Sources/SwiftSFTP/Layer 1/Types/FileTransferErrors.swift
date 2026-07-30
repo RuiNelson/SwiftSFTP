@@ -13,6 +13,8 @@ public enum FileTransferErrors: Error {
     case invalidBufferSize
     /// The remote handle accepted fewer bytes than were read from the local file.
     case shortWrite(expected: Int, actual: Int)
+    /// A source file ended before the requested transfer range was read.
+    case shortRead(expected: Int, actual: Int)
 
     /// A remote upload target already exists.
     case remoteFileAlreadyExists(path: String)

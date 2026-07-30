@@ -392,6 +392,39 @@ try await client.download(
 
 - The local file must not already exist. If it does, `FileTransferErrors.localFileAlreadyExists` is thrown.
 
+### Parallel transfers
+
+Use `multiUpload` and `multiDownload` to split a file into byte ranges and transfer those ranges concurrently over
+independent SSH/SFTP connections:
+
+```swift
+try await client.multiUpload(
+    from: localFile,
+    to: "/home/alice/backups/archive.zip",
+    workers: 4,
+    bufferSize: 1024 * 1024
+) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
+    return true
+}
+
+try await client.multiDownload(
+    from: "/home/alice/backups/archive.zip",
+    to: destination,
+    workers: 4
+) { _, _, _, _ in true }
+```
+
+`workers` is the maximum total number of connections, including the client on which the method is called. Additional
+connections are created with `fork(loggedIn: true)`. Forks are attempted sequentially; if any additional fork cannot
+log in, no more forks are attempted and the transfer continues silently with the workers already connected. This
+allows servers with lower per-user or global connection limits to reduce parallelism without failing the transfer.
+
+Both methods preallocate the destination and report aggregate, serialized progress for the complete file. Multi-worker
+transfers cannot be resumed and do not create sidecar files. `multiUpload` writes to a uniquely named temporary file in
+the destination directory and atomically renames it only after every range succeeds; failure or cancellation triggers
+a best-effort removal of that temporary file. `multiDownload` removes its incomplete local destination after failure or
+cancellation.
+
 ### Progress callback type
 
 ```swift
@@ -615,6 +648,7 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `.localFileAlreadyExists(path:)` | Download destination already exists |
 | `.invalidBufferSize` | `bufferSize` ≤ 0 |
 | `.shortWrite(expected:actual:)` | Server accepted fewer bytes than sent |
+| `.shortRead(expected:actual:)` | Source file ended before a requested transfer range was read |
 | `.remoteFileNotFound(path:)` | Remote source path does not exist |
 | `.remoteDirectoryNotFound(path:)` | Remote directory does not exist or the path is not a directory |
 | `.remoteFileAlreadyExists(path:)` | Remote destination already exists |
