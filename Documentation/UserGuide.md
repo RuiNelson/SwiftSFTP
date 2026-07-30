@@ -420,10 +420,10 @@ log in, no more forks are attempted and the transfer continues silently with the
 allows servers with lower per-user or global connection limits to reduce parallelism without failing the transfer.
 
 Both methods preallocate the destination and report aggregate, serialized progress for the complete file. Multi-worker
-transfers cannot be resumed and do not create sidecar files. `multiUpload` writes to a uniquely named temporary file in
-the destination directory and atomically renames it only after every range succeeds; failure or cancellation triggers
-a best-effort removal of that temporary file. `multiDownload` removes its incomplete local destination after failure or
-cancellation.
+transfers cannot be resumed and do not create "sidecar" files. `multiUpload` writes to a uniquely named temporary file
+in the destination directory and atomically renames it only after every range succeeds; failure or cancellation
+triggers a best-effort removal of that temporary file. `multiDownload` removes its incomplete local destination after
+failure or cancellation.
 
 ### Progress callback type
 
