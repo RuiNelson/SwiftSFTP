@@ -51,72 +51,87 @@ private extension SFTPFile {
 public extension SFTPFile {
     var offset: UInt64 {
         get {
-            internalStateQueue.sync {
-                SFTPTell(handle: handle)
+            parent.withSessionIO {
+                guard !closed, !parent.closed else {
+                    return 0
+                }
+                return internalStateQueue.sync {
+                    SFTPTell(handle: handle)
+                }
             }
         }
         set {
-            internalStateQueue.sync {
-                SFTPSeek(handle: handle, offset: newValue)
+            parent.withSessionIO {
+                guard !closed, !parent.closed else {
+                    return
+                }
+                internalStateQueue.sync {
+                    SFTPSeek(handle: handle, offset: newValue)
+                }
             }
         }
     }
 
     func read(upTo: Int) async throws -> Data? {
-        try checkClosed()
+        try parent.withSessionIO {
+            try checkClosed()
 
-        guard upTo > 0 else {
-            return nil
-        }
-
-        var buffer = Data(capacity: upTo)
-
-        var bytesLeft = upTo
-
-        while bytesLeft > 0 {
-            let bytesToRead = min(bytesLeft, Self.size32kB)
-
-            let slice = try SFTPRead(handle: handle, maximumLength: bytesToRead)
-            guard slice.isEmpty == false else {
-                break
+            guard upTo > 0 else {
+                return nil
             }
 
-            buffer.append(slice)
+            var buffer = Data(capacity: upTo)
 
-            bytesLeft -= slice.count
+            var bytesLeft = upTo
+
+            while bytesLeft > 0 {
+                let bytesToRead = min(bytesLeft, Self.size32kB)
+
+                let slice = try SFTPRead(handle: handle, maximumLength: bytesToRead)
+                guard slice.isEmpty == false else {
+                    break
+                }
+
+                buffer.append(slice)
+
+                bytesLeft -= slice.count
+            }
+
+            return buffer.isEmpty ? nil : buffer
         }
-
-        return buffer.isEmpty ? nil : buffer
     }
 
     @discardableResult func write(_ data: Data) async throws -> Int {
-        try checkClosed()
+        try parent.withSessionIO {
+            try checkClosed()
 
-        var bytesWritten = 0
+            var bytesWritten = 0
 
-        while bytesWritten < data.count {
-            let end = min(bytesWritten + Self.size32kB, data.count)
-            let chunk = data.subdata(in: bytesWritten ..< end)
-            let written = try SFTPWrite(handle: handle, data: chunk)
+            while bytesWritten < data.count {
+                let end = min(bytesWritten + Self.size32kB, data.count)
+                let chunk = data.subdata(in: bytesWritten ..< end)
+                let written = try SFTPWrite(handle: handle, data: chunk)
 
-            guard written > 0 else {
-                break
+                guard written > 0 else {
+                    break
+                }
+
+                bytesWritten += written
             }
 
-            bytesWritten += written
-        }
+            guard bytesWritten == data.count else {
+                throw FileTransferErrors.shortWrite(expected: data.count, actual: bytesWritten)
+            }
 
-        guard bytesWritten == data.count else {
-            throw FileTransferErrors.shortWrite(expected: data.count, actual: bytesWritten)
+            return bytesWritten
         }
-
-        return bytesWritten
     }
 
     func fsync() async throws {
-        try checkClosed()
-
-        try SFTPFSync(handle: handle)
+        try parent.withSessionIO {
+            try checkClosed()
+            try SFTPFSync(handle: handle)
+        }
     }
 }
 
@@ -124,15 +139,19 @@ public extension SFTPFile {
 
 public extension SFTPFile {
     func close() async throws {
-        try internalStateQueue.sync {
-            guard !_closed else {
-                logger?.warning("Trying to close file handle that was already closed")
-                return
-            }
+        try parent.withSessionIO {
+            try internalStateQueue.sync {
+                guard !_closed else {
+                    logger?.warning("Trying to close file handle that was already closed")
+                    return
+                }
 
-            // libssh2 frees the handle even when close fails, so mark closed first to prevent any further use.
-            _closed = true
-            try SFTPCloseHandle(handle: self.handle)
+                try parent.checkOpenForFileOperation()
+
+                // libssh2 frees the handle even when close fails, so mark closed first to prevent any further use.
+                _closed = true
+                try SFTPCloseHandle(handle: self.handle)
+            }
         }
     }
 
@@ -147,24 +166,27 @@ public extension SFTPFile {
 
 public extension SFTPFile {
     func set(_ attributes: FileAttributes) async throws {
-        try checkClosed()
-
-        try SFTPFSetStat(handle: handle, attributes: attributes)
+        try parent.withSessionIO {
+            try checkClosed()
+            try SFTPFSetStat(handle: handle, attributes: attributes)
+        }
     }
 
     var stat: FileAttributes {
         get async throws {
-            try checkClosed()
-
-            return try SFTPFStat(handle: handle)
+            try parent.withSessionIO {
+                try checkClosed()
+                return try SFTPFStat(handle: handle)
+            }
         }
     }
 
     var statFilesystem: FilesystemStat {
         get async throws {
-            try checkClosed()
-
-            return try SFTPFStatVFS(handle: handle)
+            try parent.withSessionIO {
+                try checkClosed()
+                return try SFTPFStatVFS(handle: handle)
+            }
         }
     }
 }

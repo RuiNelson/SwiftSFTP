@@ -98,6 +98,25 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// previously closed
     var timeout: TimeInterval { get set }
 
+    /// Enables, reconfigures, or disables periodic SSH keepalive messages.
+    ///
+    /// Pass an interval in seconds to start or reconfigure keepalives, or `nil` to stop them. The first keepalive is
+    /// sent before this method returns. A later send failure stops the keepalive loop and invokes `onFailure` once.
+    /// Positive finite intervals are rounded up to whole seconds; libssh2 uses an effective minimum of two seconds.
+    /// Closing, disabling, or reconfiguring keepalive does not invoke the callback.
+    ///
+    /// - Parameters:
+    ///   - interval: Interval in seconds between keepalive attempts, or `nil` to disable keepalives.
+    ///   - requestsReply: Whether each keepalive should request a reply from the server.
+    ///   - onFailure: Optional asynchronous callback for a failure after the method has returned.
+    /// - Throws: ``SFTPClientInvalidConfig/invalidKeepAliveInterval`` for an unsupported interval,
+    /// ``AlreadyClosed`` when closed, ``NotLoggedIn`` before login, or the initial ``LibSSH2Error``.
+    func setKeepAlive(
+        every interval: TimeInterval?,
+        requestsReply: Bool,
+        onFailure: (@Sendable (LibSSH2Error) async -> Void)?
+    ) async throws
+
     // MARK: Inspection
 
     /// The remote current working directory resolved to a canonical path.
@@ -279,4 +298,29 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
         path: String,
         permissions: POSIXPermissions
     ) async throws -> any SFTPFileProtocol
+}
+
+public extension SFTPClientProtocol {
+    /// Disables periodic SSH keepalive messages.
+    func disableKeepAlive() async throws {
+        try await setKeepAlive(every: nil, requestsReply: false, onFailure: nil)
+    }
+
+    /// Enables or disables periodic SSH keepalive messages without a failure callback.
+    func setKeepAlive(every interval: TimeInterval?) async throws {
+        try await setKeepAlive(every: interval, requestsReply: false, onFailure: nil)
+    }
+
+    /// Enables or disables periodic SSH keepalive messages without a failure callback.
+    func setKeepAlive(every interval: TimeInterval?, requestsReply: Bool) async throws {
+        try await setKeepAlive(every: interval, requestsReply: requestsReply, onFailure: nil)
+    }
+
+    /// Enables or disables periodic SSH keepalive messages with a failure callback.
+    func setKeepAlive(
+        every interval: TimeInterval?,
+        onFailure: @escaping @Sendable (LibSSH2Error) async -> Void
+    ) async throws {
+        try await setKeepAlive(every: interval, requestsReply: false, onFailure: onFailure)
+    }
 }

@@ -2,6 +2,8 @@ public enum SFTPClientInvalidConfig: Error {
     case invalidHostname
     case invalidPort
     case invalidTimeOutValue
+    /// The keepalive interval was zero, negative, non-finite, or too large for libssh2.
+    case invalidKeepAliveInterval
     case couldNotCreateSession(Error)
     case invalidHostKeyFormat(Error)
     case invalidPrivateKey(Error)

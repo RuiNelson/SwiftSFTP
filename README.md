@@ -92,7 +92,9 @@ try await myClient.delete(path: "myfolder")
 try await myClient.close()
 ```
 
-A complete user guide can be found [here](Documentation/UserGuide.md). For offline key validation, host key checks, and Ed25519 key generation, see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
+**A complete user guide can be found [here](Documentation/UserGuide.md).**
+
+For offline key validation, host key checks, and Ed25519 key generation, see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 
 ## Adding SwiftSFTP to your Project
 

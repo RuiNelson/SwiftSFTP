@@ -15,6 +15,8 @@ public final class SFTPClient: SFTPClientProtocol {
     private nonisolated(unsafe) var _socket: SwiftSFTPSocket?
     /// Accepted host keys to verify against at login, or `nil` when any host key is accepted.
     private nonisolated(unsafe) var _knownHosts: LibSSH2KnownHosts?
+    private nonisolated(unsafe) var _keepAliveTask: Task<Void, Never>?
+    private nonisolated(unsafe) var _keepAliveGeneration: UInt64 = 0
 
     // MARK: Configuration
 
@@ -27,6 +29,7 @@ public final class SFTPClient: SFTPClientProtocol {
     // MARK: Concurrency
 
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
+    private let sessionIOLock = NSRecursiveLock()
 
     // MARK: Initialization
 
@@ -259,24 +262,51 @@ public extension SFTPClient {
     }
 
     func close() async throws {
-        try internalStateQueue.sync {
+        let resources: (
+            sftp: LibSSH2SFTP?,
+            knownHosts: LibSSH2KnownHosts?,
+            socket: SwiftSFTPSocket?,
+            keepAliveTask: Task<Void, Never>?
+        )? = internalStateQueue.sync {
             guard _closed == false else {
                 logger?.warning("Trying to close SFTPClient that was already closed")
-                return
+                return nil
             }
 
             _closed = true
+            _keepAliveGeneration &+= 1
+
+            let resources = (
+                sftp: _sftp,
+                knownHosts: _knownHosts,
+                socket: _socket,
+                keepAliveTask: _keepAliveTask
+            )
+
+            _sftp = nil
+            _knownHosts = nil
+            _socket = nil
+            _keepAliveTask = nil
+
+            return resources
+        }
+
+        guard let resources else {
+            return
+        }
+
+        resources.keepAliveTask?.cancel()
+
+        try withSessionIO {
             var firstError: Error?
 
-            if let sftpSession = _sftp {
+            if let sftpSession = resources.sftp {
                 do { try SFTPShutdown(sftp: sftpSession) }
                 catch { firstError = firstError ?? error }
-                _sftp = nil
             }
 
-            if let knownHosts = _knownHosts {
+            if let knownHosts = resources.knownHosts {
                 KnownHostFree(hosts: knownHosts)
-                _knownHosts = nil
             }
 
             do { try SessionDisconnect(session: session, description: "Session disconnected on behalf of the user") }
@@ -287,15 +317,16 @@ public extension SFTPClient {
             // Always balance the SSHInit from init, even when SessionFree fails.
             SSHExit()
 
-            if let socket = _socket {
+            if let socket = resources.socket {
                 do { try CloseSocket(socket) }
                 catch { firstError = firstError ?? error }
-                _socket = nil
             }
 
             logger?.trace("SFTPClient closed successfully")
 
-            if let firstError { throw firstError }
+            if let firstError {
+                throw firstError
+            }
         }
     }
 
@@ -307,34 +338,150 @@ public extension SFTPClient {
     
     var timeout: TimeInterval {
         get {
-            guard !closed else {
-                return .zero
-            }
-            
-            let value = SessionGetTimeout(session: session)
-            
-            if value == 0 {
-                return .infinity
-            }
-            else {
-                return TimeInterval(value) / 1000.0
+            withSessionIO {
+                guard !closed else {
+                    return .zero
+                }
+
+                let value = SessionGetTimeout(session: session)
+
+                if value == 0 {
+                    return .infinity
+                }
+                else {
+                    return TimeInterval(value) / 1000.0
+                }
             }
         }
         set {
-            guard !closed else {
+            withSessionIO {
+                guard !closed else {
+                    return
+                }
+
+                guard newValue != .infinity else {
+                    SessionSetTimeout(session: session, timeoutMilliseconds: 0)
+                    return
+                }
+
+                guard newValue.isFinite, newValue > 0 else {
+                    return
+                }
+
+                SessionSetTimeout(session: session, timeOut: newValue)
+            }
+        }
+    }
+
+    func setKeepAlive(
+        every interval: TimeInterval?,
+        requestsReply: Bool = false,
+        onFailure: (@Sendable (LibSSH2Error) async -> Void)? = nil
+    ) async throws {
+        let intervalSeconds = try interval.map(Self.keepAliveIntervalSeconds)
+
+        let previousTask = internalStateQueue.sync {
+            _keepAliveGeneration &+= 1
+            let previousTask = _keepAliveTask
+            _keepAliveTask = nil
+            return previousTask
+        }
+        previousTask?.cancel()
+
+        guard let intervalSeconds else {
+            try withSessionIO {
+                try checkClosed()
+                _ = try sftp
+                KeepAliveConfig(session: session, wantsReply: false, intervalSeconds: 0)
+            }
+            return
+        }
+
+        let generation = internalStateQueue.sync {
+            _keepAliveGeneration
+        }
+
+        let secondsToNext = try withSessionIO {
+            try checkClosed()
+            _ = try sftp
+            KeepAliveConfig(
+                session: session,
+                wantsReply: requestsReply,
+                intervalSeconds: intervalSeconds
+            )
+            do {
+                return try KeepAliveSend(session: session)
+            }
+            catch {
+                KeepAliveConfig(session: session, wantsReply: false, intervalSeconds: 0)
+                throw error
+            }
+        }
+
+        let task = Task { [weak self] in
+            await KeepAliveLoop.run(
+                initialDelayNanoseconds: Self.keepAliveDelay(secondsToNext),
+                send: { [weak self] in
+                    try self?.sendKeepAlive(for: generation)
+                },
+                onFailure: { [weak self] error in
+                    guard self?.finishKeepAlive(afterFailureFor: generation) == true else {
+                        return
+                    }
+                    await onFailure?(error)
+                }
+            )
+        }
+
+        let installed = internalStateQueue.sync {
+            guard !_closed, _keepAliveGeneration == generation else {
+                return false
+            }
+            _keepAliveTask = task
+            return true
+        }
+
+        guard installed else {
+            task.cancel()
+            try checkClosed()
+            return
+        }
+    }
+}
+
+enum KeepAliveLoop {
+    static func run(
+        initialDelayNanoseconds: UInt64,
+        send: @escaping @Sendable () throws -> Int?,
+        onFailure: @escaping @Sendable (LibSSH2Error) async -> Void
+    ) async {
+        var delay = initialDelayNanoseconds
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            }
+            catch {
                 return
             }
-            
-            guard newValue != .infinity else {
-                SessionSetTimeout(session: session, timeoutMilliseconds: 0)
+
+            guard !Task.isCancelled else {
                 return
             }
-            
-            guard newValue.isFinite, newValue > 0 else {
+
+            do {
+                guard let secondsToNext = try send() else {
+                    return
+                }
+                delay = UInt64(max(1, secondsToNext)) * 1_000_000_000
+            }
+            catch let error as LibSSH2Error {
+                await onFailure(error)
                 return
             }
-            
-            SessionSetTimeout(session: session, timeOut: newValue)
+            catch {
+                return
+            }
         }
     }
 }
@@ -344,13 +491,15 @@ public extension SFTPClient {
 public extension SFTPClient {
     var banner: String {
         get async throws {
-            try checkClosed()
+            try withSessionIO {
+                try checkClosed()
 
-            guard let banner = SessionBannerGet(session: session) else {
-                throw NotLoggedIn()
+                guard let banner = SessionBannerGet(session: session) else {
+                    throw NotLoggedIn()
+                }
+
+                return banner
             }
-
-            return banner
         }
     }
 
@@ -370,9 +519,10 @@ public extension SFTPClient {
 public extension SFTPClient {
     var currentWorkingDirectory: String {
         get async throws {
-            try checkClosed()
-
-            return try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) ?? "."
+            try withSessionIO {
+                try checkClosed()
+                return try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) ?? "."
+            }
         }
     }
 
@@ -386,7 +536,10 @@ public extension SFTPClient {
             sanitizedPath = cwd.appendingPathComponent(sanitizedPath)
         }
 
-        return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+        return try withSessionIO {
+            try checkClosed()
+            return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+        }
     }
 
     func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
@@ -424,9 +577,10 @@ public extension SFTPClient {
     }
 
     func filesystemStat(path: String) async throws -> FilesystemStat {
-        try checkClosed()
-
-        return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
+        try withSessionIO {
+            try checkClosed()
+            return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
+        }
     }
 }
 
@@ -461,43 +615,51 @@ public extension SFTPClient {
             }
         }
 
-        try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
+        try withSessionIO {
+            try checkClosed()
+            try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
+        }
     }
 
     func setAttributes(path: String, attributes: FileAttributes) async throws {
-        try checkClosed()
-
-        let sanitizedPath = path.sanitizePath
-        try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
+        try withSessionIO {
+            try checkClosed()
+            let sanitizedPath = path.sanitizePath
+            try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
+        }
     }
 
     func rename(from: String, to: String) async throws {
-        try checkClosed()
-
-        try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+        try withSessionIO {
+            try checkClosed()
+            try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+        }
     }
 
     func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
-        try checkClosed()
-
-        try SFTPRename(
-            sftp: sftp,
-            sourceFilename: from.sanitizePath,
-            destinationFilename: to.sanitizePath,
-            flags: options
-        )
+        try withSessionIO {
+            try checkClosed()
+            try SFTPRename(
+                sftp: sftp,
+                sourceFilename: from.sanitizePath,
+                destinationFilename: to.sanitizePath,
+                flags: options
+            )
+        }
     }
 
     func deleteFile(path: String) async throws {
-        try checkClosed()
-
-        try SFTPUnlink(sftp: sftp, filename: path.sanitizePath)
+        try withSessionIO {
+            try checkClosed()
+            try SFTPUnlink(sftp: sftp, filename: path.sanitizePath)
+        }
     }
 
     func deleteDirectory(path: String) async throws {
-        try checkClosed()
-
-        try SFTPRmdir(sftp: sftp, path: path.sanitizePath)
+        try withSessionIO {
+            try checkClosed()
+            try SFTPRmdir(sftp: sftp, path: path.sanitizePath)
+        }
     }
 
     func delete(path: String) async throws {
@@ -525,19 +687,27 @@ public extension SFTPClient {
 
 public extension SFTPClient {
     func followLink(path: String) async throws -> String {
-        try checkClosed()
+        try withSessionIO {
+            try checkClosed()
 
-        guard let target = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink) else {
-            throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
+            guard let target = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink) else {
+                throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
+            }
+
+            return target
         }
-
-        return target
     }
 
     func createSymLink(path: String, destination: String) async throws {
-        try checkClosed()
-
-        _ = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, target: destination.sanitizePath, linkType: .symlink)
+        try withSessionIO {
+            try checkClosed()
+            _ = try SFTPSymlink(
+                sftp: sftp,
+                path: path.sanitizePath,
+                target: destination.sanitizePath,
+                linkType: .symlink
+            )
+        }
     }
 }
 
@@ -570,14 +740,16 @@ public extension SFTPClient {
             }
         }
 
-        let sanitizedPath = path.sanitizePath
-        let handle = try SFTPOpen(
-            sftp: sftp,
-            filename: sanitizedPath,
-            flags: flags,
-            mode: permissions,
-            openType: .file
-        )
+        let handle = try withSessionIO {
+            try checkClosed()
+            return try SFTPOpen(
+                sftp: sftp,
+                filename: path.sanitizePath,
+                flags: flags,
+                mode: permissions,
+                openType: .file
+            )
+        }
 
         return SFTPFile(
             parent: self,
@@ -617,9 +789,64 @@ private extension SFTPClient {
     }
 }
 
+// MARK: Session I/O serialization
+
+extension SFTPClient {
+    func withSessionIO<R>(_ operation: () throws -> R) rethrows -> R {
+        sessionIOLock.lock()
+        defer { sessionIOLock.unlock() }
+        return try operation()
+    }
+
+    func checkOpenForFileOperation() throws(AlreadyClosed) {
+        try checkClosed()
+    }
+}
+
 // MARK: Private implementation
 
 private extension SFTPClient {
+    static func keepAliveIntervalSeconds(_ interval: TimeInterval) throws(SFTPClientInvalidConfig) -> UInt {
+        guard interval > 0, interval.isFinite, interval <= TimeInterval(UInt32.max) else {
+            throw .invalidKeepAliveInterval
+        }
+
+        return UInt(max(2, interval.rounded(.up)))
+    }
+
+    static func keepAliveDelay(_ seconds: Int) -> UInt64 {
+        UInt64(max(1, seconds)) * 1_000_000_000
+    }
+
+    func sendKeepAlive(for generation: UInt64) throws -> Int? {
+        try withSessionIO {
+            let isActive = internalStateQueue.sync {
+                !_closed && _keepAliveGeneration == generation
+            }
+            guard isActive else {
+                return nil
+            }
+
+            do {
+                return try KeepAliveSend(session: session)
+            }
+            catch {
+                KeepAliveConfig(session: session, wantsReply: false, intervalSeconds: 0)
+                throw error
+            }
+        }
+    }
+
+    func finishKeepAlive(afterFailureFor generation: UInt64) -> Bool {
+        internalStateQueue.sync {
+            guard !_closed, _keepAliveGeneration == generation else {
+                return false
+            }
+            _keepAliveTask = nil
+            return true
+        }
+    }
+
     /// Verifies the server's host key (available after the handshake) against the accepted host keys, if configured.
     func verifyHostKey() throws {
         guard let knownHosts = internalStateQueue.sync(execute: { _knownHosts }) else {
@@ -651,26 +878,30 @@ private extension SFTPClient {
     }
 
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
-        do {
-            return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
-        }
-        catch let error as LibSSH2Error {
-            switch error {
-            case .sftp(status: .noSuchFile),
-                 .sftp(status: .noSuchPath):
-                return nil
+        try withSessionIO {
+            try checkClosed()
 
-            case .sftpProtocol:
-                switch try SFTPLastError(sftp: sftp) {
-                case .noSuchFile, .noSuchPath:
+            do {
+                return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
+            }
+            catch let error as LibSSH2Error {
+                switch error {
+                case .sftp(status: .noSuchFile),
+                     .sftp(status: .noSuchPath):
                     return nil
+
+                case .sftpProtocol:
+                    switch try SFTPLastError(sftp: sftp) {
+                    case .noSuchFile, .noSuchPath:
+                        return nil
+
+                    default:
+                        throw error
+                    }
 
                 default:
                     throw error
                 }
-
-            default:
-                throw error
             }
         }
     }

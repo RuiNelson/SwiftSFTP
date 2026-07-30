@@ -453,6 +453,69 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
+    @Test("keepalive can be enabled through the protocol and disabled")
+    func keepAliveCanBeEnabledAndDisabled() async throws {
+        try await withClient { client in
+            let protocolClient: any SFTPClientProtocol = client
+            try await protocolClient.setKeepAlive(every: 30, requestsReply: true)
+            try await protocolClient.setKeepAlive(every: 30) { _ in }
+            try await protocolClient.disableKeepAlive()
+        }
+    }
+
+    @Test("keepalive rejects invalid intervals")
+    func keepAliveRejectsInvalidIntervals() async throws {
+        let client = try makeClient(
+            auth: UserAuthentication(name: "x", auth: .password("x")),
+            timeout: nil
+        )
+
+        for interval in [0, -1, .infinity, .nan] {
+            await #expect(throws: SFTPClientInvalidConfig.self) {
+                try await client.setKeepAlive(every: interval)
+            }
+        }
+    }
+
+    @Test("keepalive loop reports a later send failure once")
+    func keepAliveLoopReportsLaterFailureOnce() async {
+        let recorder = KeepAliveFailureRecorder()
+        let expected = LibSSH2Error.socketSend("test failure")
+
+        await KeepAliveLoop.run(
+            initialDelayNanoseconds: 1,
+            send: {
+                throw expected
+            },
+            onFailure: { error in
+                await recorder.record(error)
+            }
+        )
+
+        #expect(await recorder.errors == [expected])
+    }
+
+    @Test("cancelling keepalive does not report a failure")
+    func cancellingKeepAliveDoesNotReportFailure() async {
+        let recorder = KeepAliveFailureRecorder()
+        let task = Task {
+            await KeepAliveLoop.run(
+                initialDelayNanoseconds: 5_000_000_000,
+                send: {
+                    throw LibSSH2Error.socketSend("must not be delivered")
+                },
+                onFailure: { error in
+                    await recorder.record(error)
+                }
+            )
+        }
+
+        task.cancel()
+        await task.value
+
+        #expect(await recorder.errors.isEmpty)
+    }
+
     @Test("client id is unique")
     func clientIDIsUnique() throws {
         let c1 = try makeClient(
@@ -464,5 +527,13 @@ struct SFTPClientHostkeyAndAuth {
             timeout: nil
         )
         #expect(c1.id != c2.id)
+    }
+}
+
+private actor KeepAliveFailureRecorder {
+    private(set) var errors: [LibSSH2Error] = []
+
+    func record(_ error: LibSSH2Error) {
+        errors.append(error)
     }
 }

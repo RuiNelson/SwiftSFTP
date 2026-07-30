@@ -2,7 +2,7 @@ import Foundation
 import libssh2
 
 /// Errors thrown by the libssh2 wrapper layer.
-public enum LibSSH2Error: Error, Equatable, CustomStringConvertible {
+public enum LibSSH2Error: Error, Sendable, Equatable, CustomStringConvertible {
     case socketNone(String?)
     case bannerReceive(String?)
     case bannerSend(String?)

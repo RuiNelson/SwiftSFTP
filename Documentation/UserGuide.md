@@ -13,9 +13,10 @@ This guide walks through everything you need to integrate and use SwiftSFTP in y
 7. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
 8. [Symlinks](#symlinks)
 9. [Filesystem Statistics](#filesystem-statistics)
-10. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
-11. [Error Handling](#error-handling)
-12. [Testability](#testability)
+10. [Keeping the Connection Alive](#keeping-the-connection-alive)
+11. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
+12. [Error Handling](#error-handling)
+13. [Testability](#testability)
 
 ---
 
@@ -457,6 +458,58 @@ Also available on an open file handle:
 ```swift
 let vfs = try await fileHandle.statFilesystem
 ```
+
+---
+
+## Keeping the Connection Alive
+
+Enable periodic SSH keepalive messages after login by specifying the maximum idle interval in seconds:
+
+```swift
+try await client.setKeepAlive(every: 30)
+```
+
+Positive fractional intervals are rounded up to whole seconds. The minimum effective interval is two seconds. Passing
+zero, a negative value, a non-finite value, or a value too large for libssh2 throws
+`SFTPClientInvalidConfig.invalidKeepAliveInterval`.
+
+To be notified when a later keepalive send fails, provide an asynchronous callback:
+
+```swift
+try await client.setKeepAlive(every: 30) { error in
+    print("The SFTP keepalive failed: \(error)")
+    // Update connection state or schedule a reconnect here.
+}
+```
+
+Enabling keepalive performs an immediate send check. An error from that check is thrown by `setKeepAlive`; after the
+method returns, a send failure stops the keepalive loop and invokes the callback once. Disabling or reconfiguring
+keepalive, or closing the client, does not invoke the callback.
+
+Request a reply from the SSH server when required:
+
+```swift
+try await client.setKeepAlive(
+    every: 30,
+    requestsReply: true,
+    onFailure: { error in
+        print("The SFTP keepalive failed: \(error)")
+    }
+)
+```
+
+`requestsReply` sets the SSH `want-reply` flag. It does not turn `onFailure` into a reply acknowledgement or add a
+reply timeout; the callback reports errors encountered while sending a periodic keepalive. If a connection failure is
+encountered during an ordinary SFTP operation, that operation throws the error normally.
+
+Calling the method again replaces the current keepalive configuration. Use `disableKeepAlive()` to stop it:
+
+```swift
+try await client.setKeepAlive(every: 60) // Reconfigure
+try await client.disableKeepAlive()
+```
+
+The same methods are available through `SFTPClientProtocol`.
 
 ---
 
