@@ -57,7 +57,9 @@ public func AgentGetIdentity(
 ) throws -> LibSSH2AgentIdentity? {
     var store: UnsafeMutablePointer<libssh2_agent_publickey>?
     let result = libssh2.libssh2_agent_get_identity(agent.rawValue, &store, previous?.rawValue)
-    if result == 1 { return nil }
+    if result == 1 {
+        return nil
+    }
     try result.checkReturnValue()
     guard let store else { return nil }
     return LibSSH2AgentIdentity(rawValue: store)

@@ -7,9 +7,9 @@ public extension SFTPClientProtocol {
     /// Uploads a local file in parallel over independent SFTP connections.
     ///
     /// The remote destination is created under a unique temporary name in the same directory and preallocated to the
-    /// local file's size. Each worker writes a disjoint range through either this client or a logged-in ``fork``.
-    /// After every range succeeds, the temporary file is atomically renamed to `remotePath`. Failure or cancellation
-    /// triggers a best-effort deletion of the temporary file. This operation cannot be resumed.
+    /// local file's size. Each worker writes a disjoint range through either this client or a logged-in ``fork``. After
+    /// every range succeeds, the temporary file is atomically renamed to `remotePath`. Failure or cancellation triggers
+    /// a best-effort deletion of the temporary file. This operation cannot be resumed.
     ///
     /// `workers` counts this client and all additional forks. If an additional fork cannot log in, no more forks are
     /// attempted and the upload continues silently with the workers already connected.
@@ -21,8 +21,8 @@ public extension SFTPClientProtocol {
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
     ///   - continuation: Serialized, aggregate progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer
-    /// failures; otherwise forwards SFTP and local-file errors.
+    /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
+    /// otherwise forwards SFTP and local-file errors.
     func multiUpload(
         from localURL: URL,
         to remotePath: String,
@@ -146,8 +146,8 @@ public extension SFTPClientProtocol {
     ///   - workers: Maximum number of parallel connections. Values below one use one worker.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Serialized, aggregate progress callback. Return `true` to continue, or `false` to cancel.
-    /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer
-    /// failures; otherwise forwards SFTP and local-file errors.
+    /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
+    /// otherwise forwards SFTP and local-file errors.
     func multiDownload(
         from remotePath: String,
         to localURL: URL,

@@ -178,7 +178,9 @@ extension String: KeyValidation {
             return true
         }
 
-        if let pemResult { return pemResult }
+        if let pemResult {
+            return pemResult
+        }
 
         if password == nil, let ssh = parseOpenSSHKeyType(self) {
             guard ssh.nid == expectedID else { return false }
@@ -212,7 +214,9 @@ extension String: KeyValidation {
             return true
         }
 
-        if let pemResult { return pemResult }
+        if let pemResult {
+            return pemResult
+        }
 
         guard let shorthand = parseOpenSSHShorthandPublicKey(self) else { return false }
         guard shorthand.nid == expectedID else { return false }
@@ -251,7 +255,9 @@ extension String: KeyValidation {
             return true
         }
 
-        if let pemResult { return pemResult }
+        if let pemResult {
+            return pemResult
+        }
 
         if password == nil, parseOpenSSHKeyType(self) != nil {
             return true
@@ -272,7 +278,9 @@ extension String: KeyValidation {
             return true
         }
 
-        if let pemResult { return pemResult }
+        if let pemResult {
+            return pemResult
+        }
         return parseOpenSSHShorthandPublicKey(self) != nil
     }
 

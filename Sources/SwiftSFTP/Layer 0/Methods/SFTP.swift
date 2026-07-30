@@ -98,7 +98,9 @@ public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Da
     let size = buffer.withUnsafeMutableBufferPointer {
         libssh2.libssh2_sftp_read(handle.rawValue, $0.baseAddress, maximumLength)
     }
-    if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+    if size < 0 {
+        throw LibSSH2Error(code: Int32(size))
+    }
     let count = size
     return Data(bytes: buffer, count: count)
 }
@@ -138,7 +140,9 @@ public func SFTPReadDir(
             )
         }
     }
-    if rawCount < 0 { throw LibSSH2Error(code: rawCount) }
+    if rawCount < 0 {
+        throw LibSSH2Error(code: rawCount)
+    }
     let count = Int(rawCount)
     let name = String(decoding: nameBuffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     let longEntry = maximumLongEntryLength > 0
@@ -165,7 +169,9 @@ public func SFTPWrite(handle: LibSSH2SFTPHandle, data: Data) throws -> Int {
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
         let size = libssh2.libssh2_sftp_write(handle.rawValue, bytes, data.count)
-        if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+        if size < 0 {
+            throw LibSSH2Error(code: Int32(size))
+        }
         return size
     }
 }
@@ -466,7 +472,9 @@ public func SFTPSymlink(
                     linkType.libssh2Value
                 )
             }
-            if rawCount < 0 { throw LibSSH2Error(code: rawCount) }
+            if rawCount < 0 {
+                throw LibSSH2Error(code: rawCount)
+            }
             return Int(rawCount)
         }
         return String(decoding: targetBuffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)

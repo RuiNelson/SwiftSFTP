@@ -87,8 +87,12 @@ struct Authentication {
         var entries: [String] = []
         while true {
             let entry = try SFTPReadDir(handle: directory, maximumNameLength: 512)
-            if entry.name.isEmpty { break }
-            if entry.name == "." || entry.name == ".." { continue }
+            if entry.name.isEmpty {
+                break
+            }
+            if entry.name == "." || entry.name == ".." {
+                continue
+            }
             entries.append(entry.name)
         }
         print("   \(entries.count) entries in KeyPairs")
@@ -240,7 +244,9 @@ private let keyLoadLock = NSLock()
 private nonisolated(unsafe) var libssh2Initialized = false
 
 private func ensureLibSSH2Initialized() throws {
-    if libssh2Initialized { return }
+    if libssh2Initialized {
+        return
+    }
     try SSHInit()
     libssh2Initialized = true
 }

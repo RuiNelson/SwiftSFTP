@@ -398,7 +398,9 @@ public func ChannelRead(
     let size = buffer.withUnsafeMutableBufferPointer {
         libssh2.libssh2_channel_read_ex(channel.rawValue, stream.libssh2Value, $0.baseAddress, maximumLength)
     }
-    if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+    if size < 0 {
+        throw LibSSH2Error(code: Int32(size))
+    }
     let count = size
     return Data(bytes: buffer, count: count)
 }
@@ -462,7 +464,9 @@ public func ChannelWrite(channel: LibSSH2Channel, stream: LibSSH2ChannelStream =
     try data.withUnsafeBytes { rawBuffer in
         let bytes = rawBuffer.bindMemory(to: CChar.self).baseAddress
         let size = libssh2.libssh2_channel_write_ex(channel.rawValue, stream.libssh2Value, bytes, data.count)
-        if size < 0 { throw LibSSH2Error(code: Int32(size)) }
+        if size < 0 {
+            throw LibSSH2Error(code: Int32(size))
+        }
         return size
     }
 }

@@ -151,7 +151,9 @@ public func KnownHostCheck(
     guard let result = LibSSH2KnownHostCheckResult(rawValue: rawResult) else {
         throw LibSSH2Error.unknown(code: rawResult, message: nil)
     }
-    if result == .failure { throw LibSSH2Error.knownHosts(nil) }
+    if result == .failure {
+        throw LibSSH2Error.knownHosts(nil)
+    }
     return (result, store.map { LibSSH2KnownHost($0.pointee) })
 }
 
@@ -196,7 +198,9 @@ public func KnownHostCheckPort(
     guard let result = LibSSH2KnownHostCheckResult(rawValue: rawResult) else {
         throw LibSSH2Error.unknown(code: rawResult, message: nil)
     }
-    if result == .failure { throw LibSSH2Error.knownHosts(nil) }
+    if result == .failure {
+        throw LibSSH2Error.knownHosts(nil)
+    }
     return (result, store.map { LibSSH2KnownHost($0.pointee) })
 }
 
@@ -239,7 +243,9 @@ public func KnownHostCheckPort(
     guard let result = LibSSH2KnownHostCheckResult(rawValue: rawResult) else {
         throw LibSSH2Error.unknown(code: rawResult, message: nil)
     }
-    if result == .failure { throw LibSSH2Error.knownHosts(nil) }
+    if result == .failure {
+        throw LibSSH2Error.knownHosts(nil)
+    }
     return (result, store.map { LibSSH2KnownHost($0.pointee) })
 }
 
@@ -301,7 +307,9 @@ public func KnownHostReadFile(
 ) throws -> Int {
     try filename.withCString {
         let result = libssh2.libssh2_knownhost_readfile(hosts.rawValue, $0, format.libssh2Value)
-        if result < 0 { throw LibSSH2Error(code: result) }
+        if result < 0 {
+            throw LibSSH2Error(code: result)
+        }
         return Int(result)
     }
 }
@@ -376,7 +384,9 @@ public func KnownHostGet(
 ) throws -> (knownHost: LibSSH2KnownHost, rawPointer: UnsafeMutablePointer<libssh2_knownhost>)? {
     var store: UnsafeMutablePointer<libssh2_knownhost>?
     let result = libssh2.libssh2_knownhost_get(hosts.rawValue, &store, previous)
-    if result == 1 { return nil }
+    if result == 1 {
+        return nil
+    }
     try result.checkReturnValue()
     guard let store else { return nil }
     return (LibSSH2KnownHost(store.pointee), store)
