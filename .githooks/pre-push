@@ -8,48 +8,65 @@ push_blocked=0
 cd "$repository_root"
 
 check_submodule() {
-  submodule_name="$1"
-  submodule_path="$2"
-  submodule_branch="$(git config --file .gitmodules --get "submodule.$submodule_name.branch")"
+  submodule_path="$1"
+  release_pattern="$2"
 
   if ! git -C "$submodule_path" rev-parse --git-dir >/dev/null 2>&1; then
     echo "Initializing $submodule_path before push..." >&2
     git submodule update --init --recursive "$submodule_path"
   fi
 
-  echo "Checking $submodule_path against origin/$submodule_branch..." >&2
-  if ! git -C "$submodule_path" fetch --quiet origin "$submodule_branch"; then
-    echo "Push cancelled: could not fetch $submodule_path." >&2
+  echo "Checking $submodule_path for new releases..." >&2
+  if ! git -C "$submodule_path" fetch --quiet origin "refs/tags/*:refs/tags/*"; then
+    echo "Push cancelled: could not fetch tags for $submodule_path." >&2
     push_blocked=1
     return
   fi
 
-  upstream_commit="$(git -C "$submodule_path" rev-parse FETCH_HEAD)"
   committed_commit="$(git rev-parse "HEAD:$submodule_path")"
   checked_out_commit="$(git -C "$submodule_path" rev-parse HEAD)"
+  release_tags="$(
+    git -C "$submodule_path" tag --list --sort=-version:refname |
+      grep -E "$release_pattern" || true
+  )"
+  release_tag=""
+  release_commit=""
 
-  if [ "$committed_commit" = "$upstream_commit" ]; then
+  for tag in $release_tags; do
+    tag_commit="$(git -C "$submodule_path" rev-parse "$tag^{commit}")"
+
+    if git -C "$submodule_path" merge-base --is-ancestor \
+      "$committed_commit" "$tag_commit"; then
+      if [ "$committed_commit" != "$tag_commit" ]; then
+        release_tag="$tag"
+        release_commit="$tag_commit"
+      fi
+      break
+    fi
+  done
+
+  if [ -z "$release_tag" ]; then
     return
   fi
 
-  if [ "$checked_out_commit" != "$upstream_commit" ]; then
+  if [ "$checked_out_commit" != "$release_commit" ]; then
     if [ -n "$(git -C "$submodule_path" status --porcelain --untracked-files=no)" ]; then
       echo "Push cancelled: $submodule_path has tracked changes." >&2
-      echo "Resolve them before updating to origin/$submodule_branch." >&2
+      echo "Resolve them before updating to $release_tag." >&2
       push_blocked=1
       return
     fi
 
-    git -C "$submodule_path" checkout --quiet --detach "$upstream_commit"
+    git -C "$submodule_path" checkout --quiet --detach "$release_commit"
     git -C "$submodule_path" submodule update --init --recursive
   fi
 
-  echo "Push cancelled: $submodule_path was updated to $upstream_commit." >&2
+  echo "Push cancelled: $submodule_path was updated to $release_tag ($release_commit)." >&2
   echo "Commit the updated submodule reference, then push again." >&2
   push_blocked=1
 }
 
-check_submodule "vendor/libssh2" "vendor/libssh2"
-check_submodule "vendor/openssl" "vendor/openssl"
+check_submodule "vendor/libssh2" '^libssh2-[0-9]+\.[0-9]+\.[0-9]+$'
+check_submodule "vendor/openssl" '^openssl-[0-9]+\.[0-9]+\.[0-9]+$'
 
 exit "$push_blocked"
