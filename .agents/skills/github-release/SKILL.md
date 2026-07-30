@@ -82,6 +82,11 @@ Describe breaking changes and what adopters need to update.
 
 - Write for adopters of the library, not for maintainers.
 - Group changes by user impact.
+- Include only changes that affect how adopters use the library or the behavior they experience.
+- Omit CI, release automation, repository maintenance, internal benchmarks, formatting-only changes, and other
+  maintainer-facing work.
+- Omit build-system or packaging changes unless they alter a supported platform, compatibility requirement, dependency,
+  installation workflow, or another outcome visible to adopters.
 - Omit empty sections.
 - Keep bullets concrete and concise.
 - Mention breaking changes in `Migration Guide`; do not bury them under features.
