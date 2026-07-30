@@ -89,6 +89,55 @@ struct SFTPClientFilesystemOps {
         }
     }
 
+    // MARK: - directorySize
+
+    @Test("directorySize sums files recursively")
+    func directorySizeSumsFilesRecursively() async throws {
+        try await withClient { client in
+            let directory = uniqueRemotePath("dir-size")
+            let nestedDirectory = "\(directory)/nested/deeper"
+            try await client.createDirectory(path: nestedDirectory, makePath: true, mode: .serverDefault)
+
+            let rootFile = try await client.openFile(
+                [.write, .create],
+                path: "\(directory)/root.bin",
+                permissions: .serverDefault
+            )
+            try await rootFile.write(Data(repeating: 0xAA, count: 3))
+            try await rootFile.close()
+
+            let nestedFile = try await client.openFile(
+                [.write, .create],
+                path: "\(nestedDirectory)/nested.bin",
+                permissions: .serverDefault
+            )
+            try await nestedFile.write(Data(repeating: 0xBB, count: 5))
+            try await nestedFile.close()
+
+            let size = try await client.directorySize(directory)
+            #expect(size == 8)
+
+            try await client.delete(path: directory)
+        }
+    }
+
+    @Test("directorySize throws for a missing directory")
+    func directorySizeThrowsForMissingDirectory() async throws {
+        try await withClient { client in
+            let directory = uniqueRemotePath("missing-dir-size")
+            do {
+                _ = try await client.directorySize(directory)
+                Issue.record("Expected remoteDirectoryNotFound")
+            }
+            catch let FileTransferErrors.remoteDirectoryNotFound(path) {
+                #expect(path == directory)
+            }
+            catch {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+    }
+
     // MARK: - statFile
 
     @Test("statFile returns metadata for regular file")

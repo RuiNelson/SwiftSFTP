@@ -1,4 +1,4 @@
-/// Errors thrown by file upload and download convenience helpers.
+/// Errors thrown by remote filesystem and file-transfer convenience helpers.
 public enum FileTransferErrors: Error {
     /// The transfer was cancelled by the progress callback.
     case transferCancelled
@@ -19,6 +19,9 @@ public enum FileTransferErrors: Error {
 
     /// The requested remote download source does not exist or is not a regular file.
     case remoteFileNotFound(path: String)
+
+    /// The requested remote directory does not exist or is not a directory.
+    case remoteDirectoryNotFound(path: String)
 
     /// The requested path is a directory where a file was required.
     case remotePathIsADirectory(path: String)
