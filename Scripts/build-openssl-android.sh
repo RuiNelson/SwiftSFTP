@@ -7,10 +7,11 @@ OUTPUT_DIR="${OPENSSL_OUTPUT_DIR:-"$ROOT_DIR/Artifacts/OpenSSL/Android"}"
 BUILD_DIR="${OPENSSL_BUILD_DIR:-"$ROOT_DIR/.openssl-android-build"}"
 ANDROID_API="${ANDROID_API:-28}"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
+ANDROID_ABIS=()
 
 usage() {
   cat <<USAGE
-Usage: $(basename "$0") [--api N]
+Usage: $(basename "$0") [--api N] [--abi ABI]...
 
 Build static OpenSSL libraries for Android ABIs used by SwiftSFTP.
 
@@ -18,6 +19,8 @@ Requires ANDROID_NDK_HOME (or ANDROID_NDK_ROOT) pointing at NDK r27d+.
 
 Options:
   --api N  Android API level (default: 28).
+  --abi ABI  ABI to build: arm64-v8a or x86_64. May be repeated.
+             Defaults to both ABIs.
   -h, --help  Show this help.
 USAGE
 }
@@ -26,6 +29,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --api)
       ANDROID_API="$2"
+      shift 2
+      ;;
+    --abi)
+      ANDROID_ABIS+=("$2")
       shift 2
       ;;
     -h|--help)
@@ -39,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ ${#ANDROID_ABIS[@]} -eq 0 ]]; then
+  ANDROID_ABIS=("arm64-v8a" "x86_64")
+fi
 
 if [[ ! -f "$OPENSSL_SOURCE_DIR/Configure" ]]; then
   echo "OpenSSL source not found at $OPENSSL_SOURCE_DIR" >&2
@@ -102,10 +113,23 @@ build_abi() {
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$OUTPUT_DIR/include" "$OUTPUT_DIR/lib"
 
-build_abi "arm64-v8a" "android-arm64" "aarch64-linux-android"
-build_abi "x86_64" "android-x86_64" "x86_64-linux-android"
+for abi in "${ANDROID_ABIS[@]}"; do
+  case "$abi" in
+    arm64-v8a)
+      build_abi "$abi" "android-arm64" "aarch64-linux-android"
+      ;;
+    x86_64)
+      build_abi "$abi" "android-x86_64" "x86_64-linux-android"
+      ;;
+    *)
+      echo "Unsupported Android ABI: $abi" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
-rsync -a --delete "$OUTPUT_DIR/lib/arm64-v8a/include/" "$OUTPUT_DIR/include/"
+rsync -a --delete "$OUTPUT_DIR/lib/${ANDROID_ABIS[0]}/include/" "$OUTPUT_DIR/include/"
 
 echo "Built static OpenSSL for Android in $OUTPUT_DIR"
-echo "ABIs: arm64-v8a, x86_64 (API $ANDROID_API)"
+echo "ABIs: ${ANDROID_ABIS[*]} (API $ANDROID_API)"

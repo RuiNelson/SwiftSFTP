@@ -6,9 +6,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-./Scripts/build-openssl-android.sh
-
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
+./Scripts/build-openssl-android.sh --abi "$ANDROID_ABI"
+
 OPENSSL_LIB_DIR="$ROOT/Artifacts/OpenSSL/Android/lib/$ANDROID_ABI/lib"
 OPENSSL_INCLUDE_DIR="$ROOT/Artifacts/OpenSSL/Android/include"
 
