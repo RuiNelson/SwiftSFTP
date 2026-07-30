@@ -78,6 +78,21 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Whether the client has been closed.
     var closed: Bool { get }
 
+    // MARK: Forking
+
+    /// Creates an independent client with the same connection configuration.
+    ///
+    /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
+    /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, logger, and
+    /// deinitialization behavior.
+    ///
+    /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
+    /// configured but disconnected client.
+    /// - Returns: A new, independent client.
+    /// - Throws: ``AlreadyClosed`` when the receiver is closed, configuration errors while creating the fork, or
+    /// connection and authentication errors when `loggedIn` is `true`.
+    func fork(loggedIn: Bool) async throws -> Self
+
     // MARK: Session
 
     /// The SSH server banner received during handshake.

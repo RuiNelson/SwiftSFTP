@@ -355,6 +355,54 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
+    // MARK: - Forking
+
+    @Test("fork without login creates an independent disconnected client")
+    func forkWithoutLoginCreatesDisconnectedClient() async throws {
+        let client = try makeClient(timeout: 7.0)
+        let protocolClient: any SFTPClientProtocol = client
+        let fork = try await protocolClient.fork(loggedIn: false)
+
+        #expect(fork.id != client.id)
+        #expect(fork.timeout == 7.0)
+        await #expect(throws: NotLoggedIn.self) {
+            _ = try await fork.currentWorkingDirectory
+        }
+
+        try await fork.close()
+        try await client.close()
+    }
+
+    @Test("logged-in fork remains usable after closing its source client")
+    func loggedInForkIsIndependent() async throws {
+        try await withClient { client in
+            let fork = try await client.fork(loggedIn: true)
+            do {
+                #expect(fork.id != client.id)
+                try await client.close()
+                #expect(try await fork.currentWorkingDirectory == TS.testHome)
+            }
+            catch {
+                try? await fork.close()
+                throw error
+            }
+            try await fork.close()
+        }
+    }
+
+    @Test("fork preserves host key acceptance policy")
+    func forkPreservesHostKeyAcceptancePolicy() async throws {
+        let wrongKey = try #require(SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()?.publicKey)
+        let client = try makeClient(
+            hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey])
+        )
+
+        await #expect(throws: HostKeyVerificationError.keyMismatch) {
+            _ = try await client.fork(loggedIn: true)
+        }
+        try? await client.close()
+    }
+
     // MARK: - Lifecycle
 
     @Test("close sets closed to true")
@@ -372,6 +420,16 @@ struct SFTPClientHostkeyAndAuth {
             try await client.close()
             try await client.close()
             #expect(client.closed)
+        }
+    }
+
+    @Test("fork throws AlreadyClosed after close")
+    func forkThrowsAlreadyClosed() async throws {
+        let client = try makeClient()
+        try await client.close()
+
+        await #expect(throws: AlreadyClosed.self) {
+            _ = try await client.fork(loggedIn: false)
         }
     }
 

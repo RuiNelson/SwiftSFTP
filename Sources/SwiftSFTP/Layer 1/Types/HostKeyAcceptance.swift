@@ -4,7 +4,7 @@ import Foundation
 ///
 /// With any setting other than ``acceptAny``, login throws ``HostKeyVerificationError`` when the server's host key is
 /// not among the accepted keys.
-public enum HostKeyAcceptance: Codable, Equatable {
+public enum HostKeyAcceptance: Codable, Equatable, Sendable {
     /// Accept any host key without verification. Vulnerable to man-in-the-middle attacks; not for production use.
     case acceptAny
     /// Verify against an OpenSSH `known_hosts` file on disk.

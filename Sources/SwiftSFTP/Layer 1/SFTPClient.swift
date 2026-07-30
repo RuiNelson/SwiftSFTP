@@ -22,9 +22,12 @@ public final class SFTPClient: SFTPClientProtocol {
 
     private let tcpLocation: TCPLocation
     private let operationsTimeOut: TimeInterval?
+    private let hostKeyAcceptance: HostKeyAcceptance
     private let logger: Logger?
     private let trapOnDeInitWithoutClose: Bool
     let authentication: UserAuthentication
+    /// The most recent timeout configured by `login(timeOut:)`. Protected by `internalStateQueue`.
+    private nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
 
     // MARK: Concurrency
 
@@ -79,6 +82,7 @@ public final class SFTPClient: SFTPClientProtocol {
 
         self.tcpLocation = openSocketIn
         self.operationsTimeOut = operationsTimeOut
+        self.hostKeyAcceptance = hostKeyAcceptance
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
         self.authentication = authentication
@@ -229,7 +233,14 @@ public extension SFTPClient {
 
         try checkClosed()
 
-        let alreadyLoggedIn = internalStateQueue.sync { _sftp != nil }
+        let alreadyLoggedIn = internalStateQueue.sync {
+            guard _sftp == nil else {
+                return true
+            }
+
+            loginTimeOut = timeOut
+            return false
+        }
         guard !alreadyLoggedIn else {
             logger?.warning("Trying to login to SFTPClient that was already logged in")
             return
@@ -335,7 +346,41 @@ public extension SFTPClient {
             _closed
         }
     }
-    
+
+    func fork(loggedIn: Bool) async throws -> Self {
+        try checkClosed()
+
+        let loginTimeOut = internalStateQueue.sync {
+            self.loginTimeOut
+        }
+        let instance = try Self(
+            openSocketIn: tcpLocation,
+            operationsTimeOut: operationsTimeOut,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication,
+            logger: logger,
+            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+        )
+
+        instance.internalStateQueue.sync {
+            instance.loginTimeOut = loginTimeOut
+        }
+
+        guard loggedIn else {
+            return instance
+        }
+
+        do {
+            try await instance.login(timeOut: loginTimeOut)
+        }
+        catch {
+            try? await instance.close()
+            throw error
+        }
+
+        return instance
+    }
+
     var timeout: TimeInterval {
         get {
             withSessionIO {

@@ -80,6 +80,19 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | `logger` | `Logger?` | `nil` | swift-log logger for close/deinit warnings |
 | `trapOnDeInitWithoutClose` | `Bool` | `true` | `SIGTRAP` if deinit without `close()` (`SFTPClient.init` defaults to `false`) |
 
+### Forking a client
+
+Use `fork(loggedIn:)` when concurrent work needs another connection with the same configuration:
+
+```swift
+let worker = try await client.fork(loggedIn: true)
+defer { try? await worker.close() }
+```
+
+The fork inherits the server location, operation timeout, most recently configured login timeout, host-key acceptance
+policy, authentication, logger, and deinitialization behavior. It has an independent SSH session, socket, SFTP
+subsystem, identity, and keepalive state. Pass `false` to create the configured client without connecting it.
+
 ### Closing the connection
 
 Always `close()` explicitly, both for the client and for any open file handles:
@@ -227,6 +240,21 @@ let dirMeta  = try await client.statDirectory(path: "/data", followLink: false)
 ```
 
 All stat methods return `FileMetadata?` — `nil` when the path does not exist.
+
+### Calculate a directory's content size
+
+```swift
+do {
+    let size = try await client.directorySize("/data/uploads")
+    print("Directory contents: \(size) bytes")
+} catch FileTransferErrors.remoteDirectoryNotFound(let path) {
+    print("Directory not found: \(path)")
+}
+```
+
+`directorySize(_:)` recursively traverses all subdirectories and returns the combined size of their regular files in
+bytes. Empty directories return `0`. Symbolic links are neither followed nor included in the total. If the path does
+not exist or is not a directory, the method throws `FileTransferErrors.remoteDirectoryNotFound(path:)`.
 
 ### Set attributes
 
@@ -588,6 +616,7 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `.invalidBufferSize` | `bufferSize` ≤ 0 |
 | `.shortWrite(expected:actual:)` | Server accepted fewer bytes than sent |
 | `.remoteFileNotFound(path:)` | Remote source path does not exist |
+| `.remoteDirectoryNotFound(path:)` | Remote directory does not exist or the path is not a directory |
 | `.remoteFileAlreadyExists(path:)` | Remote destination already exists |
 | `.remotePathIsADirectory(path:)` | Expected file, found directory |
 | `.remotePathIsAFile(path:)` | Expected directory, found file |
