@@ -685,29 +685,3 @@ do {
     throw error
 }
 ```
-
----
-
-## Testability
-
-`SFTPClient` and `SFTPFile` conform to `SFTPClientProtocol` and `SFTPFileProtocol` respectively. Inject these protocols into your own types and stub them in unit tests without needing a real server:
-
-```swift
-// Your service
-struct BackupService {
-    let sftp: any SFTPClientProtocol
-
-    func backup(localURL: URL, remotePath: String) async throws {
-        try await sftp.upload(from: localURL, to: remotePath) { _, _, _, _ in true }
-    }
-}
-
-// In tests
-struct MockSFTPClient: SFTPClientProtocol {
-    // … implement only the methods your tests exercise
-}
-
-let service = BackupService(sftp: MockSFTPClient())
-```
-
-For integration tests against a real server, see `TestServerInfo.md` and start the Docker test server with `Scripts/test-server-up.sh`.

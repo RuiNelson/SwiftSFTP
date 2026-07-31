@@ -62,7 +62,7 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 swift test --scratch-path /private/tmp/SwiftSFTP-NG-test
 ```
 
-- Integration tests against the Docker SFTP test server are documented in `TestServerInfo.md`; start the server with `Scripts/test-server-up.sh` before expecting those tests to pass.
+- Integration tests against the Docker SFTP test server are documented in `Documentation/TestServerInfo.md`; start the server with `Scripts/test-server-up.sh` before expecting those tests to pass.
 
 ## Git Hygiene
 
