@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reports transfer progress as completed bytes, total bytes, last chunk size, and elapsed time since the last update.
-public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) -> Bool
+public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) async -> Bool
 
 /// Serializes blocking `FileHandle` operations on a dedicated dispatch queue so local disk I/O can run concurrently
 /// with in-flight SFTP network calls instead of blocking the calling task.
@@ -149,7 +149,7 @@ public extension SFTPFileProtocol {
                     endTime.timeIntervalSince(startTime)
                 }
 
-                if continuation(completed, fileSize, size, interval) == false {
+                if await continuation(completed, fileSize, size, interval) == false {
                     wasCancelled = true
                     break
                 }
@@ -261,7 +261,7 @@ public extension SFTPFileProtocol {
                     endTime.timeIntervalSince(startTime)
                 }
 
-                if continuation(completed, totalBytes, data.count, interval) == false {
+                if await continuation(completed, totalBytes, data.count, interval) == false {
                     wasCancelled = true
                     break
                 }
@@ -378,7 +378,7 @@ public extension SFTPFileProtocol {
                 endTime.timeIntervalSince(startTime)
             }
 
-            if continuation(completed, totalBytes, size, interval) == false {
+            if await continuation(completed, totalBytes, size, interval) == false {
                 wasCancelled = true
                 break
             }

@@ -26,7 +26,7 @@ public extension SFTPClientProtocol {
     ///   - permissions: POSIX permissions to request when creating the remote file.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
     /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
-    /// continue, or `false` to cancel. The reporting worker blocks until it returns, so keep it short.
+    /// continue, or `false` to cancel. The reporting worker waits for it before continuing, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
     /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
     func multiUpload(
@@ -153,7 +153,7 @@ public extension SFTPClientProtocol {
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
     /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
-    /// continue, or `false` to cancel. The reporting worker blocks until it returns, so keep it short.
+    /// continue, or `false` to cancel. The reporting worker waits for it before continuing, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
     /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
     func multiDownload(
@@ -279,7 +279,7 @@ private extension SFTPClientProtocol {
                     progress.stop()
                     return false
                 }
-                return progress.report(bytes)
+                return await progress.report(bytes)
             }
             guard written == range.length else {
                 throw FileTransferErrors.shortWrite(
@@ -330,7 +330,7 @@ private extension SFTPClientProtocol {
                 try await localIO.write(contentsOf: data)
                 completed += UInt64(data.count)
 
-                guard progress.report(data.count) else {
+                guard await progress.report(data.count) else {
                     throw FileTransferErrors.transferCancelled
                 }
             }
@@ -394,6 +394,8 @@ private final class MultiTransferProgressReporter: @unchecked Sendable {
     private var lastUpdate = Date()
     private var stopped = false
     private var failure: (any Error)?
+    /// The most recently queued callback invocation; each new report waits for it before running.
+    private var inFlight: Task<Bool, Never>?
 
     /// Creates a reporter for one complete multi-worker transfer.
     init(totalBytes: UInt64, continuation: @escaping TransferProgress) {
@@ -402,28 +404,47 @@ private final class MultiTransferProgressReporter: @unchecked Sendable {
     }
 
     /// Adds a completed chunk and invokes the serialized aggregate progress callback.
-    func report(_ bytes: Int) -> Bool {
-        lock.lock()
-        defer {
-            lock.unlock()
-        }
-
-        guard !stopped else {
+    ///
+    /// Each call is chained onto the previous one, so callbacks stay mutually exclusive and in order even though the
+    /// callback can now suspend.
+    func report(_ bytes: Int) async -> Bool {
+        guard let pending = enqueueReport(bytes) else {
             return false
         }
 
-        let now = Date()
-        let (newCompletedBytes, overflow) = completedBytes.addingReportingOverflow(Int64(bytes))
-        completedBytes = overflow ? .max : min(newCompletedBytes, totalBytes)
-        let shouldContinue = continuation(
-            completedBytes,
-            totalBytes,
-            bytes,
-            now.timeIntervalSince(lastUpdate)
-        )
-        lastUpdate = now
-        stopped = !shouldContinue
-        return shouldContinue
+        return await finishReport(pending.value)
+    }
+
+    /// Records `bytes` and queues the callback behind any still-running one, or returns `nil` once stopped.
+    private func enqueueReport(_ bytes: Int) -> Task<Bool, Never>? {
+        lock.withLock {
+            guard !stopped else {
+                return nil
+            }
+
+            let now = Date()
+            let (newCompletedBytes, overflow) = completedBytes.addingReportingOverflow(Int64(bytes))
+            completedBytes = overflow ? .max : min(newCompletedBytes, totalBytes)
+            let completed = completedBytes
+            let interval = now.timeIntervalSince(lastUpdate)
+            lastUpdate = now
+
+            let previous = inFlight
+            let task = Task { [totalBytes] in
+                _ = await previous?.value
+                return await self.continuation(completed, totalBytes, bytes, interval)
+            }
+            inFlight = task
+            return task
+        }
+    }
+
+    /// Applies the callback's answer, keeping any stop that landed while it was running.
+    private func finishReport(_ shouldContinue: Bool) -> Bool {
+        lock.withLock {
+            stopped = stopped || !shouldContinue
+            return !stopped
+        }
     }
 
     /// Prevents further progress callbacks, makes active workers stop at their next update, and records `error` when it

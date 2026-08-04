@@ -428,9 +428,12 @@ failure or cancellation.
 ### Progress callback type
 
 ```swift
-public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) -> Bool
+public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) async -> Bool
 // (bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval) — return false to cancel
 ```
+
+The callback is `async`, so it can `await` (for example hopping to a `@MainActor` to update UI) without blocking. The
+transfer waits for it before sending the next chunk, so keep it short. Synchronous closures still compile unchanged.
 
 Returning `false` throws `FileTransferErrors.transferCancelled`.
 

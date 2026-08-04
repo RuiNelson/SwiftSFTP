@@ -217,6 +217,31 @@ struct SFTPClientMultiTransfers {
         }
     }
 
+    @Test("suspending progress callbacks never overlap across workers")
+    func suspendingProgressCallbacksAreSerialized() async throws {
+        try await withClient { client in
+            let destinationURL = temporaryFile("multi-download-async-progress")
+            defer {
+                try? FileManager.default.removeItem(at: destinationURL)
+            }
+
+            let overlap = OverlapDetector()
+            try await client.multiDownload(
+                from: "\(TS.fixturesPath)/DEADBEAF.bin",
+                to: destinationURL,
+                workers: 4,
+                bufferSize: 64 * 1024
+            ) { _, _, _, _ in
+                overlap.enter()
+                try? await Task.sleep(for: .milliseconds(1))
+                return overlap.leave()
+            }
+
+            #expect(overlap.calls > 1)
+            #expect(overlap.maxConcurrent == 1)
+        }
+    }
+
     private func temporaryFile(_ label: String) -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(
             "swiftsftp-\(label)-\(UUID().uuidString).bin"
@@ -225,6 +250,29 @@ struct SFTPClientMultiTransfers {
 
     private func patternedData(count: Int) -> Data {
         Data((0 ..< count).map { UInt8($0 % 251) })
+    }
+}
+
+/// Counts progress callbacks and the highest number running at the same time.
+private final class OverlapDetector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var concurrent = 0
+    private(set) var maxConcurrent = 0
+    private(set) var calls = 0
+
+    func enter() {
+        lock.withLock {
+            concurrent += 1
+            calls += 1
+            maxConcurrent = max(maxConcurrent, concurrent)
+        }
+    }
+
+    func leave() -> Bool {
+        lock.withLock {
+            concurrent -= 1
+            return true
+        }
     }
 }
 
