@@ -11,6 +11,10 @@ public extension SFTPClientProtocol {
     /// every range succeeds, the temporary file is atomically renamed to `remotePath`. Failure or cancellation triggers
     /// a best-effort deletion of the temporary file. This operation cannot be resumed.
     ///
+    /// Any missing parent directories of `remotePath` are created before the transfer starts and are **not** removed
+    /// again if the upload fails or is cancelled. A cancelled upload therefore leaves the created directory chain
+    /// behind, empty; remove it yourself when that matters.
+    ///
     /// `workers` counts this client and all additional forks. If an additional fork cannot log in, no more forks are
     /// attempted and the upload continues silently with the workers already connected.
     ///
@@ -20,9 +24,11 @@ public extension SFTPClientProtocol {
     ///   - workers: Maximum number of parallel connections. Values below one use one worker.
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
-    ///   - continuation: Serialized, aggregate progress callback. Return `true` to continue, or `false` to cancel.
+    ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
+    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
+    /// continue, or `false` to cancel. The reporting worker blocks until it returns, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
-    /// otherwise forwards SFTP and local-file errors.
+    /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
     func multiUpload(
         from localURL: URL,
         to remotePath: String,
@@ -104,7 +110,7 @@ public extension SFTPClientProtocol {
                             )
                         }
                         catch {
-                            progress.stop()
+                            progress.stop(error)
                             throw error
                         }
                     }
@@ -127,7 +133,7 @@ public extension SFTPClientProtocol {
             progress.stop()
             await closeMultiTransferForks(transferWorkers)
             try? await deleteFile(path: temporaryPath)
-            throw error
+            throw progress.firstFailure ?? error
         }
     }
 
@@ -145,9 +151,11 @@ public extension SFTPClientProtocol {
     ///   - localURL: Local file URL to create.
     ///   - workers: Maximum number of parallel connections. Values below one use one worker.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
-    ///   - continuation: Serialized, aggregate progress callback. Return `true` to continue, or `false` to cancel.
+    ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
+    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
+    /// continue, or `false` to cancel. The reporting worker blocks until it returns, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
-    /// otherwise forwards SFTP and local-file errors.
+    /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
     func multiDownload(
         from remotePath: String,
         to localURL: URL,
@@ -226,7 +234,7 @@ public extension SFTPClientProtocol {
                             )
                         }
                         catch {
-                            progress.stop()
+                            progress.stop(error)
                             throw error
                         }
                     }
@@ -241,7 +249,7 @@ public extension SFTPClientProtocol {
             progress.stop()
             await closeMultiTransferForks(transferWorkers)
             try? FileManager.default.removeItem(at: localURL)
-            throw error
+            throw progress.firstFailure ?? error
         }
     }
 }
@@ -274,7 +282,7 @@ private extension SFTPClientProtocol {
                 return progress.report(bytes)
             }
             guard written == range.length else {
-                throw FileTransferErrors.shortRead(
+                throw FileTransferErrors.shortWrite(
                     expected: Int(clamping: range.length),
                     actual: Int(clamping: written)
                 )
@@ -372,7 +380,12 @@ private func closeMultiTransferForks(_ workers: [any SFTPClientProtocol]) async 
     }
 }
 
-/// Serializes aggregate progress updates and remembers cancellation across all workers.
+/// Serializes aggregate progress updates on the main thread and remembers cancellation across all workers.
+///
+/// The lock makes the callback mutually exclusive but not thread-affine: it runs on whichever worker produced the
+/// chunk. Delivering on the main thread instead would have to block the worker until the main thread answered, which
+/// deadlocks any caller that blocks the main thread while a transfer is in flight, so callers hop to the main queue
+/// themselves.
 private final class MultiTransferProgressReporter: @unchecked Sendable {
     private let lock = NSLock()
     private let totalBytes: Int64
@@ -380,6 +393,7 @@ private final class MultiTransferProgressReporter: @unchecked Sendable {
     private var completedBytes = Int64()
     private var lastUpdate = Date()
     private var stopped = false
+    private var failure: (any Error)?
 
     /// Creates a reporter for one complete multi-worker transfer.
     init(totalBytes: UInt64, continuation: @escaping TransferProgress) {
@@ -412,11 +426,32 @@ private final class MultiTransferProgressReporter: @unchecked Sendable {
         return shouldContinue
     }
 
-    /// Prevents further progress callbacks and makes active workers stop at their next update.
-    func stop() {
+    /// Prevents further progress callbacks, makes active workers stop at their next update, and records `error` when it
+    /// is the first worker failure of the transfer.
+    func stop(_ error: (any Error)? = nil) {
         lock.lock()
+        defer {
+            lock.unlock()
+        }
+
         stopped = true
-        lock.unlock()
+        if failure == nil {
+            failure = error
+        }
+    }
+
+    /// The first error thrown by a worker, or `nil` when no worker failed.
+    ///
+    /// Once one worker fails it stops the reporter, so its siblings abort with
+    /// ``FileTransferErrors/transferCancelled``. The task group surfaces whichever of those lands first, which hides
+    /// the real cause; callers rethrow this instead.
+    var firstFailure: (any Error)? {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        return failure
     }
 }
 
