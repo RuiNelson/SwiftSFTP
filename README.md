@@ -1,33 +1,32 @@
 # SwiftSFTP
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
 
-[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
-
+[![macOS | iOS | visionOS | watchOS | tvOS](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
 [![macOS](https://img.shields.io/badge/macOS-11+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![watchOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![tvOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
 [![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](AndroidBuild/build.sh)
 
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
-[![Swift Package Index](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
-
 [![Release](https://img.shields.io/github/v/release/RuiNelson/SwiftSFTP)](https://github.com/RuiNelson/SwiftSFTP/releases)
-[![CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml)
-[![Linux](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml)
-[![Android](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml)
+[![Apple CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml)
+[![Linux CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml)
+[![Android CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml)
 
 
 ![SwiftSFTP Banner](Documentation/banner.webp)
 
-SwiftSFTP is a modern, ergonomic Swift Package Manager library that wraps `libssh2` and `OpenSSL`. It provides a high-level `async/await` API for seamless SFTP file transfers and SSH-based interactions, while also exposing the underlying C APIs for advanced use cases. 
+SwiftSFTP is a modern, ergonomic Swift Package Manager library that wraps `libssh2` and `OpenSSL`. It provides a high-level `async/await` API for seamless SFTP file transfers and SSH-based interactions, while also exposing the underlying C APIs for advanced use cases.
 
-Whether you need to quickly upload files, manage a remote filesystem, or validate SSH keys, SwiftSFTP offers a robust and asynchronous interface built on industry-standard libraries.
+Whether you need to quickly upload files, manage a remote filesystem, or build anything on top of SSH, SwiftSFTP offers a robust and asynchronous interface built on industry-standard libraries.
 
 **Features:**
+
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
 - **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored and statically linked via XCFrameworks for convenience).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus Ed25519 key generation — see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
