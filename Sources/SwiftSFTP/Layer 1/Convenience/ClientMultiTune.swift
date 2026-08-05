@@ -67,7 +67,7 @@ public extension SFTPClientProtocol {
             logger?.info(
                 """
                 multiTune: search \(attempt) of \(max(bestOf, 1)) picked \(result.workers) worker(s) \
-                at \(tuneFormat(result.speed / (1024 * 1024))) MiB/s
+                at \((result.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s
                 """
             )
 
@@ -76,7 +76,7 @@ public extension SFTPClientProtocol {
             }
         }
 
-        logger?.info("multiTune: best \(best.workers) worker(s) at \(tuneFormat(best.speed / (1024 * 1024))) MiB/s")
+        logger?.info("multiTune: best \(best.workers) worker(s) at \((best.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s")
         return best.workers
     }
 }
@@ -178,8 +178,8 @@ func tuneWorkerCount(
         let throughput = Double(bytes) / max(elapsed, .leastNormalMagnitude)
         logger?.info(
             """
-            multiTune: \(workers) worker(s) transferred \(bytes) bytes in \(tuneFormat(elapsed))s \
-            at \(tuneFormat(throughput / (1024 * 1024))) MiB/s
+            multiTune: \(workers) worker(s) transferred \(bytes) bytes in \(elapsed.twoDecimalPlacesString)s \
+            at \((throughput / (1024 * 1024)).twoDecimalPlacesString) MiB/s
             """
         )
 
@@ -196,9 +196,11 @@ func tuneWorkerCount(
     return (bestWorkers, bestThroughput)
 }
 
-/// Trims a measurement to two decimals for log output.
-private func tuneFormat(_ value: Double) -> String {
-    String(format: "%.2f", value)
+extension Double {
+    /// Trims a measurement to two decimals for log output.
+    var twoDecimalPlacesString: String {
+        String(format: "%.2f", self)
+    }
 }
 
 /// Builds an incompressible payload so a compressing transport cannot flatter the measurement.
