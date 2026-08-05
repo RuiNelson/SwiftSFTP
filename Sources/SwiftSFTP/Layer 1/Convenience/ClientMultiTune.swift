@@ -76,7 +76,10 @@ public extension SFTPClientProtocol {
             }
         }
 
-        logger?.info("multiTune: best \(best.workers) worker(s) at \((best.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s")
+        logger?
+            .info(
+                "multiTune: best \(best.workers) worker(s) at \((best.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s"
+            )
         return best.workers
     }
 }

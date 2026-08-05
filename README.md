@@ -163,4 +163,38 @@ Where resuming an interrupted transfer matters more than raw throughput, use sin
 
 ## License
 
-SwiftSFTP is available under the Apache License 2.0. See the [LICENSE](LICENSE) file for more info.
+SwiftSFTP is available under the [Apache License 2.0](LICENSE).
+
+### Third-party licenses
+
+SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including via static linking of vendored binaries such as OpenSSL XCFrameworks).
+
+| Component | Role | License | Source |
+| --- | --- | --- | --- |
+| **SwiftSFTP** | This package | [Apache License 2.0](LICENSE) | [LICENSE](LICENSE) |
+| **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](vendor/libssh2/COPYING) | [vendor/libssh2/COPYING](vendor/libssh2/COPYING) |
+| **OpenSSL** | Cryptography (vendored; XCFrameworks on Apple platforms, system OpenSSL on Linux/Android) | [Apache License 2.0](vendor/openssl/LICENSE.txt) | [vendor/openssl/LICENSE.txt](vendor/openssl/LICENSE.txt) |
+| **PathWorks** | Path utilities (SwiftPM dependency) | [MIT](https://github.com/RuiNelson/PathWorks/blob/main/LICENSE) | [PathWorks](https://github.com/RuiNelson/PathWorks) |
+| **swift-log** | Logging (SwiftPM dependency) | [Apache License 2.0](https://github.com/apple/swift-log/blob/main/LICENSE.txt) | [apple/swift-log](https://github.com/apple/swift-log) |
+
+### Use in commercial closed-source software
+
+All of the licenses above are **permissive**. They allow use of SwiftSFTP and its dependencies in proprietary, commercial, closed-source applications (including apps distributed through the App Store and other app stores), **without requiring you to open-source your own code**.
+
+In practice, that means you may:
+
+- Link SwiftSFTP (and the bundled libssh2 / OpenSSL) into closed-source products
+- Sell or distribute those products without publishing your application source
+- Modify SwiftSFTP or its dependencies for your own use (subject to each license’s terms)
+
+You remain responsible for meeting each license’s **attribution and notice** requirements. Typical obligations when you distribute a binary that includes this software:
+
+- **Apache 2.0** (SwiftSFTP, OpenSSL, swift-log): include a copy of the license; retain copyright and attribution notices; if you modify the licensed work, state that you changed it; if a `NOTICE` file is present, include its attribution notices as required by the license
+- **BSD-3-Clause** (libssh2): retain the copyright notice, conditions, and disclaimer in source redistributions; reproduce them in documentation and/or other materials provided with binary redistributions; do not use the copyright holders’ names to endorse your product without permission
+- **MIT** (PathWorks): include the copyright notice and permission notice in all copies or substantial portions of the software
+
+A common way to satisfy these is an **About**, **Acknowledgments**, or **Open Source Licenses** screen (or a licenses file shipped with the product) that lists the components above and includes the corresponding license texts.
+
+None of these licenses is copyleft (unlike the GPL family): linking against them does not force your application’s source code to be released under an open-source license.
+
+This section is a practical summary, not legal advice. For compliance questions specific to your product or jurisdiction, consult a lawyer and the full license texts linked above.
