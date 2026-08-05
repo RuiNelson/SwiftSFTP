@@ -157,6 +157,8 @@ This throughput is not free:
 - **Additional server load.** Each worker holds its own connection and session open for the duration of the transfer, which some servers rate-limit or cap.
 - **Diminishing, link-dependent returns.** The gain from additional workers depends on the link and on the remote server's capacity to service concurrent requests, and will vary across networks; it should not be assumed from the figures above.
 
+Because that last point makes the right worker count a property of the link rather than a constant, `multiTune` measures it: it transfers a test file at increasing parallelism and returns the count that reached the highest throughput. The [`Benchmark`](Benchmark) package ships it as the `swift-sftp-multitune` executable, and the [User's Guide](Documentation/UserGuide.md#choosing-a-worker-count) covers the API.
+
 Where resuming an interrupted transfer matters more than raw throughput, use single-worker `upload`/`download` instead.
 
 ## License

@@ -425,6 +425,38 @@ in the destination directory and atomically renames it only after every range su
 triggers a best-effort removal of that temporary file. `multiDownload` removes its incomplete local destination after
 failure or cancellation.
 
+### Choosing a worker count
+
+The best number of workers depends on the link and on the server, so `multiTune` measures it instead of guessing. It
+transfers a test file once per worker count, starting at `workersStart` and growing by `workersStep`, and stops at the
+first round that is not faster than the best round so far:
+
+```swift
+let workers = try await client.multiTune(
+    testDirection: .upload,
+    workersMax: 8,
+    testFilePath: "/home/alice/tune-probe.bin",
+    testFileSize: 10 * 1024 * 1024,
+    bestOf: 3,
+    logger: logger
+)
+
+try await client.multiUpload(from: localFile, to: remotePath, workers: workers) { _, _, _, _ in true }
+```
+
+For `.upload`, a local temporary file of `testFileSize` random bytes is created and uploaded to `testFilePath`, which
+is deleted from the server after every round; any parent directories the upload had to create are **not** removed
+again. For `.download`, `testFilePath` must already be a remote regular file, `testFileSize` is ignored, and each
+round downloads to a local temporary file that is removed afterwards.
+
+Because a single timed transfer is sensitive to whatever else the link is carrying, `bestOf` repeats the whole search
+and keeps the worker count from the fastest search. The optional `logger` reports each round's duration and
+throughput, each search's pick, and the final result at `info` level. The search is cooperatively cancellable between
+searches, between rounds, and inside each transfer.
+
+Tuning costs `bestOf` × (rounds) full transfers of the test file, so run it once per network and cache the result
+rather than before every transfer.
+
 ### Progress callback type
 
 ```swift
