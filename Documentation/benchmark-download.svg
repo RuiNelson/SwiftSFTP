@@ -20,7 +20,7 @@
       .series-blue { fill: #3987e5; }
     }</style>
 <rect x="8" y="8" width="624" height="424" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>
-<text x="320" y="42" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="21" font-weight="700" letter-spacing="-0.02em" class="ink">Download throughput</text>
+<text x="320" y="42" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="21" font-weight="700" letter-spacing="-0.02em" class="ink">Download Throughput</text>
 <text x="320" y="61" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="10.5" font-weight="600" letter-spacing="0.09em" class="muted">BEST OF 3 RUNS · HIGHER IS BETTER</text>
 <text x="32" y="108.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.07em" class="secondary">CITADEL</text>
 <text x="608" y="109.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="17" font-weight="700" letter-spacing="-0.01em" class="ink">7.86 MiB/s</text>
