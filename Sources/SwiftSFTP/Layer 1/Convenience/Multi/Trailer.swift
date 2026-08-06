@@ -6,6 +6,9 @@ import Foundation
 ///
 /// Keys and values are big-endian. A field is written as its key, then a `UInt16` byte count for variable-length values
 /// only, then the value itself.
+///
+/// These keys are wire format: adding, removing or renumbering one changes what every other implementation has to read,
+/// so it needs a version bump and a matching edit to `Documentation/ResumableTrailerFormat.md`.
 enum TrailerField: UInt16, Sendable, CaseIterable {
     /// Trailer format version, `UInt16`.
     case version = 0x0001
@@ -145,6 +148,10 @@ enum TrailerParseError: Error, Equatable, Sendable {
 }
 
 /// The footer that makes a multi-worker transfer resumable, stored past the end of the payload it describes.
+///
+/// The wire format is specified in `Documentation/ResumableTrailerFormat.md`, in enough detail to implement a
+/// compatible reader or writer elsewhere. Anything changed here that a second implementation would see — a field, the
+/// bitmap's bit order, the block-scale rule, the order writes happen in — belongs in that document too.
 ///
 /// The layout is the magic word, then the metadata, then the bitmap, running to the very end of the file with no slack
 /// after it. At any moment during a transfer:

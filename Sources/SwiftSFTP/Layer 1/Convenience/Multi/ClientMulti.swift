@@ -82,6 +82,9 @@ public extension SFTPClientProtocol {
     /// the local file as it is now; anything else is deleted and the upload starts over in silence. Temporary files
     /// abandoned for good are swept by ``cleanupResumableUploads(in:olderThan:)``.
     ///
+    /// The bytes that file carries are specified in `Documentation/ResumableTrailerFormat.md`, should you need to
+    /// inspect a partial transfer or read one from something other than this library.
+    ///
     /// > Warning: Nothing protects a destination from two resumable transfers at once. Two processes, two machines, or
     /// two calls inside this one process uploading to the same `remotePath` derive the same temporary file name and
     /// will interleave their blocks into it, publishing a file that is a mixture of both. Serialize them yourself.
@@ -244,6 +247,9 @@ public extension SFTPClientProtocol {
     /// A partial file is adopted only when the file name, payload size and modification time recorded in it all match
     /// the remote file as it is now; anything else is deleted and the download starts over in silence. Temporary files
     /// abandoned for good are swept by ``cleanupResumableDownloads(in:olderThan:)``.
+    ///
+    /// The bytes that file carries are specified in `Documentation/ResumableTrailerFormat.md`, should you need to
+    /// inspect a partial transfer or read one from something other than this library.
     ///
     /// > Warning: Nothing protects a destination from two resumable transfers at once. Two processes downloading to the
     /// same `localURL` derive the same temporary file name and will interleave their blocks into it, producing a file

@@ -72,4 +72,4 @@ swift test --scratch-path /private/tmp/SwiftSFTP-NG-test
 
 ## Versioning
 
-Use Semantic Versioning, use `Misc/Release Template.md` for release templates for GitHub.
+Use Semantic Versioning. Use the `github-release` skill to draft the notes, choose the version, and publish.
