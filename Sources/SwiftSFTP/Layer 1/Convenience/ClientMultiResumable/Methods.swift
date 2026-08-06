@@ -210,27 +210,11 @@ extension SFTPClientProtocol {
         doNotResume: Bool = false,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
-
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
-
-        let localPath = localURL.path
-        guard FileManager.default.fileExists(atPath: localPath) else {
-            throw FileTransferErrors.localFileNotFound
-        }
-
-        let destinationPath = remotePath.sanitizePath
-        if destinationPath.pathComponents.count >= 2 {
-            try await createDirectory(
-                path: destinationPath.removingLastPathComponent,
-                makePath: true,
-                mode: .serverDefault
-            )
-        }
+        let (localPath, destinationPath) = try await prepareMultiTransferUpload(
+            localURL: localURL,
+            remotePath: remotePath,
+            bufferSize: bufferSize
+        )
 
         guard let destinationName = destinationPath.lastPathComponent else {
             throw FileTransferErrors.remotePathIsADirectory(path: destinationPath)
@@ -328,24 +312,9 @@ extension SFTPClientProtocol {
         doNotResume: Bool = false,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
+        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
 
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
-
-        let sourcePath = remotePath.sanitizePath
-        guard let source = try await stat(path: sourcePath, followLink: true) else {
-            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
-        }
-        guard !source.isDirectory else {
-            throw FileTransferErrors.remotePathIsADirectory(path: sourcePath)
-        }
-        guard source.isRegularFile else {
-            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
-        }
+        let (sourcePath, source) = try await resolveMultiTransferSource(remotePath: remotePath)
 
         let destinationName = localURL.lastPathComponent
         let temporaryURL = localURL.deletingLastPathComponent()
@@ -379,7 +348,7 @@ extension SFTPClientProtocol {
 private typealias ResumableWorkerBody = @Sendable (
     any SFTPClientProtocol,
     ResumableSynchronizer,
-    ResumableProgressReporter
+    MultiTransferProgressReporter
 ) async throws -> Void
 
 private extension SFTPClientProtocol {
@@ -417,7 +386,7 @@ private extension SFTPClientProtocol {
             // the write that preserves a cancelled transfer's last blocks.
             try await temporary.write(bitmap, at: fileOffset)
         }
-        let progress = ResumableProgressReporter(
+        let progress = MultiTransferProgressReporter(
             completedBytes: synchronizer.initialCompletedBytes,
             totalBytes: trailer.fileSize,
             continuation: continuation
@@ -454,11 +423,11 @@ private extension SFTPClientProtocol {
             try await temporary.finish(payloadSize: trailer.fileSize)
             try await temporary.publish()
             await temporary.close()
-            await closeResumableConnections(connections)
+            await closeMultiTransferForks(connections)
         }
         catch {
             progress.stop()
-            await closeResumableConnections(connections)
+            await closeMultiTransferForks(connections)
 
             // The lifecycle rule, in one line: the partial file survives everything except a state that makes it
             // useless. A dropped network, a short write, a local I/O error, a cancellation, and even a server that will
@@ -479,14 +448,6 @@ private extension SFTPClientProtocol {
     }
 }
 
-/// Closes every additional connection while leaving the caller-owned initial client open.
-// ponytail: identical to `ClientMulti.swift`'s `closeMultiTransferForks`, which is private to that file; collapse the two when the DRY pass the spec defers arrives.
-private func closeResumableConnections(_ connections: [any SFTPClientProtocol]) async {
-    for connection in connections.dropFirst() {
-        try? await connection.close()
-    }
-}
-
 // MARK: - Per-worker block transfers
 
 private extension SFTPClientProtocol {
@@ -496,7 +457,7 @@ private extension SFTPClientProtocol {
         to temporaryPath: String,
         bufferSize: Int,
         synchronizer: ResumableSynchronizer,
-        progress: ResumableProgressReporter
+        progress: MultiTransferProgressReporter
     ) async throws {
         let handle = try await openFile(.write, path: temporaryPath, permissions: .serverDefault)
         let localIO: LocalFileIO
@@ -559,7 +520,7 @@ private extension SFTPClientProtocol {
         to temporaryURL: URL,
         bufferSize: Int,
         synchronizer: ResumableSynchronizer,
-        progress: ResumableProgressReporter
+        progress: MultiTransferProgressReporter
     ) async throws {
         let handle = try await openFile(.read, path: remotePath, permissions: .serverDefault)
         let localIO: LocalFileIO
@@ -610,112 +571,6 @@ private extension SFTPClientProtocol {
             try? await handle.close()
             throw error
         }
-    }
-}
-
-// MARK: - Progress reporting
-
-/// Serializes aggregate progress updates across workers and remembers cancellation for all of them.
-///
-/// The lock makes the callback mutually exclusive but not thread-affine: it runs on whichever worker produced the
-/// chunk. Delivering on the main thread instead would have to block the worker until the main thread answered, which
-/// deadlocks any caller that blocks the main thread while a transfer is in flight, so callers hop to the main queue
-/// themselves.
-// ponytail: a copy of `ClientMulti.swift`'s `MultiTransferProgressReporter`, which is private to that file and always starts at zero. The DRY pass the spec defers should keep this one's starting byte count and delete the other.
-private final class ResumableProgressReporter: @unchecked Sendable {
-    private let lock = NSLock()
-    private let totalBytes: Int64
-    private let continuation: TransferProgress
-    private var completedBytes: Int64
-    private var lastUpdate = Date()
-    private var stopped = false
-    private var failure: (any Error)?
-    /// The most recently queued callback invocation; each new report waits for it before running.
-    private var inFlight: Task<Bool, Never>?
-
-    /// Creates a reporter for one resumable transfer.
-    ///
-    /// - Parameters:
-    ///   - completedBytes: Payload bytes the partial file already held, so that a resume does not appear to re-transfer
-    /// what it skipped.
-    ///   - totalBytes: The payload's size, with the trailer excluded.
-    ///   - continuation: The caller's progress callback.
-    init(completedBytes: UInt64, totalBytes: UInt64, continuation: @escaping TransferProgress) {
-        self.completedBytes = Int64(clamping: completedBytes)
-        self.totalBytes = Int64(clamping: totalBytes)
-        self.continuation = continuation
-    }
-
-    /// Adds a completed chunk and invokes the serialized aggregate progress callback.
-    ///
-    /// Each call is chained onto the previous one, so callbacks stay mutually exclusive and in order even though the
-    /// callback can suspend.
-    func report(_ bytes: Int) async -> Bool {
-        guard let pending = enqueueReport(bytes) else {
-            return false
-        }
-
-        return await finishReport(pending.value)
-    }
-
-    /// Records `bytes` and queues the callback behind any still-running one, or returns `nil` once stopped.
-    private func enqueueReport(_ bytes: Int) -> Task<Bool, Never>? {
-        lock.withLock {
-            guard !stopped else {
-                return nil
-            }
-
-            let now = Date()
-            let (newCompletedBytes, overflow) = completedBytes.addingReportingOverflow(Int64(bytes))
-            completedBytes = overflow ? .max : min(newCompletedBytes, totalBytes)
-            let completed = completedBytes
-            let interval = now.timeIntervalSince(lastUpdate)
-            lastUpdate = now
-
-            let previous = inFlight
-            let task = Task { [totalBytes] in
-                _ = await previous?.value
-                return await self.continuation(completed, totalBytes, bytes, interval)
-            }
-            inFlight = task
-            return task
-        }
-    }
-
-    /// Applies the callback's answer, keeping any stop that landed while it was running.
-    private func finishReport(_ shouldContinue: Bool) -> Bool {
-        lock.withLock {
-            stopped = stopped || !shouldContinue
-            return !stopped
-        }
-    }
-
-    /// Prevents further progress callbacks, makes active workers stop at their next update, and records `error` when it
-    /// is the first worker failure of the transfer.
-    func stop(_ error: (any Error)? = nil) {
-        lock.lock()
-        defer {
-            lock.unlock()
-        }
-
-        stopped = true
-        if failure == nil {
-            failure = error
-        }
-    }
-
-    /// The first error thrown by a worker, or `nil` when no worker failed.
-    ///
-    /// Once one worker fails it stops the reporter, so its siblings abort with
-    /// ``FileTransferErrors/transferCancelled``. The task group surfaces whichever of those lands first, which hides
-    /// the real cause; the transfer rethrows this instead.
-    var firstFailure: (any Error)? {
-        lock.lock()
-        defer {
-            lock.unlock()
-        }
-
-        return failure
     }
 }
 

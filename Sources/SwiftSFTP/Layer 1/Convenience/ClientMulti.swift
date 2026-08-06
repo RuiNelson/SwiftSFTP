@@ -132,27 +132,11 @@ public extension SFTPClientProtocol {
             )
         }
 
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
-
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
-
-        let localPath = localURL.path
-        guard FileManager.default.fileExists(atPath: localPath) else {
-            throw FileTransferErrors.localFileNotFound
-        }
-
-        let destinationPath = remotePath.sanitizePath
-        if destinationPath.pathComponents.count >= 2 {
-            try await createDirectory(
-                path: destinationPath.removingLastPathComponent,
-                makePath: true,
-                mode: .serverDefault
-            )
-        }
+        let (localPath, destinationPath) = try await prepareMultiTransferUpload(
+            localURL: localURL,
+            remotePath: remotePath,
+            bufferSize: bufferSize
+        )
 
         if let destinationStat = try await stat(path: destinationPath, followLink: true) {
             if destinationStat.isDirectory {
@@ -306,24 +290,9 @@ public extension SFTPClientProtocol {
             )
         }
 
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
+        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
 
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
-
-        let sourcePath = remotePath.sanitizePath
-        guard let sourceStat = try await stat(path: sourcePath, followLink: true) else {
-            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
-        }
-        guard !sourceStat.isDirectory else {
-            throw FileTransferErrors.remotePathIsADirectory(path: sourcePath)
-        }
-        guard sourceStat.isRegularFile else {
-            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
-        }
+        let (sourcePath, sourceStat) = try await resolveMultiTransferSource(remotePath: remotePath)
 
         let localPath = localURL.path
         var isDirectory = ObjCBool(false)
@@ -516,8 +485,77 @@ func provisionMultiTransferWorkers<Worker: Sendable>(
     return workers
 }
 
+/// Rejects the two arguments every multi-worker transfer needs before it does anything else.
+///
+/// - Throws: ``FileTransferErrors/notAFileURL`` or ``FileTransferErrors/invalidBufferSize``.
+func validateMultiTransferInputs(localURL: URL, bufferSize: Int) throws {
+    guard localURL.isFileURL else {
+        throw FileTransferErrors.notAFileURL
+    }
+
+    guard bufferSize > 0 else {
+        throw FileTransferErrors.invalidBufferSize
+    }
+}
+
+extension SFTPClientProtocol {
+    /// Validates an upload's arguments and makes sure the destination's directory exists.
+    ///
+    /// Missing parent directories of `remotePath` are created here and are **not** removed again if the upload then
+    /// fails, which is why both public upload methods document that they leave the chain behind.
+    ///
+    /// - Returns: The local file's path and the sanitized destination path.
+    /// - Throws: ``FileTransferErrors/notAFileURL``, ``FileTransferErrors/invalidBufferSize``, or
+    /// ``FileTransferErrors/localFileNotFound``; otherwise whatever creating the directory raised.
+    func prepareMultiTransferUpload(
+        localURL: URL,
+        remotePath: String,
+        bufferSize: Int
+    ) async throws -> (localPath: String, destinationPath: String) {
+        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
+
+        let localPath = localURL.path
+        guard FileManager.default.fileExists(atPath: localPath) else {
+            throw FileTransferErrors.localFileNotFound
+        }
+
+        let destinationPath = remotePath.sanitizePath
+        if destinationPath.pathComponents.count >= 2 {
+            try await createDirectory(
+                path: destinationPath.removingLastPathComponent,
+                makePath: true,
+                mode: .serverDefault
+            )
+        }
+
+        return (localPath, destinationPath)
+    }
+
+    /// Resolves a download's remote source, or throws when it is not a regular file that exists.
+    ///
+    /// A directory gets its own error rather than being reported as missing, since that is the mistake worth telling
+    /// apart. Everything else that is not a regular file — a socket, a device node, a dangling symlink — is nothing a
+    /// download can read, so it is reported as missing.
+    ///
+    /// - Returns: The sanitized path and the source's metadata.
+    func resolveMultiTransferSource(remotePath: String) async throws -> (path: String, metadata: FileMetadata) {
+        let sourcePath = remotePath.sanitizePath
+        guard let source = try await stat(path: sourcePath, followLink: true) else {
+            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
+        }
+        guard !source.isDirectory else {
+            throw FileTransferErrors.remotePathIsADirectory(path: sourcePath)
+        }
+        guard source.isRegularFile else {
+            throw FileTransferErrors.remoteFileNotFound(path: sourcePath)
+        }
+
+        return (sourcePath, source)
+    }
+}
+
 /// Closes every additional worker while leaving the caller-owned initial client open.
-private func closeMultiTransferForks(_ workers: [any SFTPClientProtocol]) async {
+func closeMultiTransferForks(_ workers: [any SFTPClientProtocol]) async {
     for worker in workers.dropFirst() {
         try? await worker.close()
     }
@@ -529,19 +567,27 @@ private func closeMultiTransferForks(_ workers: [any SFTPClientProtocol]) async 
 /// chunk. Delivering on the main thread instead would have to block the worker until the main thread answered, which
 /// deadlocks any caller that blocks the main thread while a transfer is in flight, so callers hop to the main queue
 /// themselves.
-private final class MultiTransferProgressReporter: @unchecked Sendable {
+final class MultiTransferProgressReporter: @unchecked Sendable {
     private let lock = NSLock()
     private let totalBytes: Int64
     private let continuation: TransferProgress
-    private var completedBytes = Int64()
+    private var completedBytes: Int64
     private var lastUpdate = Date()
     private var stopped = false
     private var failure: (any Error)?
     /// The most recently queued callback invocation; each new report waits for it before running.
     private var inFlight: Task<Bool, Never>?
 
-    /// Creates a reporter for one complete multi-worker transfer.
-    init(totalBytes: UInt64, continuation: @escaping TransferProgress) {
+    /// Creates a reporter for one multi-worker transfer.
+    ///
+    /// - Parameters:
+    ///   - completedBytes: Payload bytes the destination already held. Zero for a transfer that starts from the
+    /// beginning; on a resume, what the partial file already holds, so that it does not appear to re-transfer what it
+    /// skipped.
+    ///   - totalBytes: The payload's size. For a resumable transfer this excludes the trailer.
+    ///   - continuation: The caller's progress callback.
+    init(completedBytes: UInt64 = 0, totalBytes: UInt64, continuation: @escaping TransferProgress) {
+        self.completedBytes = Int64(clamping: completedBytes)
         self.totalBytes = Int64(clamping: totalBytes)
         self.continuation = continuation
     }
