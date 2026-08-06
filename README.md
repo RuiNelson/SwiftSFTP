@@ -137,20 +137,22 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 
 ## Benchmarks
 
-Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server, comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 50 MiB in size and contains random data.
+Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server, comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
 
 <p>
-  <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 4.90 MiB/s (baseline), SwiftSFTP 1 worker 5.01 MiB/s (+2%), SwiftSFTP 4 workers 9.46 MiB/s (+93%)" width="49%" />
-  <img src="Documentation/benchmark-download.svg" alt="Download throughput: Citadel 7.86 MiB/s (baseline), SwiftSFTP 1 worker 11.87 MiB/s (+51%), SwiftSFTP 4 workers 13.78 MiB/s (+75%)" width="49%" />
+  <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 4.87 MiB/s (baseline), SwiftSFTP 1 worker 4.98 MiB/s (+2%), SwiftSFTP 5 workers 11.69 MiB/s (+140%), SwiftSFTP 5 workers resumable 11.69 MiB/s (+140%)" width="49%" />
+  <img src="Documentation/benchmark-download.svg" alt="Download throughput: Citadel 7.21 MiB/s (baseline), SwiftSFTP 1 worker 10.23 MiB/s (+42%), SwiftSFTP 2 workers 13.22 MiB/s (+83%), SwiftSFTP 2 workers resumable 12.78 MiB/s (+77%)" width="49%" />
 </p>
 
-With a single connection, SwiftSFTP and Citadel upload at a comparable rate, but SwiftSFTP is already 51% faster at download (11.87 vs. 7.86 MiB/s) before any additional workers are involved.
+With a single connection, SwiftSFTP and Citadel upload at a comparable rate, but SwiftSFTP is already 42% faster at download (10.23 vs. 7.21 MiB/s) before any additional workers are involved.
 
 That single-connection download gap comes down to how each client issues read requests. Citadel's SFTP client sends one read request and awaits its reply before sending the next, so its throughput is limited by how much data the server returns per round trip. libssh2 (the C library SwiftSFTP is built on) reads ahead instead: it keeps several read requests outstanding at once rather than waiting on each one, so more data stays in flight on the same connection. Over a real network, where every round trip has a cost, that difference alone accounts for SwiftSFTP's download lead before `multiDownload` is even used.
 
 SwiftSFTP's advantage grows further when transferring with multiple workers (`multiUpload` / `multiDownload`), which distribute a transfer across several independent TCP connections rather than one.
 
-A single TCP connection's throughput is bounded by its own congestion window: the sender grows it gradually and retreats at the first sign of loss or congestion, which limits how much data one connection can keep in flight at a time, particularly over Wi-Fi, where variable latency and loss trigger that retreat frequently. SFTP's 32 KiB per-packet limit compounds this: libssh2 pipelines writes ahead of the server's acknowledgment, but each outstanding unit is still only 32 KiB, so filling the same congestion window over a higher-latency link takes many more packets than it would with a larger block size. Each `multiUpload` / `multiDownload` worker opens its own TCP connection (with its own congestion window and its own stream of 32 KiB packets), so the transfer as a whole keeps far more data in flight than a single connection allows. This is why four workers nearly double upload throughput above (5.01 → 9.46 MiB/s) and produce a further, smaller gain on download (11.87 → 13.78 MiB/s), which was already closer to what a single connection could sustain on this link.
+A single TCP connection's throughput is bounded by its own congestion window: the sender grows it gradually and retreats at the first sign of loss or congestion, which limits how much data one connection can keep in flight at a time, particularly over Wi-Fi, where variable latency and loss trigger that retreat frequently. SFTP's 32 KiB per-packet limit compounds this: libssh2 pipelines writes ahead of the server's acknowledgment, but each outstanding unit is still only 32 KiB, so filling the same congestion window over a higher-latency link takes many more packets than it would with a larger block size. Each `multiUpload` / `multiDownload` worker opens its own TCP connection (with its own congestion window and its own stream of 32 KiB packets), so the transfer as a whole keeps far more data in flight than a single connection allows. This is why five workers more than double upload throughput above (4.98 → 11.69 MiB/s) and two workers produce a smaller gain on download (10.23 → 13.22 MiB/s), which was already closer to what a single connection could sustain on this link.
+
+Resuming is close to free. A resumable upload matched the plain one exactly (11.69 MiB/s in both), and a resumable download gave up about 3% (13.22 → 12.78 MiB/s). Each worker still receives one long contiguous stretch of the file rather than scattered blocks, so the write pipeline never drains at a block boundary, and the trailer that records progress shares the caller's own connection instead of opening another. What is left is the trailer's own setup and teardown, which is a fixed cost and so matters less the larger the file.
 
 This throughput is not free:
 
