@@ -1,7 +1,7 @@
 import Foundation
 import PathWorks
 
-// MARK: - Multi-worker transfers
+// MARK: Multi-worker transfers
 
 public extension SFTPClientProtocol {
     /// Uploads a local file in parallel over independent SFTP connections.

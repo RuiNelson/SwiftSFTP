@@ -30,4 +30,27 @@ public enum FileTransferErrors: Error {
 
     /// The requested remote path is a regular file where a directory was required.
     case remotePathIsAFile(path: String)
+
+    /// A resumable transfer found a partial file whose trailer announces a format version this release cannot read.
+    ///
+    /// The partial file is **preserved**, because it most likely belongs to a newer release of the library transferring
+    /// the same file. Pass `doNotResume: true` to discard it and start over instead. A partial file whose trailer is
+    /// merely corrupt is deleted silently and never reaches the caller as an error.
+    case resumableTrailerVersionUnsupported(version: UInt16, path: String)
+
+    /// A resumable transfer moved every byte, but the destination refused to shrink away the trailer.
+    ///
+    /// Some SFTP servers ignore or reject a `SETSTAT` that truncates a file. The final rename is skipped, since it
+    /// would publish a file with the trailer stuck to the payload. The partial file is preserved with every block
+    /// marked done, so once the server is fixed the next run finishes it without retransmitting anything.
+    case resumableTruncateUnsupported(path: String)
+
+    /// The destination's file name does not fit in the trailer of a resumable transfer.
+    ///
+    /// The trailer stores the final name behind a `UInt16` length, and rejects on read anything longer than 4096 bytes.
+    /// Writing such a name would produce a partial file that every later run reads as corrupt, deletes, and starts over
+    /// — forever — so the transfer is refused before anything is created. No real filesystem accepts a name this long
+    /// anyway; use ``SFTPClientProtocol/multiUpload(from:to:workers:bufferSize:permissions:continuation:)`` or
+    /// ``SFTPClientProtocol/multiDownload(from:to:workers:bufferSize:continuation:)`` if you somehow need one.
+    case resumableDestinationNameTooLong(byteCount: Int, maximum: Int)
 }
