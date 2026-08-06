@@ -9,7 +9,8 @@ struct BenchmarkOptions: Sendable {
     let directory: String
     let file: URL
     let fileSize: UInt64
-    let workers: Int
+    let uploadWorkers: Int
+    let downloadWorkers: Int
 
     func remotePath(_ name: String) -> String {
         directory == "/" ? "/\(name)" : "\(directory)/\(name)"
@@ -86,14 +87,18 @@ struct Benchmark: AsyncParsableCommand {
     @Option var password: String
     @Option var directory: String
     @Option var file: String
-    @Option var workers: Int
+    @Option var uploadWorkers: Int
+    @Option var downloadWorkers: Int
 
     mutating func validate() throws {
         guard (1 ... 65535).contains(port) else {
             throw ValidationError("Port must be between 1 and 65535.")
         }
-        guard workers > 0 else {
-            throw ValidationError("Workers must be greater than zero.")
+        guard uploadWorkers > 0 else {
+            throw ValidationError("Upload workers must be greater than zero.")
+        }
+        guard downloadWorkers > 0 else {
+            throw ValidationError("Download workers must be greater than zero.")
         }
 
         var isDirectory = ObjCBool(false)
@@ -123,7 +128,8 @@ struct Benchmark: AsyncParsableCommand {
             directory: remoteDirectory,
             file: fileURL,
             fileSize: size,
-            workers: workers
+            uploadWorkers: uploadWorkers,
+            downloadWorkers: downloadWorkers
         )
         let identifier = UUID().uuidString.lowercased()
 

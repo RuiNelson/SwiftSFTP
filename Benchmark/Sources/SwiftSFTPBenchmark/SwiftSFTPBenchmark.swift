@@ -41,7 +41,7 @@ private func swiftUpload(
 ) async throws -> BenchmarkResult {
     let kind = multiple ? "multi" : "simple"
     let name = multiple
-        ? "SwiftSFTP upload (\(options.workers) workers)"
+        ? "SwiftSFTP upload (\(options.uploadWorkers) workers)"
         : "SwiftSFTP upload"
 
     func remotePath(_ attempt: Int) -> String {
@@ -57,7 +57,7 @@ private func swiftUpload(
             try await client.multiUpload(
                 from: options.file,
                 to: remotePath(attempt),
-                workers: options.workers
+                workers: options.uploadWorkers
             ) { _, _, _, _ in true }
         }
         else {
@@ -84,7 +84,7 @@ private func swiftDownload(
 ) async throws -> BenchmarkResult {
     let kind = multiple ? "multi" : "simple"
     let name = multiple
-        ? "SwiftSFTP download (\(options.workers) workers)"
+        ? "SwiftSFTP download (\(options.downloadWorkers) workers)"
         : "SwiftSFTP download"
     let remotePath = options.remotePath("benchmark-\(identifier)-swift-\(kind)-download")
 
@@ -104,7 +104,7 @@ private func swiftDownload(
                 try await client.multiDownload(
                     from: remotePath,
                     to: localPath(attempt),
-                    workers: options.workers
+                    workers: options.downloadWorkers
                 ) { _, _, _, _ in true }
             }
             else {
