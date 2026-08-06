@@ -20,8 +20,12 @@ typealias BitmapFlush = @Sendable (_ bitmap: Data, _ fileOffset: UInt64) async t
 
 /// What a worker of a resumable transfer gets back when it asks for something to do.
 enum BlockAssignment: Sendable, Equatable {
-    /// Transfer `range`, then report `index` complete once its last write has succeeded.
-    case block(index: Int, range: MultiTransferRange)
+    /// Transfer `range` as one continuous stretch, reporting each block of `blocks` complete as its last byte lands.
+    ///
+    /// Consecutive blocks are handed over together rather than one at a time so that a worker writes a long contiguous
+    /// run in a single sequence. Stopping at every block boundary to ask for the next one drains the write pipeline,
+    /// which on a high-latency link costs a full bandwidth-delay product each time; a run pays that once.
+    case run(blocks: ClosedRange<Int>, range: MultiTransferRange)
     /// Nothing left to hand out; the worker stops.
     case finished
 }
@@ -58,6 +62,12 @@ actor ResumableSynchronizer {
     /// that.
     nonisolated let initialCompletedBytes: UInt64
 
+    /// The most blocks one assignment hands over, so that the work still divides across the workers.
+    private let maximumRunLength: Int
+    /// Block geometry, kept nonisolated so a worker can locate block boundaries mid-run without an actor hop.
+    private nonisolated let blockScale: UInt64
+    private nonisolated let payloadSize: UInt64
+
     /// The file offset the bitmap sits at, cached because deriving it re-serializes the metadata and it cannot change
     /// while a transfer runs.
     private let bitmapFileOffset: UInt64
@@ -80,11 +90,16 @@ actor ResumableSynchronizer {
     ///
     /// - Parameters:
     ///   - trailer: The trailer of the temporary file, freshly created or parsed back from a partial transfer.
+    ///   - maximumRunLength: The most blocks one worker is handed at a time. Pass the blocks still missing divided by
+    /// the number of workers, so each worker gets one long contiguous stretch instead of many short ones.
     ///   - flush: Where periodic bitmap writes go.
-    init(trailer: ResumableTrailer, flush: @escaping BitmapFlush) {
+    init(trailer: ResumableTrailer, maximumRunLength: Int = 1, flush: @escaping BitmapFlush) {
         blockCount = trailer.blockCount
         initialCompletedBytes = trailer.completedByteCount
         bitmapFileOffset = trailer.bitmapFileOffset
+        blockScale = trailer.blockScale
+        payloadSize = trailer.fileSize
+        self.maximumRunLength = max(maximumRunLength, 1)
         self.flush = flush
         self.trailer = trailer
         claimed = trailer.bitmap
@@ -99,13 +114,33 @@ extension ResumableSynchronizer {
     /// Workers call this in a loop and stop on ``BlockAssignment/finished``. Blocks are handed out whole; how much of
     /// one a worker holds in memory at a time is its own `bufferSize` business.
     func nextAssignment() -> BlockAssignment {
-        // ponytail: a worker that fails mid-block leaves its bit claimed, so that block is not re-offered in this run. The first worker failure aborts the whole transfer anyway and the partial file resumes later, so releasing the claim would only matter if workers were ever allowed to fail independently.
-        guard let index = claimed.firstUnsetBlock else {
+        // ponytail: a worker that fails mid-run leaves its blocks claimed, so they are not re-offered in this run. The first worker failure aborts the whole transfer anyway and the partial file resumes later, so releasing the claims would only matter if workers were ever allowed to fail independently.
+        guard let first = claimed.firstUnsetBlock else {
             return .finished
         }
 
-        claimed.set(block: index)
-        return .block(index: index, range: trailer.byteRange(ofBlock: index))
+        var last = first
+        while last + 1 < blockCount, last + 1 - first < maximumRunLength, !claimed[last + 1] {
+            last += 1
+        }
+
+        for index in first ... last {
+            claimed.set(block: index)
+        }
+
+        let start = trailer.byteRange(ofBlock: first)
+        let end = trailer.byteRange(ofBlock: last)
+        return .run(
+            blocks: first ... last,
+            range: MultiTransferRange(offset: start.offset, length: end.offset + end.length - start.offset)
+        )
+    }
+
+    /// The payload offset one past the last byte of `index`.
+    ///
+    /// Lets a worker tell, without asking, which blocks of its run a chunk has just finished off.
+    nonisolated func endOffset(ofBlock index: Int) -> UInt64 {
+        min((UInt64(index) + 1) * blockScale, payloadSize)
     }
 
     /// The number of blocks known to be on the destination.

@@ -85,11 +85,17 @@ truncation, and its failure is ignored, because not every server implements the 
 ## Connections, workers, and progress
 
 `workers` counts the client the method is called on plus its forks, exactly as in `multiUpload`/`multiDownload`, and
-forks that cannot log in reduce parallelism silently. An upload opens **one connection more** than `workers`: the extra
-one writes the bitmap, so that a trailer write never queues behind a megabyte of payload (if that fork fails too, the
-bitmap goes over the calling client's own connection). A download opens exactly `workers`, since its trailer is written
-locally, where it competes with nothing. On a resume, the effective worker count is capped at the number of blocks
-still missing.
+forks that cannot log in reduce parallelism silently. Resuming opens no connection beyond those: an upload's bitmap
+writes travel on the calling client, which also carries the first worker. A dedicated connection was the original
+design, on the theory that a trailer write should not queue behind payload, but the bitmap is one bit per block — two
+bytes for a 100 MiB transfer, written every two seconds — so sharing costs the worker microseconds while a separate
+connection cost a full SSH handshake inside the transfer. A download's trailer is written locally and competes with
+nothing either way. On a resume, the effective worker count is capped at the number of blocks still missing.
+
+Blocks are handed out in **contiguous runs** rather than one at a time, each run about `blocks / workers` long. A worker
+therefore writes one long continuous stretch, the same shape the non-resumable methods get by partitioning up front.
+Stopping at every block boundary to ask for the next one drained the write pipeline, which on a high-latency link costs
+a full bandwidth-delay product each time.
 
 Progress starts where the partial file left off rather than at zero: `bytesTransferred` opens at the bytes the
 temporary file already holds, and `totalBytes` is the payload's size, with the trailer excluded. A transfer resumed at

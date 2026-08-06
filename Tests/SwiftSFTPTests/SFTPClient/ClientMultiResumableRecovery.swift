@@ -236,7 +236,6 @@ struct SFTPClientResumableRecovery {
             do {
                 let temporary = RemoteResumableTemporaryFile(
                     connection: client,
-                    ownsConnection: false,
                     path: temporaryPath,
                     destinationPath: destinationPath,
                     permissions: [.serverDefault]
@@ -677,7 +676,6 @@ private extension SFTPClient {
     ) async -> Data? {
         let probe = RemoteResumableTemporaryFile(
             connection: self,
-            ownsConnection: false,
             path: path,
             destinationPath: destinationPath,
             permissions: []

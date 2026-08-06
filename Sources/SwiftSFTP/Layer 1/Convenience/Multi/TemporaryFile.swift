@@ -58,12 +58,10 @@ protocol ResumableTemporaryFile: Sendable {
     /// Re-checks that the destination is free and renames the temporary file onto it.
     func publish() async throws
 
-    /// Closes the open handle, and any connection this temporary file opened for itself.
+    /// Closes the open handle.
     ///
-    /// Safe to call more than once, and safe to call when nothing was ever opened.
-    ///
-    /// - Important: This is always the last call, because an upload's temporary file is reached through a connection it
-    /// owns. A ``delete()`` or a ``publish()`` after it has nothing left to travel on and silently does nothing.
+    /// Safe to call more than once, and safe to call when nothing was ever opened. The connection an upload's temporary
+    /// file travels on belongs to the caller and is left alone.
     func close() async
 }
 
@@ -213,7 +211,6 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
 
     private let connection: any SFTPClientProtocol
     /// Whether ``close()`` owns `connection`, which it does when the upload forked one just for the trailer.
-    private let ownsConnection: Bool
     private let destinationPath: String
     private let permissions: POSIXPermissions
     private var handle: (any SFTPFileProtocol)?
@@ -222,19 +219,16 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
     ///
     /// - Parameters:
     ///   - connection: Connection every trailer operation runs on.
-    ///   - ownsConnection: Whether ``close()`` should close `connection` too.
     ///   - path: Temporary file path, in the destination's own directory.
     ///   - destinationPath: Final remote path.
     ///   - permissions: POSIX permissions to request when creating the temporary file.
     init(
         connection: any SFTPClientProtocol,
-        ownsConnection: Bool,
         path: String,
         destinationPath: String,
         permissions: POSIXPermissions
     ) {
         self.connection = connection
-        self.ownsConnection = ownsConnection
         self.path = path
         self.destinationPath = destinationPath
         self.permissions = permissions
@@ -343,10 +337,6 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
         if let handle {
             self.handle = nil
             try? await handle.close()
-        }
-
-        if ownsConnection {
-            try? await connection.close()
         }
     }
 }

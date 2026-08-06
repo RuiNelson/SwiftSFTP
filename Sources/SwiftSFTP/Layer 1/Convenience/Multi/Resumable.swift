@@ -225,12 +225,12 @@ extension SFTPClientProtocol {
         let sourceSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
         let sourceModificationTime = try FileManager.default.localModificationSeconds(atPath: localPath)
 
-        // The `+ 1` connection of the spec's `workers + 1`: the trailer is written from here, and giving it a line of
-        // its own is what keeps a bitmap flush from waiting behind a megabyte of payload.
-        let flushConnection = try? await fork(loggedIn: true)
+        // The trailer travels on this client, the same one that also carries the first worker. A connection of its own
+        // was the original design, on the theory that a bitmap flush should not queue behind payload — but the bitmap
+        // is one bit per block, two bytes for a 100 MiB transfer, written every two seconds. Sharing costs the worker
+        // microseconds of session lock; a dedicated connection cost a full SSH handshake inside the transfer.
         let temporary = RemoteResumableTemporaryFile(
-            connection: flushConnection ?? self,
-            ownsConnection: flushConnection != nil,
+            connection: self,
             path: temporaryPath,
             destinationPath: destinationPath,
             permissions: permissions
@@ -381,7 +381,22 @@ private extension SFTPClientProtocol {
             doNotResume: doNotResume
         )
 
-        let synchronizer = ResumableSynchronizer(trailer: trailer) { bitmap, fileOffset in
+        // More workers than blocks left would just take turns being told there is nothing to do.
+        let remainingBlocks = trailer.blockCount - trailer.bitmap.setBlockCount
+        let connections: [any SFTPClientProtocol] = await provisionMultiTransferWorkers(
+            initial: self,
+            requested: max(min(workers, remainingBlocks), 1)
+        ) {
+            try await self.fork(loggedIn: true)
+        }
+
+        // Sized against the connections that actually came up rather than the ones asked for, so the blocks still
+        // missing divide across the workers that exist. Each then gets one long contiguous stretch, which is what the
+        // non-resumable path gets for free by partitioning up front.
+        let synchronizer = ResumableSynchronizer(
+            trailer: trailer,
+            maximumRunLength: max(remainingBlocks / connections.count, 1)
+        ) { bitmap, fileOffset in
             // Deliberately no cancellation check: the teardown flush runs inside an already-cancelled task, and it is
             // the write that preserves a cancelled transfer's last blocks.
             try await temporary.write(bitmap, at: fileOffset)
@@ -391,14 +406,6 @@ private extension SFTPClientProtocol {
             totalBytes: trailer.fileSize,
             continuation: continuation
         )
-        // More workers than blocks left would just take turns being told there is nothing to do.
-        let remainingBlocks = trailer.blockCount - trailer.bitmap.setBlockCount
-        let connections: [any SFTPClientProtocol] = await provisionMultiTransferWorkers(
-            initial: self,
-            requested: max(min(workers, remainingBlocks), 1)
-        ) {
-            try await self.fork(loggedIn: true)
-        }
 
         do {
             try Task.checkCancellation()
@@ -470,10 +477,11 @@ private extension SFTPClientProtocol {
         }
 
         do {
-            while case let .block(index, range) = await synchronizer.nextAssignment() {
+            while case let .run(blocks, range) = await synchronizer.nextAssignment() {
                 try await localIO.seek(toOffset: range.offset)
                 handle.offset = range.offset
                 var moved = UInt64()
+                var pending = blocks.lowerBound
                 var stopped = false
 
                 while moved < range.length, !stopped {
@@ -489,14 +497,17 @@ private extension SFTPClientProtocol {
                     }
 
                     moved += UInt64(written)
-                    stopped = await progress.report(written) == false
-                }
 
-                // Only now, with the block's last write acknowledged, may its bit be allowed to go to 1. A cancellation
-                // that arrives on that very last chunk still counts the block: the server has it, and throwing it away
-                // would cost a whole block for a matter of microseconds.
-                if moved == range.length {
-                    await synchronizer.markComplete(block: index)
+                    // A bit goes to 1 only once every byte of its block has been acknowledged, which is what keeps the
+                    // record behind the data. Marking here rather than at the end of the run means a cancellation keeps
+                    // every block the run had already finished, instead of throwing the whole stretch away.
+                    while pending <= blocks.upperBound,
+                          synchronizer.endOffset(ofBlock: pending) <= range.offset + moved {
+                        await synchronizer.markComplete(block: pending)
+                        pending += 1
+                    }
+
+                    stopped = await progress.report(written) == false
                 }
 
                 guard !stopped else {
@@ -533,10 +544,11 @@ private extension SFTPClientProtocol {
         }
 
         do {
-            while case let .block(index, range) = await synchronizer.nextAssignment() {
+            while case let .run(blocks, range) = await synchronizer.nextAssignment() {
                 try await localIO.seek(toOffset: range.offset)
                 handle.offset = range.offset
                 var moved = UInt64()
+                var pending = blocks.lowerBound
                 var stopped = false
 
                 while moved < range.length, !stopped {
@@ -548,14 +560,17 @@ private extension SFTPClientProtocol {
 
                     try await localIO.write(contentsOf: chunk)
                     moved += UInt64(chunk.count)
-                    stopped = await progress.report(chunk.count) == false
-                }
 
-                // Only now, with the block's last write acknowledged, may its bit be allowed to go to 1. A cancellation
-                // that arrives on that very last chunk still counts the block: the bytes are on disk, and throwing it
-                // away would cost a whole block for a matter of microseconds.
-                if moved == range.length {
-                    await synchronizer.markComplete(block: index)
+                    // A bit goes to 1 only once every byte of its block is on disk, which is what keeps the record
+                    // behind the data. Marking here rather than at the end of the run means a cancellation keeps every
+                    // block the run had already finished, instead of throwing the whole stretch away.
+                    while pending <= blocks.upperBound,
+                          synchronizer.endOffset(ofBlock: pending) <= range.offset + moved {
+                        await synchronizer.markComplete(block: pending)
+                        pending += 1
+                    }
+
+                    stopped = await progress.report(chunk.count) == false
                 }
 
                 guard !stopped else {

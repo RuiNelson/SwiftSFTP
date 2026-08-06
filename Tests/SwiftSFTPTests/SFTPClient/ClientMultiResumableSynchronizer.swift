@@ -70,12 +70,17 @@ private struct FlushFailure: Error {
 }
 
 private extension BlockAssignment {
-    /// The block this assignment carries, or `nil` when the worker was told to stop.
-    var block: (index: Int, range: MultiTransferRange)? {
-        guard case let .block(index, range) = self else {
+    /// The run this assignment carries, or `nil` when the worker was told to stop.
+    var run: (blocks: ClosedRange<Int>, range: MultiTransferRange)? {
+        guard case let .run(blocks, range) = self else {
             return nil
         }
-        return (index, range)
+        return (blocks, range)
+    }
+
+    /// The run's first block and its byte range, for the tests that hand out one block at a time.
+    var block: (index: Int, range: MultiTransferRange)? {
+        run.map { ($0.blocks.lowerBound, $0.range) }
     }
 }
 
@@ -88,9 +93,78 @@ private extension ResumableSynchronizer {
         }
         return assignments
     }
+
+    /// Drains every assignment, keeping the block span each one covered.
+    func drainRuns() -> [(blocks: ClosedRange<Int>, range: MultiTransferRange)] {
+        var assignments: [(blocks: ClosedRange<Int>, range: MultiTransferRange)] = []
+        while let run = nextAssignment().run {
+            assignments.append(run)
+        }
+        return assignments
+    }
 }
 
 // MARK: - Handing out work
+
+@Suite("Resumable synchronizer: contiguous runs")
+struct ResumableSynchronizerRunTests {
+    @Test("hands each worker one contiguous run instead of scattered blocks")
+    func handsOutContiguousRuns() async {
+        // Twelve blocks over three workers, which is what the block-scale rule produces for 100 MiB.
+        let synchronizer = ResumableSynchronizer(
+            trailer: makeTrailer(fileSize: 1200, blockScale: 100),
+            maximumRunLength: 4
+        ) { _, _ in }
+
+        let runs = await synchronizer.drainRuns()
+
+        #expect(runs.map(\.blocks) == [0 ... 3, 4 ... 7, 8 ... 11])
+        #expect(runs.map(\.range.offset) == [0, 400, 800])
+        #expect(runs.allSatisfy { $0.range.length == 400 }, "a run is one continuous stretch, not four separate ones")
+    }
+
+    @Test("a run stops at a block that is already transferred")
+    func runsStopAtGaps() async {
+        // Blocks 3 and 4 came from an earlier attempt, so the runs either side of them have to break.
+        let synchronizer = ResumableSynchronizer(
+            trailer: makeTrailer(fileSize: 1000, blockScale: 100, completed: [3, 4]),
+            maximumRunLength: 10
+        ) { _, _ in }
+
+        let runs = await synchronizer.drainRuns()
+
+        #expect(runs.map(\.blocks) == [0 ... 2, 5 ... 9])
+        #expect(runs.map(\.range) == [
+            MultiTransferRange(offset: 0, length: 300),
+            MultiTransferRange(offset: 500, length: 500),
+        ])
+    }
+
+    @Test("the final run is short when the payload does not fill its last block")
+    func shortFinalRun() async {
+        let synchronizer = ResumableSynchronizer(
+            trailer: makeTrailer(fileSize: 950, blockScale: 100),
+            maximumRunLength: 10
+        ) { _, _ in }
+
+        let runs = await synchronizer.drainRuns()
+
+        #expect(runs.count == 1)
+        #expect(runs.first?.blocks == 0 ... 9)
+        #expect(runs.first?.range.length == 950, "the run covers the payload exactly, not ten whole blocks")
+    }
+
+    @Test("block end offsets let a worker tell which blocks a chunk finished")
+    func blockEndOffsets() async {
+        let synchronizer = ResumableSynchronizer(
+            trailer: makeTrailer(fileSize: 950, blockScale: 100)
+        ) { _, _ in }
+
+        #expect(synchronizer.endOffset(ofBlock: 0) == 100)
+        #expect(synchronizer.endOffset(ofBlock: 8) == 900)
+        #expect(synchronizer.endOffset(ofBlock: 9) == 950, "the last block ends at the payload, not past it")
+    }
+}
 
 @Suite("Resumable synchronizer: handing out work")
 struct ResumableSynchronizerAssignmentTests {

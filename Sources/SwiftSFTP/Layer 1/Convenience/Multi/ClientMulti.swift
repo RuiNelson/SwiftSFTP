@@ -73,8 +73,10 @@ public extension SFTPClientProtocol {
     /// leaves that file behind **on purpose**, and the next call with the same source and destination transfers only
     /// what is missing. Only a run that stopped without a single completed block cleans up after itself, because there
     /// is nothing there to resume. A block is recorded only after its last write has been acknowledged, so the record
-    /// always lags the payload and an interrupted upload at worst re-sends a block it had already moved. One further
-    /// connection is opened for the trailer writes so they never queue behind a worker's data.
+    /// always lags the payload and an interrupted upload at worst re-sends a block it had already moved. Blocks are
+    /// handed out in contiguous runs, so each worker still writes one long continuous stretch, and the trailer travels
+    /// on this client rather than on a connection of its own. `workers` therefore counts every connection either mode
+    /// opens.
     ///
     /// A partial file is adopted only when the file name, payload size and modification time recorded in it all match
     /// the local file as it is now; anything else is deleted and the upload starts over in silence. Temporary files
