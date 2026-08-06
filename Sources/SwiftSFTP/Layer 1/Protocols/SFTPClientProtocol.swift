@@ -21,7 +21,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` to keep libssh2's default.
+    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for no
+    /// blocking timeout (libssh2 default).
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
     ///   - logger: Optional logger used for close/deinit diagnostics.

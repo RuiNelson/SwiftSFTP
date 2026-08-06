@@ -46,7 +46,7 @@ defer { try? await client.close() }
 // Step 1: validate config and create session (no network I/O)
 let client = try SFTPClient(
     openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
-    operationsTimeOut: 30.0,    // applied to every libssh2 call after login; nil = libssh2 default
+    operationsTimeOut: 30.0,    // applied to every libssh2 call after login; nil or .infinity = no timeout
     hostKeyAcceptance: .acceptAny,
     authentication: UserAuthentication(
         name: "alice",
@@ -73,12 +73,27 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | Parameter | Type | Default | Notes |
 |-----------|------|---------|-------|
 | `openSocketIn` | `TCPLocation` | — | Server address |
-| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout per operation; `nil` = libssh2 default |
-| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only |
+| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout per operation; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
+| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; must be positive and finite (`.infinity` is rejected) |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
 | `logger` | `Logger?` | `nil` | swift-log logger for close/deinit warnings |
 | `trapOnDeInitWithoutClose` | `Bool` | `true` | `SIGTRAP` if deinit without `close()` (`SFTPClient.init` defaults to `false`) |
+
+### Timeouts
+
+Timeout rules differ by API:
+
+| API | Valid values | How to disable timeout |
+|-----|--------------|------------------------|
+| `operationsTimeOut` at init / `initAndLogin` | Positive finite, `nil`, or `.infinity` | Pass `nil` or `.infinity` (libssh2 default: no blocking-call timeout). Negative, zero, and NaN throw `.invalidTimeOutValue` |
+| `login(timeOut:)` / `loginTimeOut` | Positive finite only | Not supported — must stay positive and finite |
+| `getServerHostKey(..., timeOut:)` | Positive finite only | Not supported — must stay positive and finite |
+| `client.timeout` after construction | Positive finite, or `.infinity` | Set `client.timeout = .infinity` (maps to libssh2 `0`) |
+
+On the `timeout` property, non-positive values other than `.infinity` are ignored; the setter is a silent no-op if the
+client is already closed. Reading `timeout` returns `.infinity` when libssh2 has no timeout configured.
+`operationsTimeOut: .infinity` is normalized to the same internal state as `nil`.
 
 ### Forking a client
 
@@ -749,7 +764,7 @@ Thrown synchronously from `SFTPClient.init` (including when called by `initAndLo
 |------|-------|
 | `.invalidHostname` | Hostname is empty or malformed |
 | `.invalidPort` | Port is outside 1–65535 |
-| `.invalidTimeOutValue` | Timeout is negative, zero, or infinite |
+| `.invalidTimeOutValue` | Invalid timeout for the API in use (see [Timeouts](#timeouts)). For `operationsTimeOut`, negative/zero/NaN; for login/`getServerHostKey`, also infinite. Not thrown by the runtime `timeout` property |
 | `.invalidUsername` | Empty username |
 | `.invalidPassword` | Empty password string |
 | `.couldNotCreateSession(Error)` | libssh2 session allocation failed |

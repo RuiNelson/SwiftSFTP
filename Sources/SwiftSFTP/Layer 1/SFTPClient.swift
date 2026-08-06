@@ -53,10 +53,17 @@ public final class SFTPClient: SFTPClientProtocol {
             throw SFTPClientInvalidConfig.invalidPort
         }
 
+        // `nil` and `+infinity` both mean no blocking timeout (libssh2 default).
+        // Reject zero, negative, NaN, and `-infinity`.
+        let normalizedOperationsTimeOut: TimeInterval?
         if let operationsTimeOut {
-            guard operationsTimeOut > 0, operationsTimeOut.isFinite else {
+            guard operationsTimeOut > 0 else {
                 throw SFTPClientInvalidConfig.invalidTimeOutValue
             }
+            normalizedOperationsTimeOut = operationsTimeOut.isFinite ? operationsTimeOut : nil
+        }
+        else {
+            normalizedOperationsTimeOut = nil
         }
 
         guard authentication.name.isEmpty == false else {
@@ -81,7 +88,7 @@ public final class SFTPClient: SFTPClientProtocol {
         // store state
 
         self.tcpLocation = openSocketIn
-        self.operationsTimeOut = operationsTimeOut
+        self.operationsTimeOut = normalizedOperationsTimeOut
         self.hostKeyAcceptance = hostKeyAcceptance
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
@@ -113,8 +120,8 @@ public final class SFTPClient: SFTPClientProtocol {
             throw error
         }
 
-        if let operationsTimeOut {
-            SessionSetTimeout(session: session, timeoutMilliseconds: operationsTimeOut.milliseconds)
+        if let normalizedOperationsTimeOut {
+            SessionSetTimeout(session: session, timeoutMilliseconds: normalizedOperationsTimeOut.milliseconds)
         }
         SessionSetBlocking(session: session, blocking: true)
     }
@@ -182,7 +189,8 @@ public extension SFTPClient {
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` to keep libssh2's default.
+    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for no
+    /// blocking timeout (libssh2 default).
     ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.

@@ -60,14 +60,14 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("rejects infinite timeout")
-    func rejectsInfiniteTimeout() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                auth: UserAuthentication(name: "x", auth: .password("x")),
-                timeout: .infinity
-            )
-        }
+    @Test("infinite operations timeout is accepted as no timeout")
+    func infiniteTimeoutAccepted() throws {
+        let client = try makeClient(
+            auth: UserAuthentication(name: "x", auth: .password("x")),
+            timeout: .infinity
+        )
+        #expect(!client.closed)
+        #expect(client.timeout == .infinity)
     }
 
     @Test("rejects empty username")
@@ -113,6 +113,7 @@ struct SFTPClientHostkeyAndAuth {
             timeout: nil
         )
         #expect(!client.closed)
+        #expect(client.timeout == .infinity)
     }
 
     // MARK: - getServerHostKey
