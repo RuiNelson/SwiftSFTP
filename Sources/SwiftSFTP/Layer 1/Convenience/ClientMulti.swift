@@ -13,23 +13,23 @@ public enum ResumeBehavior: Sendable {
     ///
     /// The cheapest mode, and the right one when restarting costs less than the state a resumable transfer leaves
     /// behind: nothing outlives a failed attempt, and no temporary file is left for anyone to clean up.
-    case nonResumable
+    case never
 
     /// Continue an interrupted transfer of the same source, and leave a partial file behind so a later call can.
     ///
     /// The partial file is adopted only when the name, size and modification time recorded in it still match the
     /// source. Anything else is discarded silently and the transfer starts from zero.
-    case resumable
+    case ifPossible
 
     /// Resumable, but discard any partial file before reading it, so this attempt starts from zero.
     ///
     /// Also the way past a partial file written by a newer release of this library, which is otherwise preserved and
     /// reported as ``FileTransferErrors/resumableTrailerVersionUnsupported(version:path:)``.
-    case resumableDoNotResume
+    case discardingProgress
 
-    /// Whether an existing partial file is discarded rather than continued.
+    /// Whether an existing partial file is thrown away rather than continued.
     var discardsExistingProgress: Bool {
-        if case .resumableDoNotResume = self {
+        if case .discardingProgress = self {
             true
         }
         else {
@@ -39,7 +39,7 @@ public enum ResumeBehavior: Sendable {
 
     /// Whether this mode leaves a partial file behind for a later call to continue.
     var isResumable: Bool {
-        if case .nonResumable = self {
+        if case .never = self {
             false
         }
         else {
@@ -64,15 +64,15 @@ public extension SFTPClientProtocol {
     ///
     /// ## Resuming
     ///
-    /// With ``ResumeBehavior/nonResumable``, the default, an interrupted upload deletes its temporary file and the next
+    /// With ``ResumeBehavior/never``, the default, an interrupted upload deletes its temporary file and the next
     /// attempt starts from the beginning.
     ///
-    /// With ``ResumeBehavior/resumable``, the temporary file is named after the destination's own file name and carries
-    /// a trailer past the end of the payload recording which blocks have arrived, so no database and no sidecar state
-    /// file is involved. An interrupted run — a cancellation, a dropped connection, a crash, a killed process — leaves
-    /// that file behind **on purpose**, and the next call with the same source and destination transfers only what is
-    /// missing. Only a run that stopped without a single completed block cleans up after itself, because there is
-    /// nothing there to resume. A block is recorded only after its last write has been acknowledged, so the record
+    /// With ``ResumeBehavior/ifPossible``, the temporary file is named after the destination's own file name and
+    /// carries a trailer past the end of the payload recording which blocks have arrived, so no database and no sidecar
+    /// state file is involved. An interrupted run — a cancellation, a dropped connection, a crash, a killed process —
+    /// leaves that file behind **on purpose**, and the next call with the same source and destination transfers only
+    /// what is missing. Only a run that stopped without a single completed block cleans up after itself, because there
+    /// is nothing there to resume. A block is recorded only after its last write has been acknowledged, so the record
     /// always lags the payload and an interrupted upload at worst re-sends a block it had already moved. One further
     /// connection is opened for the trailer writes so they never queue behind a worker's data.
     ///
@@ -99,8 +99,8 @@ public extension SFTPClientProtocol {
     /// the number of blocks still missing.
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
-    ///   - resumable: Whether an interrupted upload can be continued by a later call. Defaults to
-    /// ``ResumeBehavior/nonResumable``, which leaves nothing behind.
+    ///   - resume: Whether an interrupted upload can be continued by a later call. Defaults to
+    /// ``ResumeBehavior/never``, which leaves nothing behind.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
     /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. On a resume the
     /// completed byte count starts at what the partial file already holds rather than at zero. Return `true` to
@@ -117,17 +117,17 @@ public extension SFTPClientProtocol {
         workers: Int = 2,
         bufferSize: Int = 1024 * 1024,
         permissions: POSIXPermissions = [.serverDefault],
-        resumable: ResumeBehavior = .nonResumable,
+        resume: ResumeBehavior = .never,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard !resumable.isResumable else {
+        guard !resume.isResumable else {
             return try await multiUploadResumable(
                 from: localURL,
                 to: remotePath,
                 workers: workers,
                 bufferSize: bufferSize,
                 permissions: permissions,
-                doNotResume: resumable.discardsExistingProgress,
+                doNotResume: resume.discardsExistingProgress,
                 continuation: continuation
             )
         }
@@ -242,10 +242,10 @@ public extension SFTPClientProtocol {
     ///
     /// ## Resuming
     ///
-    /// With ``ResumeBehavior/nonResumable``, the default, the bytes are written straight to `localURL` and an
-    /// interrupted download removes that incomplete file, so the next attempt starts from the beginning.
+    /// With ``ResumeBehavior/never``, the default, the bytes are written straight to `localURL` and an interrupted
+    /// download removes that incomplete file, so the next attempt starts from the beginning.
     ///
-    /// With ``ResumeBehavior/resumable``, the download becomes atomic as well as restartable: the bytes go into a
+    /// With ``ResumeBehavior/ifPossible``, the download becomes atomic as well as restartable: the bytes go into a
     /// temporary file in the destination's own directory, named after the destination's file name and carrying a
     /// trailer past the end of the payload recording which blocks have arrived, and `localURL` itself only appears once
     /// the download is complete. An interrupted run — a cancellation, a dropped connection, a crash, a killed process —
@@ -276,8 +276,8 @@ public extension SFTPClientProtocol {
     ///   - workers: Maximum number of parallel connections. Values below one use one worker. When resuming, capped at
     /// the number of blocks still missing.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
-    ///   - resumable: Whether an interrupted download can be continued by a later call. Defaults to
-    /// ``ResumeBehavior/nonResumable``, which leaves nothing behind.
+    ///   - resume: Whether an interrupted download can be continued by a later call. Defaults to
+    /// ``ResumeBehavior/never``, which leaves nothing behind.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
     /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. On a resume the
     /// completed byte count starts at what the partial file already holds rather than at zero. Return `true` to
@@ -292,16 +292,16 @@ public extension SFTPClientProtocol {
         to localURL: URL,
         workers: Int = 2,
         bufferSize: Int = 1024 * 1024,
-        resumable: ResumeBehavior = .nonResumable,
+        resume: ResumeBehavior = .never,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard !resumable.isResumable else {
+        guard !resume.isResumable else {
             return try await multiDownloadResumable(
                 from: remotePath,
                 to: localURL,
                 workers: workers,
                 bufferSize: bufferSize,
-                doNotResume: resumable.discardsExistingProgress,
+                doNotResume: resume.discardsExistingProgress,
                 continuation: continuation
             )
         }

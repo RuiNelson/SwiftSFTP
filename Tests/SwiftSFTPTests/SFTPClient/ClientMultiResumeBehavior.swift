@@ -2,15 +2,15 @@
 import Foundation
 import Testing
 
-/// Pins the `resumable:` argument of the public transfer methods to the behaviour each case promises.
+/// Pins the `resume:` argument of the public transfer methods to the behaviour each case promises.
 ///
 /// The rest of the resumable suites drive the internal `multiUploadResumable` / `multiDownloadResumable` directly, so
 /// nothing there would notice if the public dispatch stopped routing — every case would still be tested, through a door
 /// no caller uses. These tests go in through the public API on purpose.
 @Suite("SFTPClient: Resumable Argument Dispatch", .serialized)
 struct SFTPClientResumeBehavior {
-    @Test("resumable adopts a partial file and moves only what is missing")
-    func resumableAdoptsPartial() async throws {
+    @Test("ifPossible adopts a partial file and moves only what is missing")
+    func ifPossibleAdoptsPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, recordedBytes in
             var moved = Int64()
             try await client.multiUpload(
@@ -18,7 +18,7 @@ struct SFTPClientResumeBehavior {
                 to: remotePath,
                 workers: 4,
                 bufferSize: 256 * 1024,
-                resumable: .resumable
+                resume: .ifPossible
             ) { _, _, bytes, _ in
                 moved += Int64(bytes)
                 return true
@@ -32,8 +32,8 @@ struct SFTPClientResumeBehavior {
         }
     }
 
-    @Test("resumableDoNotResume discards a partial file and moves the whole payload")
-    func doNotResumeDiscardsPartial() async throws {
+    @Test("discardingProgress discards a partial file and moves the whole payload")
+    func discardingProgressDiscardsPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, _ in
             var moved = Int64()
             try await client.multiUpload(
@@ -41,7 +41,7 @@ struct SFTPClientResumeBehavior {
                 to: remotePath,
                 workers: 4,
                 bufferSize: 256 * 1024,
-                resumable: .resumableDoNotResume
+                resume: .discardingProgress
             ) { _, _, bytes, _ in
                 moved += Int64(bytes)
                 return true
@@ -52,8 +52,8 @@ struct SFTPClientResumeBehavior {
         }
     }
 
-    @Test("nonResumable ignores a partial file and leaves it where it was")
-    func nonResumableIgnoresPartial() async throws {
+    @Test("never ignores a partial file and leaves it where it was")
+    func neverIgnoresPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, _ in
             var moved = Int64()
             try await client.multiUpload(
@@ -61,7 +61,7 @@ struct SFTPClientResumeBehavior {
                 to: remotePath,
                 workers: 4,
                 bufferSize: 256 * 1024,
-                resumable: .nonResumable
+                resume: .never
             ) { _, _, bytes, _ in
                 moved += Int64(bytes)
                 return true

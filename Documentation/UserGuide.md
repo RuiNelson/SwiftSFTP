@@ -403,7 +403,7 @@ try await client.multiUpload(
     to: "/home/alice/backups/archive.zip",
     workers: 4,
     bufferSize: 1024 * 1024,
-    resumable: .resumable
+    resume: .ifPossible
 ) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
     return true
 }
@@ -412,7 +412,7 @@ try await client.multiDownload(
     from: "/home/alice/backups/archive.zip",
     to: destination,
     workers: 4,
-    resumable: .resumable
+    resume: .ifPossible
 ) { _, _, _, _ in true }
 ```
 
@@ -432,7 +432,7 @@ To continue an interrupted multi-worker transfer instead of restarting it, use
 
 ### Resumable parallel transfers
 
-Passing `resumable: .resumable` makes `multiUpload` and `multiDownload` behave exactly as above, with one difference:
+Passing `resume: .ifPossible` makes `multiUpload` and `multiDownload` behave exactly as above, with one difference:
 an interrupted transfer can be continued rather than restarted.
 
 ```swift
@@ -441,7 +441,7 @@ try await client.multiUpload(
     to: "/home/alice/backups/archive.zip",
     workers: 4,
     bufferSize: 1024 * 1024,
-    resumable: .resumable
+    resume: .ifPossible
 ) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
     let percent = Double(bytesTransferred) * 100 / Double(totalBytes)
     print(String(format: "%.0f%%", percent))
@@ -452,7 +452,7 @@ try await client.multiDownload(
     from: "/home/alice/backups/archive.zip",
     to: destination,
     workers: 4,
-    resumable: .resumable
+    resume: .ifPossible
 ) { _, _, _, _ in true }
 ```
 
@@ -467,7 +467,7 @@ for attempt in 1 ... 3 {
             from: localFile,
             to: "/home/alice/backups/archive.zip",
             workers: 4,
-            resumable: .resumable
+            resume: .ifPossible
         ) { _, _, _, _ in true }
         break
     } catch {
@@ -523,7 +523,7 @@ Anything else is treated as another transfer's leftovers: the file is deleted an
 silently. Because the temporary's name is deterministic, a thousand failed attempts at the same file leave one
 temporary file, not a thousand.
 
-`.resumableDoNotResume` deletes any existing temporary file before it is even read. It is both the clean-slate switch
+`.discardingProgress` deletes any existing temporary file before it is even read. It is both the clean-slate switch
 and the only way past a partial file written by a newer release of the library:
 
 ```swift
@@ -531,7 +531,7 @@ try await client.multiUpload(
     from: localFile,
     to: "/home/alice/backups/archive.zip",
     workers: 4,
-    resumable: .resumableDoNotResume    // discard any partial file unread, and start from zero
+    resume: .discardingProgress    // discard any partial file unread, and start from zero
 ) { _, _, _, _ in true }
 ```
 
@@ -547,7 +547,7 @@ try await client.multiUpload(
 > Identity is name, size, and mtime, never a hash of the content. A file restored by a tool that preserves timestamps,
 > or rewritten in place within the same second at the same length, passes the check, and the published file is part
 > old content and part new. Closing that window would mean reading every byte of the source before transferring any of
-> it. Where it matters, pass `resumable: .resumableDoNotResume` or verify the result yourself.
+> it. Where it matters, pass `resume: .discardingProgress` or verify the result yourself.
 
 A network failure is an error, not a pause: the call throws, the partial file is preserved as long as at least one
 block completed, and resuming means calling the method again.
@@ -874,7 +874,7 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `.remoteFileAlreadyExists(path:)` | Remote destination already exists |
 | `.remotePathIsADirectory(path:)` | Expected file, found directory |
 | `.remotePathIsAFile(path:)` | Expected directory, found file |
-| `.resumableTrailerVersionUnsupported(version:path:)` | A resumable transfer found a partial file written by a newer release of SwiftSFTP. The partial file is preserved, not deleted; `resumable: .resumableDoNotResume` discards it and starts over |
+| `.resumableTrailerVersionUnsupported(version:path:)` | A resumable transfer found a partial file written by a newer release of SwiftSFTP. The partial file is preserved, not deleted; `resume: .discardingProgress` discards it and starts over |
 | `.resumableTruncateUnsupported(path:)` | Every byte arrived, but the server refused to shrink the trailer away, so the rename was skipped. The partial file is preserved with every block marked done, and a later run finishes it without re-transferring anything |
 | `.resumableDestinationNameTooLong(byteCount:maximum:)` | Destination file name is longer than the 4096 bytes a trailer can record; refused before anything is created |
 
