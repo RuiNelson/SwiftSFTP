@@ -103,7 +103,13 @@ PrintMotd no
 #ClientAliveCountMax 3
 #UseDNS no
 #PidFile /run/sshd.pid
-#MaxStartups 10:30:100
+
+# The default, 10:30:100, starts refusing connections at random — 30% of them — once ten handshakes are in flight at
+# once. The integration suite passes that easily: a multi-worker transfer opens `workers + 1` connections in one go,
+# `multiTune` walks the worker count up to 64, and separate suites run in parallel with each other. The refusals surface
+# as "key exchange failure: Unable to exchange encryption keys" in whichever test happened to be connecting, which reads
+# like a client bug and is not one. A single number means no random early drop below it.
+MaxStartups 512
 #PermitTunnel no
 #ChrootDirectory none
 #VersionAddendum none
