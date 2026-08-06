@@ -6,16 +6,20 @@ import Testing
 struct SFTPClientMultiTuning {
     @Test("tuning stops at the first slower round and returns the fastest worker count")
     func tuningPicksTheFastestRound() async throws {
-        // Round durations in milliseconds keyed by worker count: 2 workers is the peak, 3 is slower.
-        let durations = [1: 60, 2: 20, 3: 50]
+        // Round durations in seconds keyed by worker count: 2 workers is the peak, 3 is slower. The clock is scripted
+        // rather than slept through, because a wall-clock version of this test asserts on how busy the machine is: a 20
+        // ms sleep overshoots a 50 ms one often enough that the search picks 3, or 1, instead of 2.
+        let durations = [1: 0.60, 2: 0.20, 3: 0.50]
+        let clock = ScriptedClock()
         let attempted = Attempts()
 
         let best = try await tuneWorkerCount(
             bytes: 1024 * 1024,
-            schedule: TuneSchedule(start: 1, step: 1, max: 8)
+            schedule: TuneSchedule(start: 1, step: 1, max: 8),
+            now: { clock.now }
         ) { workers in
             await attempted.record(workers)
-            try await Task.sleep(for: .milliseconds(durations[workers] ?? 100))
+            clock.advance(by: durations[workers] ?? 1)
         }
 
         #expect(best.workers == 2)
@@ -25,21 +29,30 @@ struct SFTPClientMultiTuning {
 
     @Test("tuning stops at the next round when the task is cancelled")
     func tuningHonoursCancellation() async throws {
+        let clock = ScriptedClock()
         let attempted = Attempts()
 
         let task = Task {
-            try await tuneWorkerCount(bytes: 1024, schedule: TuneSchedule(start: 1, step: 1, max: 8)) { workers in
+            try await tuneWorkerCount(
+                bytes: 1024,
+                schedule: TuneSchedule(start: 1, step: 1, max: 8),
+                now: { clock.now }
+            ) { workers in
                 await attempted.record(workers)
-                try await Task.sleep(for: .milliseconds(20))
+                // Each round faster than the last, so the search never stops on its own before the cancellation lands.
+                clock.advance(by: 1 / Double(workers))
+                if workers == 3 {
+                    // Cancels the very task running the search, so the check at the top of round four is what observes
+                    // it. Chosen rather than raced: no sleep decides which round gets there first.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
             }
         }
-        try await Task.sleep(for: .milliseconds(30))
-        task.cancel()
 
         await #expect(throws: CancellationError.self) {
             try await task.value
         }
-        #expect(await attempted.recorded.count < 8)
+        #expect(await attempted.recorded == [1, 2, 3], "the round after the cancellation never starts")
     }
 
     @Test("cancelled multiTune leaves no test file behind")
@@ -185,6 +198,24 @@ struct SFTPClientMultiTuning {
 
         func record(_ workers: Int) {
             recorded.append(workers)
+        }
+    }
+
+    /// A clock the test moves by hand, so that a round takes exactly as long as the test says it does.
+    ///
+    /// `tuneWorkerCount` picks the winner by comparing measured durations. Sleeping for real makes that comparison a
+    /// measurement of the machine rather than of the code: under load a 20 ms sleep can overshoot a 50 ms one and the
+    /// wrong worker count wins, which is a failing test that says nothing about the library.
+    private final class ScriptedClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var current = Date(timeIntervalSince1970: 0)
+
+        var now: Date {
+            lock.withLock { current }
+        }
+
+        func advance(by seconds: TimeInterval) {
+            lock.withLock { current += seconds }
         }
     }
 }

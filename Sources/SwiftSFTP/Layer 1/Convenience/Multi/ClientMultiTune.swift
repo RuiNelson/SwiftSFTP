@@ -162,10 +162,14 @@ struct TuneSchedule {
 ///
 /// The search stops at the first round that does not beat the best throughput so far, so a noisy link can end it early.
 // ponytail: one timed sample per worker count, no repeats and no hysteresis; average several rounds if the result turns out to be unstable in practice.
+/// - Parameter now: Reads the current time. Defaults to the system clock; tests replace it so that a round's duration
+/// is scripted rather than measured, which is the only way to assert on which worker count won without the answer
+/// depending on how busy the machine is.
 func tuneWorkerCount(
     bytes: UInt64,
     schedule: TuneSchedule,
     logger: Logger? = nil,
+    now: () -> Date = Date.init,
     round: (Int) async throws -> Void
 ) async throws -> (workers: Int, speed: Double) {
     var bestWorkers = schedule.start
@@ -175,9 +179,9 @@ func tuneWorkerCount(
     while workers <= schedule.max {
         try Task.checkCancellation()
 
-        let started = Date()
+        let started = now()
         try await round(workers)
-        let elapsed = Date().timeIntervalSince(started)
+        let elapsed = now().timeIntervalSince(started)
         let throughput = Double(bytes) / max(elapsed, .leastNormalMagnitude)
         logger?.info(
             """
