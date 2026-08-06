@@ -23,6 +23,20 @@ func runSwiftSFTPBenchmarks(
             swiftDownload(options, identifier: identifier, client: client, multiple: false),
             swiftUpload(options, identifier: identifier, client: client, multiple: true),
             swiftDownload(options, identifier: identifier, client: client, multiple: true),
+            swiftUpload(
+                options,
+                identifier: identifier,
+                client: client,
+                multiple: true,
+                resumable: true
+            ),
+            swiftDownload(
+                options,
+                identifier: identifier,
+                client: client,
+                multiple: true,
+                resumable: true
+            ),
         ]
         try await client.close()
         return results
@@ -37,12 +51,23 @@ private func swiftUpload(
     _ options: BenchmarkOptions,
     identifier: String,
     client: SwiftSFTP.SFTPClient,
-    multiple: Bool
+    multiple: Bool,
+    resumable: Bool = false
 ) async throws -> BenchmarkResult {
-    let kind = multiple ? "multi" : "simple"
-    let name = multiple
-        ? "SwiftSFTP upload (\(options.uploadWorkers) workers)"
-        : "SwiftSFTP upload"
+    let kind: String
+    let name: String
+    if multiple, resumable {
+        kind = "multi-resumable"
+        name = "SwiftSFTP upload (\(options.uploadWorkers) workers, resumable)"
+    }
+    else if multiple {
+        kind = "multi"
+        name = "SwiftSFTP upload (\(options.uploadWorkers) workers)"
+    }
+    else {
+        kind = "simple"
+        name = "SwiftSFTP upload"
+    }
 
     func remotePath(_ attempt: Int) -> String {
         options.remotePath("benchmark-\(identifier)-swift-\(kind)-upload-\(attempt)")
@@ -57,7 +82,8 @@ private func swiftUpload(
             try await client.multiUpload(
                 from: options.file,
                 to: remotePath(attempt),
-                workers: options.uploadWorkers
+                workers: options.uploadWorkers,
+                resume: resumable ? .ifPossible : .never
             ) { _, _, _, _ in true }
         }
         else {
@@ -80,12 +106,23 @@ private func swiftDownload(
     _ options: BenchmarkOptions,
     identifier: String,
     client: SwiftSFTP.SFTPClient,
-    multiple: Bool
+    multiple: Bool,
+    resumable: Bool = false
 ) async throws -> BenchmarkResult {
-    let kind = multiple ? "multi" : "simple"
-    let name = multiple
-        ? "SwiftSFTP download (\(options.downloadWorkers) workers)"
-        : "SwiftSFTP download"
+    let kind: String
+    let name: String
+    if multiple, resumable {
+        kind = "multi-resumable"
+        name = "SwiftSFTP download (\(options.downloadWorkers) workers, resumable)"
+    }
+    else if multiple {
+        kind = "multi"
+        name = "SwiftSFTP download (\(options.downloadWorkers) workers)"
+    }
+    else {
+        kind = "simple"
+        name = "SwiftSFTP download"
+    }
     let remotePath = options.remotePath("benchmark-\(identifier)-swift-\(kind)-download")
 
     func localPath(_ attempt: Int) -> URL {
@@ -104,7 +141,8 @@ private func swiftDownload(
                 try await client.multiDownload(
                     from: remotePath,
                     to: localPath(attempt),
-                    workers: options.downloadWorkers
+                    workers: options.downloadWorkers,
+                    resume: resumable ? .ifPossible : .never
                 ) { _, _, _, _ in true }
             }
             else {
