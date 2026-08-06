@@ -154,15 +154,10 @@ A single TCP connection's throughput is bounded by its own congestion window: th
 
 This throughput is not free:
 
-- **No resume, unless it is asked for.** By default an interrupted `multiUpload`/`multiDownload` cannot continue from where it left off and must restart from the beginning. Passing `resume: .ifPossible` changes that, at the cost of a partial file that outlives a failed attempt; see below.
 - **Additional server load.** Each worker holds its own connection and session open for the duration of the transfer, which some servers rate-limit or cap.
 - **Diminishing, link-dependent returns.** The gain from additional workers depends on the link and on the remote server's capacity to service concurrent requests, and will vary across networks; it should not be assumed from the figures above.
 
 Because that last point makes the right worker count a property of the link rather than a constant, `multiTune` measures it: it transfers a test file at increasing parallelism and returns the count that reached the highest throughput. The [`Benchmark`](Benchmark) package ships it as the `swift-sftp-multitune` executable, and the [User's Guide](Documentation/UserGuide.md#choosing-a-worker-count) covers the API.
-
-The first of those points has an answer too. Passing `resume: .ifPossible` to `multiUpload` or `multiDownload` keeps everything above and adds resumption: the bytes go into a temporary file in the destination's own directory, named after the first 128 bits of the SHA-256 of the destination's file name, and which blocks have arrived is recorded in a trailer written past the end of the payload of that same file. There is no database and no sidecar state file — everything a resume needs is inside the file being resumed, and the derived name is how the next call finds its own partial. The trailer is truncated away before the file is renamed onto the destination, so the destination only ever appears complete. A block's bit is set only after its last write has been acknowledged, and the bitmap is written back lazily behind that, so the record of progress always lags the payload and never leads it; an interrupted transfer at worst re-transfers a block it had already moved.
-
-That is paid for elsewhere. An interrupted run leaves its `<hash>.rmt.tmp` file behind deliberately, the source is matched by name, size, and modification time rather than by its content, and nothing prevents two transfers to the same destination from writing into the same temporary file. The [User's Guide](Documentation/UserGuide.md#resumable-parallel-transfers) covers the API, the methods that sweep temporaries abandoned for good, and each of those hazards in full. Where none of this is wanted, single-worker `upload`/`download` resume from a plain byte offset instead.
 
 ## License
 
