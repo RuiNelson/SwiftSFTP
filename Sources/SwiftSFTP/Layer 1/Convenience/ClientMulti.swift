@@ -3,13 +3,57 @@ import PathWorks
 
 // MARK: Multi-worker transfers
 
+/// Whether a multi-worker transfer can pick up where an interrupted attempt stopped.
+///
+/// The three cases are one value rather than two flags on purpose: "start over" only means anything for a transfer that
+/// could have resumed, so a `resumable` / `doNotResume` pair of booleans would leave a fourth combination that can be
+/// written down and does not exist.
+public enum ResumeBehavior: Sendable {
+    /// Transfer from the beginning, and delete the incomplete destination if the transfer does not finish.
+    ///
+    /// The cheapest mode, and the right one when restarting costs less than the state a resumable transfer leaves
+    /// behind: nothing outlives a failed attempt, and no temporary file is left for anyone to clean up.
+    case nonResumable
+
+    /// Continue an interrupted transfer of the same source, and leave a partial file behind so a later call can.
+    ///
+    /// The partial file is adopted only when the name, size and modification time recorded in it still match the
+    /// source. Anything else is discarded silently and the transfer starts from zero.
+    case resumable
+
+    /// Resumable, but discard any partial file before reading it, so this attempt starts from zero.
+    ///
+    /// Also the way past a partial file written by a newer release of this library, which is otherwise preserved and
+    /// reported as ``FileTransferErrors/resumableTrailerVersionUnsupported(version:path:)``.
+    case resumableDoNotResume
+
+    /// Whether an existing partial file is discarded rather than continued.
+    var discardsExistingProgress: Bool {
+        if case .resumableDoNotResume = self {
+            true
+        }
+        else {
+            false
+        }
+    }
+
+    /// Whether this mode leaves a partial file behind for a later call to continue.
+    var isResumable: Bool {
+        if case .nonResumable = self {
+            false
+        }
+        else {
+            true
+        }
+    }
+}
+
 public extension SFTPClientProtocol {
     /// Uploads a local file in parallel over independent SFTP connections.
     ///
-    /// The remote destination is created under a unique temporary name in the same directory and preallocated to the
-    /// local file's size. Each worker writes a disjoint range through either this client or a logged-in ``fork``. After
-    /// every range succeeds, the temporary file is atomically renamed to `remotePath`. Failure or cancellation triggers
-    /// a best-effort deletion of the temporary file. This operation cannot be resumed.
+    /// The remote destination is created under a temporary name in the same directory and preallocated to the local
+    /// file's size. Each worker transfers through either this client or a logged-in ``fork``, and once every byte has
+    /// arrived the temporary file is atomically renamed to `remotePath`, so the destination only ever appears complete.
     ///
     /// Any missing parent directories of `remotePath` are created before the transfer starts and are **not** removed
     /// again if the upload fails or is cancelled. A cancelled upload therefore leaves the created directory chain
@@ -18,25 +62,76 @@ public extension SFTPClientProtocol {
     /// `workers` counts this client and all additional forks. If an additional fork cannot log in, no more forks are
     /// attempted and the upload continues silently with the workers already connected.
     ///
+    /// ## Resuming
+    ///
+    /// With ``ResumeBehavior/nonResumable``, the default, an interrupted upload deletes its temporary file and the next
+    /// attempt starts from the beginning.
+    ///
+    /// With ``ResumeBehavior/resumable``, the temporary file is named after the destination's own file name and carries
+    /// a trailer past the end of the payload recording which blocks have arrived, so no database and no sidecar state
+    /// file is involved. An interrupted run — a cancellation, a dropped connection, a crash, a killed process — leaves
+    /// that file behind **on purpose**, and the next call with the same source and destination transfers only what is
+    /// missing. Only a run that stopped without a single completed block cleans up after itself, because there is
+    /// nothing there to resume. A block is recorded only after its last write has been acknowledged, so the record
+    /// always lags the payload and an interrupted upload at worst re-sends a block it had already moved. One further
+    /// connection is opened for the trailer writes so they never queue behind a worker's data.
+    ///
+    /// A partial file is adopted only when the file name, payload size and modification time recorded in it all match
+    /// the local file as it is now; anything else is deleted and the upload starts over in silence. Temporary files
+    /// abandoned for good are swept by ``cleanupResumableUploads(in:olderThan:)``.
+    ///
+    /// > Warning: Nothing protects a destination from two resumable transfers at once. Two processes, two machines, or
+    /// two calls inside this one process uploading to the same `remotePath` derive the same temporary file name and
+    /// will interleave their blocks into it, publishing a file that is a mixture of both. Serialize them yourself.
+    ///
+    /// > Warning: A source modified while keeping **both** its size and its modification time — restored by a tool that
+    /// preserves timestamps, for instance — passes the identity check, and the resumed upload mixes old content with
+    /// new. Only hashing the whole source before every transfer would close that window, and that would mean reading
+    /// every byte before sending any.
+    ///
+    /// > Note: A network failure arrives as a thrown error like any other. It preserves the partial file, but it is not
+    /// itself a resume: resuming is the next call's job, and this method never retries by itself.
+    ///
     /// - Parameters:
     ///   - localURL: Local file URL to upload.
     ///   - remotePath: Remote file path to create.
-    ///   - workers: Maximum number of parallel connections. Values below one use one worker.
+    ///   - workers: Maximum number of parallel connections. Values below one use one worker. When resuming, capped at
+    /// the number of blocks still missing.
     ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
+    ///   - resumable: Whether an interrupted upload can be continued by a later call. Defaults to
+    /// ``ResumeBehavior/nonResumable``, which leaves nothing behind.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
-    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
+    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. On a resume the
+    /// completed byte count starts at what the partial file already holds rather than at zero. Return `true` to
     /// continue, or `false` to cancel. The reporting worker waits for it before continuing, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
     /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
+    /// Resuming adds ``FileTransferErrors/resumableTrailerVersionUnsupported(version:path:)`` for a partial file from a
+    /// newer release, ``FileTransferErrors/resumableTruncateUnsupported(path:)`` for a server that will not shrink the
+    /// trailer away, and ``FileTransferErrors/resumableDestinationNameTooLong(byteCount:maximum:)`` for a file name no
+    /// trailer can hold.
     func multiUpload(
         from localURL: URL,
         to remotePath: String,
         workers: Int = 2,
         bufferSize: Int = 1024 * 1024,
         permissions: POSIXPermissions = [.serverDefault],
+        resumable: ResumeBehavior = .nonResumable,
         continuation: @escaping TransferProgress
     ) async throws {
+        guard !resumable.isResumable else {
+            return try await multiUploadResumable(
+                from: localURL,
+                to: remotePath,
+                workers: workers,
+                bufferSize: bufferSize,
+                permissions: permissions,
+                doNotResume: resumable.discardsExistingProgress,
+                continuation: continuation
+            )
+        }
+
         guard localURL.isFileURL else {
             throw FileTransferErrors.notAFileURL
         }
@@ -139,30 +234,78 @@ public extension SFTPClientProtocol {
 
     /// Downloads a remote file in parallel over independent SFTP connections.
     ///
-    /// The local destination is created and preallocated to the remote file's size. Each worker reads a disjoint range
-    /// through either this client or a logged-in ``fork`` and writes directly to the corresponding local offset.
-    /// Failure or cancellation removes the incomplete local file. This operation cannot be resumed.
+    /// The local destination is created and preallocated to the remote file's size. Each worker reads through either
+    /// this client or a logged-in ``fork`` and writes directly to the corresponding local offset.
     ///
     /// `workers` counts this client and all additional forks. If an additional fork cannot log in, no more forks are
     /// attempted and the download continues silently with the workers already connected.
     ///
+    /// ## Resuming
+    ///
+    /// With ``ResumeBehavior/nonResumable``, the default, the bytes are written straight to `localURL` and an
+    /// interrupted download removes that incomplete file, so the next attempt starts from the beginning.
+    ///
+    /// With ``ResumeBehavior/resumable``, the download becomes atomic as well as restartable: the bytes go into a
+    /// temporary file in the destination's own directory, named after the destination's file name and carrying a
+    /// trailer past the end of the payload recording which blocks have arrived, and `localURL` itself only appears once
+    /// the download is complete. An interrupted run — a cancellation, a dropped connection, a crash, a killed process —
+    /// leaves that temporary file behind **on purpose**, and the next call with the same source and destination fetches
+    /// only what is missing. Only a run that stopped without a single completed block cleans up after itself. A block
+    /// is recorded only after its last write has been acknowledged, so the record always lags the payload and an
+    /// interrupted download at worst re-fetches a block it had already moved. No extra connection is opened: unlike an
+    /// upload's, this trailer is written locally and competes with nothing.
+    ///
+    /// A partial file is adopted only when the file name, payload size and modification time recorded in it all match
+    /// the remote file as it is now; anything else is deleted and the download starts over in silence. Temporary files
+    /// abandoned for good are swept by ``cleanupResumableDownloads(in:olderThan:)``.
+    ///
+    /// > Warning: Nothing protects a destination from two resumable transfers at once. Two processes downloading to the
+    /// same `localURL` derive the same temporary file name and will interleave their blocks into it, producing a file
+    /// that is a mixture of both. Serialize them yourself.
+    ///
+    /// > Warning: A remote source replaced while keeping **both** its size and its modification time passes the
+    /// identity check, and the resumed download mixes old content with new. Only hashing the whole source before every
+    /// transfer would close that window.
+    ///
+    /// > Note: A network failure arrives as a thrown error like any other. It preserves the partial file, but it is not
+    /// itself a resume: resuming is the next call's job, and this method never retries by itself.
+    ///
     /// - Parameters:
     ///   - remotePath: Existing remote regular-file path to download.
     ///   - localURL: Local file URL to create.
-    ///   - workers: Maximum number of parallel connections. Values below one use one worker.
+    ///   - workers: Maximum number of parallel connections. Values below one use one worker. When resuming, capped at
+    /// the number of blocks still missing.
     ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
+    ///   - resumable: Whether an interrupted download can be continued by a later call. Defaults to
+    /// ``ResumeBehavior/nonResumable``, which leaves nothing behind.
     ///   - continuation: Serialized aggregate progress callback, invoked on whichever worker thread produced the chunk
-    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. Return `true` to
+    /// rather than on one fixed thread. Dispatch to the main queue yourself if it touches UI state. On a resume the
+    /// completed byte count starts at what the partial file already holds rather than at zero. Return `true` to
     /// continue, or `false` to cancel. The reporting worker waits for it before continuing, so keep it short.
     /// - Throws: ``FileTransferErrors`` for invalid input, an existing destination, cancellation, or transfer failures;
     /// otherwise forwards SFTP and local-file errors. When several workers fail, the first worker failure is thrown.
+    /// Resuming adds ``FileTransferErrors/resumableTrailerVersionUnsupported(version:path:)`` for a partial file from a
+    /// newer release and ``FileTransferErrors/resumableDestinationNameTooLong(byteCount:maximum:)`` for a file name no
+    /// trailer can hold.
     func multiDownload(
         from remotePath: String,
         to localURL: URL,
         workers: Int = 2,
         bufferSize: Int = 1024 * 1024,
+        resumable: ResumeBehavior = .nonResumable,
         continuation: @escaping TransferProgress
     ) async throws {
+        guard !resumable.isResumable else {
+            return try await multiDownloadResumable(
+                from: remotePath,
+                to: localURL,
+                workers: workers,
+                bufferSize: bufferSize,
+                doNotResume: resumable.discardsExistingProgress,
+                continuation: continuation
+            )
+        }
+
         guard localURL.isFileURL else {
             throw FileTransferErrors.notAFileURL
         }

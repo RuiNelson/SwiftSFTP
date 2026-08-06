@@ -143,7 +143,9 @@ private extension URL {
 
 // MARK: - Resumable multi-worker transfers
 
-public extension SFTPClientProtocol {
+// The resumable half of `multiUpload`/`multiDownload`, which dispatch here on their `resumable:` argument. Internal on
+// purpose: one public entry point per direction, with the mode as an argument, so callers do not have to choose between two nearly identical methods. The user-facing contract and its warnings live on the public pair.
+extension SFTPClientProtocol {
     /// Uploads a local file in parallel over independent SFTP connections, picking up where an interrupted attempt
     /// stopped.
     ///
