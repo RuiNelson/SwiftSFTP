@@ -108,25 +108,26 @@ make_library_slice() {
   fi
 }
 
-build_one macos-arm64 darwin64-arm64-cc -mmacosx-version-min=15.0
+# Keep these in sync with Package.swift platforms (object minOS must be ≤ package mins).
+build_one macos-arm64 darwin64-arm64-cc -mmacosx-version-min=11.0
 if [[ "$BUILD_INTEL_MAC" -eq 1 ]]; then
-  build_one macos-x86_64 darwin64-x86_64-cc -mmacosx-version-min=15.0
+  build_one macos-x86_64 darwin64-x86_64-cc -mmacosx-version-min=11.0
 fi
-build_one iphoneos-arm64 ios64-xcrun -miphoneos-version-min=18.0
-build_one iphonesimulator-arm64 iossimulator-arm64-xcrun -mios-simulator-version-min=18.0
+build_one iphoneos-arm64 ios64-xcrun -miphoneos-version-min=14.0
+build_one iphonesimulator-arm64 iossimulator-arm64-xcrun -mios-simulator-version-min=14.0
 if [[ "$BUILD_INTEL_SIM" -eq 1 ]]; then
-  build_one iphonesimulator-x86_64 iossimulator-x86_64-xcrun -mios-simulator-version-min=18.0
+  build_one iphonesimulator-x86_64 iossimulator-x86_64-xcrun -mios-simulator-version-min=14.0
 fi
-build_generic_one xros-arm64 xros arm64 BSD-generic64 ""
-build_generic_one xrsimulator-arm64 xrsimulator arm64 BSD-generic64 ""
+build_generic_one xros-arm64 xros arm64 BSD-generic64 -mtargetos=xros1.0
+build_generic_one xrsimulator-arm64 xrsimulator arm64 BSD-generic64 -mtargetos=xros1.0-simulator
 if [[ "$BUILD_INTEL_SIM" -eq 1 ]]; then
-  build_generic_one xrsimulator-x86_64 xrsimulator x86_64 BSD-generic64 ""
+  build_generic_one xrsimulator-x86_64 xrsimulator x86_64 BSD-generic64 -mtargetos=xros1.0-simulator
 fi
-build_generic_one watchos-arm64_32 watchos arm64_32 BSD-generic32 -mwatchos-version-min=11.0
-build_generic_one watchos-arm64 watchos arm64 BSD-generic64 -mwatchos-version-min=11.0
-build_generic_one watchsimulator-arm64 watchsimulator arm64 BSD-generic64 -mwatchos-simulator-version-min=11.0
+build_generic_one watchos-arm64_32 watchos arm64_32 BSD-generic32 -mwatchos-version-min=7.0
+build_generic_one watchos-arm64 watchos arm64 BSD-generic64 -mwatchos-version-min=7.0
+build_generic_one watchsimulator-arm64 watchsimulator arm64 BSD-generic64 -mwatchos-simulator-version-min=7.0
 if [[ "$BUILD_INTEL_SIM" -eq 1 ]]; then
-  build_generic_one watchsimulator-x86_64 watchsimulator x86_64 BSD-generic64 -mwatchos-simulator-version-min=11.0
+  build_generic_one watchsimulator-x86_64 watchsimulator x86_64 BSD-generic64 -mwatchos-simulator-version-min=7.0
 fi
 
 MACOS_DIR="$BUILD_DIR/install-macos-universal"
