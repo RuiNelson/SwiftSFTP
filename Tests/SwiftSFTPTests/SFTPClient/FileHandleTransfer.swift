@@ -215,6 +215,40 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
+    @Test("write accepts a Data slice with a non-zero startIndex")
+    func writeSliceRoundTrip() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("slice")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/slice.bin"
+            let full = Data((0 ..< (96 * 1024)).map { UInt8($0 % 256) })
+            // Spans several 32 KiB chunks so the loop has to keep rebasing correctly.
+            let slice = full[10000 ..< 90000]
+            #expect(slice.startIndex != 0)
+
+            let writeHandle = try await client.openFile(
+                [.write, .create, .truncate],
+                path: filePath,
+                permissions: .serverDefault
+            )
+            let written = try await writeHandle.write(slice)
+            #expect(written == slice.count)
+            try await writeHandle.close()
+
+            let readHandle = try await client.openFile(.read, path: filePath, permissions: [])
+            var readData = Data()
+            while let chunk = try await readHandle.read(upTo: 256 * 1024) {
+                readData.append(chunk)
+            }
+            try await readHandle.close()
+
+            #expect(readData == Data(slice))
+
+            try await client.delete(path: dir)
+        }
+    }
+
     @Test("write large payload round-trip")
     func writeLargePayloadRoundTrip() async throws {
         try await withClient { client in

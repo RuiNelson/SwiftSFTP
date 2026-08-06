@@ -108,9 +108,10 @@ public extension SFTPFile {
             var bytesWritten = 0
 
             while bytesWritten < data.count {
-                let end = min(bytesWritten + Self.size32kB, data.count)
-                let chunk = data.subdata(in: bytesWritten ..< end)
-                let written = try SFTPWrite(handle: handle, data: chunk)
+                // `data` may be a slice, so index from `startIndex` rather than zero.
+                let start = data.startIndex + bytesWritten
+                let end = min(start + Self.size32kB, data.endIndex)
+                let written = try SFTPWrite(handle: handle, data: data[start ..< end])
 
                 guard written > 0 else {
                     break
