@@ -137,7 +137,7 @@ struct ResumableTrailerBlockScaleTests {
         let rows: [(fileSize: UInt64, workers: Int, scale: UInt64, blocks: Int, bitmapBytes: Int)] = [
             (8 * 1024 * 1024, 4, 2 * 1024 * 1024, 4, 1),
             (100, 4, 32, 4, 1),
-            (1024 * 1024 * 1024, 8, 10 * 1024 * 1024, 103, 13),
+            (1024 * 1024 * 1024, 8, 10_324_448, 104, 13),
             (4 * 1024 * 1024 * 1024 * 1024, 8, 16 * 1024 * 1024, 262_144, 32 * 1024),
         ]
 

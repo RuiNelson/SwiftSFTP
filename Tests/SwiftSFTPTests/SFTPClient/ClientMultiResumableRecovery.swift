@@ -22,7 +22,9 @@ struct SFTPClientResumableRecovery {
             }
 
             do {
-                let firstBlock = Int64(10 * 1024 * 1024)
+                // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
+                // breaks every time the rule is tuned instead of when the behaviour under test breaks.
+                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiUploadResumable(
                         from: sourceURL,
@@ -84,7 +86,7 @@ struct SFTPClientResumableRecovery {
                 #expect(values[0x0001] == 1)
                 #expect(fileName == "payload.bin", "the final name, last path component only, without a terminator")
                 #expect(values[0x0003] == UInt64(payload.count))
-                #expect(values[0x0004] == 10 * 1024 * 1024)
+                #expect(values[0x0004] == ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 #expect(try values[0x0005] == sourceModificationSeconds(of: sourceURL))
 
                 let fileSize = try #require(values[0x0003])

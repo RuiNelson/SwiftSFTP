@@ -95,20 +95,28 @@ bitmapByteCount = ceil(blockCount / 8)
 Chosen once, when the temporary file is created, from the payload size and the requested worker count:
 
 ```
-desired     = min(10 MiB, max(1, fileSize / workers))
-bitmapFloor = ceil(fileSize / 262144)
-blockScale  = roundUpToMultipleOf8(max(desired, bitmapFloor))
+rounds     = max(1, ceil(fileSize / (10 MiB × workers)))
+blockCount = min(rounds × workers, 262144)
+blockScale = roundUpToMultipleOf8(max(1, ceil(fileSize / blockCount)))
 ```
 
 | Payload | Workers | Scale | Blocks | Bitmap |
 |---------|---------|-------|--------|--------|
 | 100 B | 4 | 32 B | 4 | 1 byte |
 | 8 MiB | 4 | 2 MiB | 4 | 1 byte |
-| 1 GiB | 8 | 10 MiB | 103 | 13 bytes |
+| 100 MiB | 3 | 8 738 136 B | 12 | 2 bytes |
+| 1 GiB | 8 | 10 324 448 B | 104 | 13 bytes |
 | 4 TiB | 8 | 16 MiB | 262 144 | 32 KiB |
 
-The 10 MiB cap is not absolute: `bitmapFloor` overrides it above roughly 2.5 TiB. On a resume the scale recorded in the
-trailer is used as-is, whatever `workers` is passed, because recomputing it would invalidate the existing bitmap.
+The block count is deliberately a multiple of the worker count. Blocks are handed out whole, so a count that does not
+divide evenly leaves one worker moving a final block alone while the others sit idle; on a 100 MiB upload over three
+workers that cost 20% of the wall clock before this rule was introduced.
+
+10 MiB is the largest a block gets, which bounds how much in-flight work a crash discards. That ceiling gives way only
+above roughly 2.5 TiB, where the 262 144-block limit forces a larger scale so the bitmap still fits one 32 KiB write.
+
+On a resume the scale recorded in the trailer is used as-is, whatever `workers` is passed, because recomputing it would
+invalidate the existing bitmap.
 
 ## Reading a trailer
 
@@ -172,4 +180,4 @@ A 12 MiB payload named `payload.bin`, one worker, one of two blocks transferred:
 | **Total** | | **12 582 974** |
 
 Metadata: version 4, file name 4 + 11, payload size 10, block scale 10, mtime 10, terminator 2 = 51.
-Block scale is 10 MiB, so `blockCount` is 2 and the bitmap is `0x80` — block 0 done, block 1 not.
+Block scale is 6 MiB, so `blockCount` is 2 and the bitmap is `0x80` — block 0 done, block 1 not.

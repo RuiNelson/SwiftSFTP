@@ -129,7 +129,9 @@ struct SFTPClientResumableTransfers {
             }
 
             do {
-                let firstBlock = Int64(10 * 1024 * 1024)
+                // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
+                // breaks every time the rule is tuned instead of when the behaviour under test breaks.
+                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiUploadResumable(
                         from: sourceURL,
@@ -192,7 +194,9 @@ struct SFTPClientResumableTransfers {
             do {
                 try await client.multiUpload(from: sourceURL, to: remotePath, workers: 4) { _, _, _, _ in true }
 
-                let firstBlock = Int64(10 * 1024 * 1024)
+                // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
+                // breaks every time the rule is tuned instead of when the behaviour under test breaks.
+                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiDownloadResumable(
                         from: remotePath,
@@ -243,7 +247,9 @@ struct SFTPClientResumableTransfers {
             }
 
             do {
-                let firstBlock = Int64(10 * 1024 * 1024)
+                // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
+                // breaks every time the rule is tuned instead of when the behaviour under test breaks.
+                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 let reached = ProgressWatch()
                 let transfer = Task {
                     try await client.multiUploadResumable(

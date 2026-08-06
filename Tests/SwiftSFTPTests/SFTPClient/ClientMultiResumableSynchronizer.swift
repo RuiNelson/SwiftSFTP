@@ -52,6 +52,18 @@ private actor FlushRecorder {
             throw pendingFailure
         }
     }
+
+    /// Waits until `count` writes have been recorded, or fails the test after `timeout` seconds.
+    ///
+    /// Waiting on the condition rather than on a fixed span is what keeps this deterministic: a machine busy enough to
+    /// starve the flush loop delays the test instead of failing it, and a loop that genuinely never retries still fails
+    /// rather than hanging.
+    func waitForWrites(atLeast count: Int, timeout: TimeInterval = 5) async throws {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while writes.count < count, Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
 }
 
 private struct FlushFailure: Error {
@@ -280,7 +292,7 @@ struct ResumableSynchronizerFlushTests {
 
         try await synchronizer.withPeriodicFlush(every: 0.02) {
             await synchronizer.markComplete(block: 4)
-            try await Task.sleep(nanoseconds: 200_000_000)
+            try await recorder.waitForWrites(atLeast: 2)
         }
 
         let writes = await recorder.writes

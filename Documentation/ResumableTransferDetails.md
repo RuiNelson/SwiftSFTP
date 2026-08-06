@@ -18,7 +18,9 @@ the file renamed onto the destination — which therefore never exists in a part
 atomic in this way too, unlike `multiDownload`, which writes to `localURL` directly.
 
 Blocks are sized automatically from the payload size and the requested worker count: 10 MiB at most, and larger only
-above roughly 2.5 TiB, where the bitmap has to stay within a single 32 KiB write. Block size is not configurable, and
+above roughly 2.5 TiB, where the bitmap has to stay within a single 32 KiB write. The count is always a multiple of
+the worker count, because blocks are handed out whole and an uneven count would leave one worker moving a last block
+alone while the others are idle. Block size is not configurable, and
 on a resume the size recorded in the trailer wins over any later change to `workers`, since recomputing it would
 invalidate the bitmap already in the file. Within a block the transfer still moves `bufferSize` bytes at a time.
 
