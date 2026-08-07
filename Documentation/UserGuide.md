@@ -409,7 +409,8 @@ try await client.upload(
 ```
 
 - The destination's parent directories are created automatically.
-- The remote file must not already exist (uses `.exclusive`). If it does, `FileTransferErrors.remoteFileAlreadyExists` is thrown.
+- By default the remote file must not already exist (uses `.exclusive`). If it does, `FileTransferErrors.remoteFileAlreadyExists` is thrown.
+- Pass `resume: true` to continue an interrupted upload: if the remote file already exists, the transfer starts at its current size and appends the remaining local bytes.
 
 ### Download
 
@@ -424,7 +425,8 @@ try await client.download(
 }
 ```
 
-- The local file must not already exist. If it does, `FileTransferErrors.localFileAlreadyExists` is thrown.
+- By default the local file must not already exist. If it does, `FileTransferErrors.localFileAlreadyExists` is thrown.
+- Pass `resume: true` to continue an interrupted download: if the local file already exists, the transfer starts at its current size and appends the remaining remote bytes.
 
 ### Parallel transfers
 
@@ -766,10 +768,34 @@ try await agent.createRandomData(file: "/data/random-64MiB.bin", length: 64 * 10
 `length` must be non-negative (`0` creates an empty file). Parent directories of `file` are created when supported.
 Negative lengths throw `ShellAgentError.invalidArgument`.
 
-### Create a tar archive
+### Create archives
 
-Builds an archive on the server from remote paths. Compression is limited to filters supported by **both** GNU tar and
-bsdtar:
+Three APIs build archives on the server from remote paths. Parent directories of `output` are created when supported.
+An empty `input` array (or, for ZIP / 7-Zip, a level outside `0...9`) throws `ShellAgentError.invalidArgument`.
+
+```swift
+try await agent.tar(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/backup.tar.gz",
+    compression: .gzip
+)
+
+try await agent.zip(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/bundle.zip",
+    compressionLevel: 6,
+    tool: .infoZip
+)
+
+try await agent.sevenZip(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/bundle.7z",
+    compressionLevel: 9
+)
+```
+
+**`tar`** — compression is limited to filters supported by **both** GNU tar and bsdtar. On Windows the built-in
+`tar.exe` (bsdtar) is used with the same flags.
 
 | `TarCompression` | Typical extension | Flag |
 |------------------|-------------------|------|
@@ -784,29 +810,8 @@ bsdtar:
 `.zstd` is accepted by both GNU tar and bsdtar, but GNU tar usually needs the external `zstd` program on `PATH`
 (common on Raspberry Pi OS and desktop distros; not always present in minimal containers).
 
-```swift
-try await agent.tar(
-    input: ["/data/dir", "/data/readme.txt"],
-    output: "/data/backup.tar.gz",
-    compression: .gzip
-)
-```
-
-An empty `input` array throws `ShellAgentError.invalidArgument`. Parent directories of `output` are created when
-supported. On Windows, the built-in `tar.exe` (bsdtar) is used with the same flags.
-
-### Create a ZIP archive
-
-```swift
-try await agent.zip(
-    input: ["/data/dir", "/data/readme.txt"],
-    output: "/data/bundle.zip",
-    compressionLevel: 6,
-    tool: .infoZip
-)
-```
-
-`compressionLevel` is `0...9` (`0` = store only, `9` = maximum deflate). `tool` selects the remote implementation:
+**`zip`** — `compressionLevel` is `0...9` (`0` = store only, `9` = maximum deflate). `tool` selects the remote
+implementation:
 
 | `ZipTool` | Remote command | Notes |
 |-----------|----------------|-------|
@@ -815,23 +820,11 @@ try await agent.zip(
 | `.microsoft` | PowerShell `Compress-Archive` | Windows only; under Command Prompt the agent calls `powershell.exe`. Levels map to NoCompression / Fastest / Optimal |
 | `.poke` | (auto) | Probes the host and picks the first available tool in order: Info-ZIP → tar ZIP → Microsoft |
 
-Empty `input` or a level outside `0...9` throws `invalidArgument`. `.microsoft` on a Unix shell throws
-`hostDoesNotSupportOperation`. If `.poke` finds no usable tool, it also throws `hostDoesNotSupportOperation`.
+`.microsoft` on a Unix shell throws `hostDoesNotSupportOperation`. If `.poke` finds no usable tool, it also throws
+`hostDoesNotSupportOperation`.
 
-### Create a 7-Zip archive
-
-Uses the remote **7-Zip / p7zip** CLI (`7z`, then `7zz`, then `7za`):
-
-```swift
-try await agent.sevenZip(
-    input: ["/data/dir", "/data/readme.txt"],
-    output: "/data/bundle.7z",
-    compressionLevel: 9
-)
-```
-
-`compressionLevel` is `0...9` (`-mxN`). The archive type generally follows the `output` extension (`.7z`, `.zip`,
-…). Empty `input` or a level outside `0...9` throws `invalidArgument`. Missing 7-Zip on the host throws
+**`sevenZip`** — uses the remote **7-Zip / p7zip** CLI (`7z`, then `7zz`, then `7za`). `compressionLevel` is `0...9`
+(`-mxN`). The archive type generally follows the `output` extension (`.7z`, `.zip`, …). Missing 7-Zip on the host throws
 `hostDoesNotSupportOperation`. Common via Homebrew (`p7zip`) on macOS and distro packages on Linux.
 
 ### Extract archives
@@ -856,6 +849,27 @@ try await agent.unSevenZip(file: "/data/bundle.7z", to: "/data/from7z")
 | `unSevenZip` | `7z` / `7zz` / `7za` `x -y -bd -o…` | Same binary preference as `sevenZip` |
 
 Empty `file` or `to` throws `invalidArgument`. Missing tooling throws `hostDoesNotSupportOperation` where applicable.
+
+### Download a URL onto the server
+
+Fetches with remote **`curl`** (or **`curl.exe`** on Windows so PowerShell does not use the `Invoke-WebRequest` alias).
+The payload never crosses the SFTP client. Parent directories of `file` are created via SFTP when missing.
+
+```swift
+try await agent.download(
+    url: URL(string: "https://example.com/payload.bin")!,
+    file: "/data/payload.bin",
+    headers: ["Authorization: Bearer token"]
+)
+// or without headers:
+try await agent.download(
+    url: URL(string: "https://example.com/payload.bin")!,
+    file: "/data/payload.bin"
+)
+```
+
+Uses `curl -fsSL -o …` (fail on HTTP errors, quiet with errors shown, follow redirects). Missing `curl` throws
+`hostDoesNotSupportOperation`.
 
 ### Calculating a remote hash
 

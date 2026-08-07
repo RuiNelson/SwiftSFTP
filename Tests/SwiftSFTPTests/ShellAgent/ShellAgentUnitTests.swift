@@ -237,6 +237,49 @@ struct ShellAgentUnitTests {
         #expect(unzipProbe.contains("command -v unzip"))
     }
 
+    @Test("download command uses curl -fsSL and optional headers")
+    func downloadCommandShapes() throws {
+        let url = try #require(URL(string: "https://example.com/a.bin?x=1&y=2"))
+        let plain = try ShellAgentSupport.downloadCommand(
+            shellType: .linux,
+            url: url,
+            file: "/data/out/a.bin",
+            headers: []
+        )
+        #expect(plain == "curl -fsSL -o '/data/out/a.bin' 'https://example.com/a.bin?x=1&y=2'")
+
+        let withHeaders = try ShellAgentSupport.downloadCommand(
+            shellType: .darwin,
+            url: url,
+            file: "/tmp/a.bin",
+            headers: ["Authorization: Bearer t", "Accept: application/octet-stream"]
+        )
+        #expect(withHeaders.contains("-H 'Authorization: Bearer t'"))
+        #expect(withHeaders.contains("-H 'Accept: application/octet-stream'"))
+        #expect(withHeaders.hasPrefix("curl -fsSL -o '/tmp/a.bin'"))
+
+        let win = try ShellAgentSupport.downloadCommand(
+            shellType: .windowsCommandPrompt,
+            url: url,
+            file: "/C:/data/a.bin",
+            headers: []
+        )
+        #expect(win.hasPrefix("curl.exe -fsSL -o "))
+        #expect(win.contains(#""C:\data\a.bin""#))
+
+        #expect(throws: ShellAgentError.invalidArgument("download requires a non-empty destination path")) {
+            try ShellAgentSupport.downloadCommand(
+                shellType: .linux,
+                url: url,
+                file: "",
+                headers: []
+            )
+        }
+
+        let probe = ShellAgentSupport.curlProbeCommand(shellType: .windowsPowerShell)
+        #expect(probe.contains("curl.exe"))
+    }
+
     @Test("zip command shapes for infoZip, tar, and microsoft")
     func zipCommandShapes() throws {
         let info = try ShellAgentSupport.zipCommand(

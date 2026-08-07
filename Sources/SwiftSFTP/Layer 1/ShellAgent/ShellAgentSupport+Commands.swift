@@ -1,3 +1,4 @@
+import Foundation
 import PathWorks
 
 extension ShellAgentSupport {
@@ -818,6 +819,62 @@ extension ShellAgentSupport {
 
         case .windowsCommandPrompt:
             return "\(binary) x -y -bd -o\(cmdQuote(destNative)) \(cmdQuote(archiveNative))"
+        }
+    }
+
+    /// Remote probe that exits 0 when `curl` (Unix) or `curl.exe` (Windows) is available.
+    ///
+    /// On Windows PowerShell, `curl` is often an alias for `Invoke-WebRequest`; the agent always invokes `curl.exe`.
+    static func curlProbeCommand(shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            "command -v curl >/dev/null 2>&1"
+        case .windowsPowerShell:
+            "if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { exit 1 }"
+        case .windowsCommandPrompt:
+            "where curl.exe >nul 2>nul"
+        }
+    }
+
+    /// Downloads `url` to a remote file with curl (`-f` fail HTTP errors, `-sS` quiet, `-L` follow redirects).
+    static func downloadCommand(
+        shellType: ShellType,
+        url: URL,
+        file: String,
+        headers: [String]
+    ) throws -> String {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("download requires a non-empty destination path")
+        }
+        let urlString = url.absoluteString
+        guard !urlString.isEmpty else {
+            throw ShellAgentError.invalidArgument("download requires a non-empty URL")
+        }
+
+        let destNative = pathForRemoteShell(file, shellType: shellType)
+        // Windows: always `curl.exe` so PowerShell does not resolve the IWR alias.
+        let binary: String = switch shellType {
+        case .darwin, .linux, .posixCompatible: "curl"
+        case .windowsPowerShell, .windowsCommandPrompt: "curl.exe"
+        }
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let headerFlags = headers.map { "-H \(unixShellQuote($0))" }.joined(separator: " ")
+            let headerPart = headerFlags.isEmpty ? "" : "\(headerFlags) "
+            return
+                "\(binary) -fsSL -o \(unixShellQuote(destNative)) \(headerPart)\(unixShellQuote(urlString))"
+
+        case .windowsPowerShell:
+            let headerFlags = headers.map { "-H \(powerShellQuote($0))" }.joined(separator: " ")
+            let headerPart = headerFlags.isEmpty ? "" : "\(headerFlags) "
+            return
+                "\(binary) -fsSL -o \(powerShellQuote(destNative)) \(headerPart)\(powerShellQuote(urlString))"
+
+        case .windowsCommandPrompt:
+            let headerFlags = headers.map { "-H \(cmdQuote($0))" }.joined(separator: " ")
+            let headerPart = headerFlags.isEmpty ? "" : "\(headerFlags) "
+            return "\(binary) -fsSL -o \(cmdQuote(destNative)) \(headerPart)\(cmdQuote(urlString))"
         }
     }
 

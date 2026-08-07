@@ -337,6 +337,43 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         )
     }
 
+    public func download(url: URL, file: String, headers: [String] = []) async throws {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("download requires a non-empty destination path")
+        }
+        guard !url.absoluteString.isEmpty else {
+            throw ShellAgentError.invalidArgument("download requires a non-empty URL")
+        }
+        try await ensureParentDirectory(of: file)
+        try requireCurl()
+        let command = try ShellAgentSupport.downloadCommand(
+            shellType: shellType,
+            url: url,
+            file: file,
+            headers: headers
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    /// Ensures the parent of a file path exists via SFTP (`makePath: true`).
+    private func ensureParentDirectory(of filePath: String) async throws {
+        let sanitized = filePath.sanitizePath
+        let parent = sanitized.removingLastPathComponent
+        guard !parent.isEmpty, parent != ".", parent != "/" else {
+            return
+        }
+        try await ensureDestinationDirectory(parent)
+    }
+
+    /// Throws ``ShellAgentError/hostDoesNotSupportOperation`` when `curl` / `curl.exe` is not on `PATH`.
+    private func requireCurl() throws {
+        let probe = ShellAgentSupport.curlProbeCommand(shellType: shellType)
+        let result = try executeOnPersistentShell(probe)
+        guard result.exitStatus == 0 else {
+            throw ShellAgentError.hostDoesNotSupportOperation
+        }
+    }
+
     private func runTransferCommand(_ command: String, progress: ShellAgentProgress?) throws {
         let onLine: ((String) -> Void)? = progress.map { report in
             { [shellType] line in

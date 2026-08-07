@@ -180,6 +180,21 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Returns: Raw digest bytes (not hex-encoded).
     /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data
+
+    /// Downloads a remote URL onto the server with `curl` (or `curl.exe` on Windows).
+    ///
+    /// The server fetches the URL itself; the payload does not pass through the SFTP client. Parent directories of
+    /// `file` are created via the parent ``SFTPClient`` when missing. Requires `curl` on the host (common on macOS,
+    /// Linux, and modern Windows).
+    ///
+    /// - Parameters:
+    ///   - url: Absolute HTTP(S) or other URL accepted by the remote `curl`.
+    ///   - file: Remote path to write (created or overwritten).
+    ///   - headers: Optional HTTP headers in `Name: value` form, each passed as `curl -H`.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` is empty or `url` has no absolute string;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when `curl` is missing; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    func download(url: URL, file: String, headers: [String]) async throws
 }
 
 // Default progress-less overloads live below.
@@ -198,6 +213,11 @@ public extension SSHShellAgentProtocol {
     /// Extracts a ZIP archive, probing the host for a suitable tool (``ZipTool/poke``).
     func unzip(file: String, to: String) async throws {
         try await unzip(file: file, to: to, tool: .poke)
+    }
+
+    /// Downloads a URL onto the server with no extra HTTP headers.
+    func download(url: URL, file: String) async throws {
+        try await download(url: url, file: file, headers: [])
     }
 }
 

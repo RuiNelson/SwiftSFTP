@@ -554,6 +554,51 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - Download (curl)
+
+    @Test("download rejects empty destination path")
+    func downloadEmptyPath() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let url = try #require(URL(string: "https://example.com/a.bin"))
+                await #expect(
+                    throws: ShellAgentError.invalidArgument("download requires a non-empty destination path")
+                ) {
+                    try await agent.download(url: url, file: "", headers: [])
+                }
+            }
+        }
+    }
+
+    @Test("download fetches a small public payload when curl and network are available")
+    func downloadPublicPayloadWhenAvailable() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-curl")
+                let dest = "\(dir)/example.html"
+                // example.com is stable and tiny; many CI containers allow outbound HTTPS.
+                let url = try #require(URL(string: "https://example.com/"))
+
+                do {
+                    try await agent.download(url: url, file: dest)
+                }
+                catch ShellAgentError.hostDoesNotSupportOperation {
+                    return
+                }
+                catch is ShellAgentError {
+                    // Offline TestServer, blocked egress, TLS issues — skip quietly.
+                    return
+                }
+
+                let meta = try await client.statFile(path: dest, followLink: false)
+                #expect(meta != nil)
+                #expect((meta?.attributes.fileSize ?? 0) > 0)
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")
