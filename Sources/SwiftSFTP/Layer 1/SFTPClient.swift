@@ -23,8 +23,10 @@ public final class SFTPClient: SFTPClientProtocol {
     private let tcpLocation: TCPLocation
     private let operationsTimeOut: TimeInterval?
     private let hostKeyAcceptance: HostKeyAcceptance
-    private let logger: Logger?
-    private let trapOnDeInitWithoutClose: Bool
+    /// Shared with child handles (files, shell agent) for close/deinit diagnostics.
+    let logger: Logger?
+    /// Inherited by ``SFTPFile`` and ``SSHShellAgent`` so they trap if destroyed without ``close()``.
+    let trapOnDeInitWithoutClose: Bool
     let authentication: UserAuthentication
     /// The most recent timeout configured by `login(timeOut:)`. Protected by `internalStateQueue`.
     private nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
@@ -813,9 +815,9 @@ public extension SFTPClient {
     }
 }
 
-// MARK: Private state
+// MARK: Shared session state
 
-private extension SFTPClient {
+extension SFTPClient {
     /// Returns the SFTP Session or throws NotLoggedIn if inexistent
     var sftp: LibSSH2SFTP {
         get throws {

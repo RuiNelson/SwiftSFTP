@@ -50,8 +50,8 @@ public extension String {
     /// ## Transformations
     /// - Leading and trailing whitespace is trimmed.
     /// - `\` is rewritten as `/`.
-    /// - Absolute drive paths become `/X:/...` with an uppercased drive letter
-    ///   (`C:\Users\alice` → `/C:/Users/alice`, `d:/data` → `/D:/data`).
+    /// - Absolute drive paths become `/X:/...` with an uppercased drive letter (`C:\Users\alice` → `/C:/Users/alice`,
+    /// `d:/data` → `/D:/data`).
     /// - A bare drive root becomes `/X:/` (`C:\` → `/C:/`).
     /// - Relative paths keep a relative shape (`docs\file.txt` → `docs/file.txt`).
     /// - Windows long-path prefixes `\\?\` and `\\.\` are stripped (`\\?\C:\Users` → `/C:/Users`).
@@ -95,11 +95,70 @@ public extension String {
         }
         return normalized
     }
+
+    /// Converts an SFTP-style path into a native Windows path for shells such as PowerShell or `cmd.exe`.
+    ///
+    /// This is the inverse of ``sftpPathFromWindows``. OpenSSH for Windows exposes drive paths to SFTP clients as
+    /// `/C:/Users/...`; remote `exec` commands still need the OS form `C:\Users\...`.
+    ///
+    /// ## Transformations
+    /// - Leading and trailing whitespace is trimmed.
+    /// - Absolute drive paths become `X:\...` with an uppercased drive letter (`/C:/Users/alice` → `C:\Users\alice`,
+    /// `/D:/data` → `D:\data`).
+    /// - A bare drive root becomes `X:\` (`/C:/` or `/C:` → `C:\`).
+    /// - Relative paths keep a relative shape with `\` separators (`docs/file.txt` → `docs\file.txt`).
+    /// - UNC paths become `\\server\share\...` (`//fileserver/share` → `\\fileserver\share`).
+    /// - Empty input becomes `"."`.
+    ///
+    /// Paths that are already native Windows form can be normalized first with ``sftpPathFromWindows`` and then
+    /// converted with this property.
+    ///
+    /// ## Usage
+    /// ```swift
+    /// let sftp = "/C:/Users/alice/Documents/report.pdf"
+    /// let forShell = sftp.windowsPathFromSFTP
+    /// // #"C:\Users\alice\Documents\report.pdf"#
+    /// ```
+    ///
+    /// - Note: Call this only when the remote shell is Windows. Unix shells expect the SFTP `/`-separated form.
+    var windowsPathFromSFTP: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "."
+        }
+
+        // UNC: preserve the double-slash root that PathWorks would collapse.
+        if trimmed.hasPrefix("//") {
+            let body = trimmed.drop(while: { $0 == "/" })
+            let components = String(body).pathComponents
+            if components.isEmpty {
+                return "\\\\"
+            }
+            return "\\\\" + components.backslashPath
+        }
+
+        if let driveBased = trimmed.rewritingSFTPDriveLetterAsWindows() {
+            return driveBased
+        }
+
+        let normalized = trimmed.sanitizePath
+        if normalized == "." {
+            return "."
+        }
+
+        // Relative, or absolute non-drive (e.g. `/Users/...` under some OpenSSH layouts).
+        if normalized.first == "/" {
+            let components = normalized.pathComponents
+            return components.isEmpty ? "\\" : "\\" + components.backslashPath
+        }
+
+        return normalized.pathComponents.backslashPath
+    }
 }
 
-extension String {
+private extension String {
     /// Strips `//?/` or `//./` long-path / device prefixes. Maps `//?/UNC/server/...` to `//server/...`.
-    fileprivate func strippingWindowsLongPathPrefix() -> String {
+    func strippingWindowsLongPathPrefix() -> String {
         let upper = uppercased()
         if upper.hasPrefix("//?/UNC/") || upper.hasPrefix("//./UNC/") {
             return "//" + String(dropFirst(8))
@@ -111,7 +170,7 @@ extension String {
     }
 
     /// `C:`, `C:/...`, or `C:relative` → `/C:/...` via PathWorks path building. `nil` when not a drive path.
-    fileprivate func rewritingWindowsDriveLetterAsSFTP() -> String? {
+    func rewritingWindowsDriveLetterAsSFTP() -> String? {
         guard count >= 2 else {
             return nil
         }
@@ -138,7 +197,7 @@ extension String {
     }
 
     /// `/C:` style drive root produced by PathWorks joining (missing the conventional trailing slash).
-    fileprivate var isSFTPDriveRoot: Bool {
+    var isSFTPDriveRoot: Bool {
         guard count == 3 else {
             return false
         }
@@ -152,6 +211,46 @@ extension String {
         }
         index = self.index(after: index)
         return self[index] == ":"
+    }
+
+    /// `/C:`, `/C:/`, or `/C:/Users/...` → `C:\...`. `nil` when not an SFTP drive path.
+    func rewritingSFTPDriveLetterAsWindows() -> String? {
+        guard count >= 3 else {
+            return nil
+        }
+
+        var index = startIndex
+        guard self[index] == "/" else {
+            return nil
+        }
+        index = self.index(after: index)
+        guard self[index].isLetter else {
+            return nil
+        }
+        let driveLetter = String(self[index]).uppercased()
+        index = self.index(after: index)
+        guard self[index] == ":" else {
+            return nil
+        }
+
+        let afterColon = self.index(after: index)
+        let rest = self[afterColon...]
+        let driveRoot = "\(driveLetter):\\"
+
+        if rest.isEmpty || rest == "/" {
+            return driveRoot
+        }
+
+        let remainder = rest.first == "/" ? String(rest.dropFirst()) : String(rest)
+        guard !remainder.isEmpty else {
+            return driveRoot
+        }
+
+        let components = remainder.pathComponents
+        guard !components.isEmpty else {
+            return driveRoot
+        }
+        return driveRoot + components.backslashPath
     }
 }
 
