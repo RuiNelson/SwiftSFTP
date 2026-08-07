@@ -1,9 +1,7 @@
 # SwiftSFTP
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
 
-[![macOS | iOS | visionOS | watchOS | tvOS](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
 [![macOS](https://img.shields.io/badge/macOS-11+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
@@ -17,7 +15,6 @@
 [![Apple CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/apple.yml)
 [![Linux CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/linux.yml)
 [![Android CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/android.yml)
-
 
 ![SwiftSFTP Banner](Documentation/banner.webp)
 
@@ -199,3 +196,6 @@ A common way to satisfy these is an **About**, **Acknowledgments**, or **Open So
 None of these licenses is copyleft (unlike the GPL family): linking against them does not force your application’s source code to be released under an open-source license.
 
 This section is a practical summary, not legal advice. For compliance questions specific to your product or jurisdiction, consult a lawyer and the full license texts linked above.
+
+[![Swift Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
+[![macOS | iOS | visionOS | watchOS | tvOS](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FRuiNelson%2FSwiftSFTP%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/RuiNelson/SwiftSFTP)
