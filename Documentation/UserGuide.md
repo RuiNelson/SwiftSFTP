@@ -11,12 +11,12 @@ This guide walks through everything you need to integrate and use SwiftSFTP in y
 5. [Working with Files](#working-with-files)
 6. [Uploading and Downloading](#uploading-and-downloading)
 7. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
-8. [Symlinks](#symlinks)
-9. [Filesystem Statistics](#filesystem-statistics)
-10. [Keeping the Connection Alive](#keeping-the-connection-alive)
-11. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
-12. [Error Handling](#error-handling)
-13. [Testability](#testability)
+8. [Shell Agent (Server-Side Operations)](#shell-agent-server-side-operations)
+9. [Symlinks](#symlinks)
+10. [Filesystem Statistics](#filesystem-statistics)
+11. [Keeping the Connection Alive](#keeping-the-connection-alive)
+12. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
+13. [Error Handling](#error-handling)
 
 ---
 
@@ -608,6 +608,9 @@ try await client.copyClientSide(
 ) { _, _, _, _ in true }
 ```
 
+For large files on the same host, prefer a [server-side copy](#server-side-copy) via the shell agent so bytes never leave the
+server.
+
 ---
 
 ## Copying, Renaming, and Deleting
@@ -651,6 +654,105 @@ try await client.deleteDirectory(path: "/uploads/empty")
 try await client.delete(path: "/uploads/old_folder")
 // No-op if the path does not exist
 ```
+
+---
+
+## Shell Agent (Server-Side Operations)
+
+`SSHShellAgent` runs short commands over the same SSH session as your `SFTPClient`, using SSH `exec` rather than the
+SFTP subsystem. Work such as copying a file on the host or hashing a remote path stays on the server, so the payload
+never crosses the network twice.
+
+The agent does not own the connection. It reuses the client's session under the same I/O lock as SFTP operations, so
+shell and SFTP calls on one client never interleave libssh2 traffic. The client must already be logged in.
+
+### Obtaining an agent
+
+```swift
+// Detect the remote shell family (uname, then Windows PowerShell / cmd heuristics)
+let agent = try await client.shellAgent()
+print(agent.shellType)   // e.g. .darwin, .linux, .windowsPowerShell
+
+// Or force a family when you already know the host
+let linuxAgent = try await client.shellAgent(shellType: .linux)
+```
+
+Detection throws `ShellAgentError.couldNotHeuristicallyDetectShellType` when none of the probes succeed.
+
+### Shell types
+
+| `ShellType` | Typical hosts | Notes |
+|-------------|---------------|-------|
+| `.darwin` | macOS | Uses `md5 -q` and `shasum` for digests |
+| `.linux` | Linux | Uses GNU `md5sum` and `sha*sum` |
+| `.posixCompatible` | FreeBSD and other Unix-like systems | Same command style as Linux where those tools exist |
+| `.windowsPowerShell` | Windows with PowerShell | `Get-FileHash` / `Copy-Item` via `powershell.exe` |
+| `.windowsCommandPrompt` | Windows `cmd.exe` | `certutil` / `copy` |
+
+### Server-side copy
+
+```swift
+try await agent.copyServerSide(
+    from: "/data/source.dat",
+    to: "/data/archive/source.dat"
+)
+```
+
+Parent directories of `to` are created when the remote tools support it (`mkdir -p` on Unix, `New-Item` / `mkdir` on
+Windows). This is the complement of [`copyClientSide`](#client-side-remote-copy): no data is streamed through your app.
+
+### Calculating a remote hash
+
+```swift
+let digest: Data = try await agent.calculateHash(
+    file: "/data/source.dat",
+    algorithm: .sha256
+)
+// raw digest bytes (not hex-encoded)
+```
+
+Supported algorithms depend on the remote tooling:
+
+| Algorithm | `.darwin` | `.linux` / `.posixCompatible` | Windows (PowerShell / cmd) |
+|-----------|:---------:|:-----------------------------:|:--------------------------:|
+| `.md5` | ✓ | ✓ | ✓ |
+| `.sha1` | ✓ | ✓ | ✓ |
+| `.sha224` | ✓ | ✓ | — |
+| `.sha256` | ✓ | ✓ | ✓ |
+| `.sha384` | ✓ | ✓ | ✓ |
+| `.sha512` | ✓ | ✓ | ✓ |
+| `.sha512224` | ✓ | — | — |
+| `.sha512256` | ✓ | — | — |
+
+Unsupported combinations throw `ShellAgentError.hostDoesNotSupportOperation`. A non-zero remote exit becomes
+`ShellAgentError.commandFailed(exitCode:stdout:stderr:)`.
+
+### Paths on Windows
+
+Shell-agent APIs accept the same SFTP path form as the rest of the client (`/C:/Users/alice/file.txt`). On Windows
+shells, paths are rewritten to native form (`C:\Users\alice\file.txt`) before the command runs. You may also pass native
+Windows paths; they are normalized first.
+
+```swift
+// All three resolve to the same remote file on OpenSSH for Windows
+try await agent.calculateHash(file: "/C:/Users/alice/report.pdf", algorithm: .sha256)
+try await agent.calculateHash(file: #"C:\Users\alice\report.pdf"#, algorithm: .sha256)
+try await agent.calculateHash(
+    file: #"C:\Users\alice\report.pdf"#.sftpPathFromWindows,   // → "/C:/Users/alice/report.pdf"
+    algorithm: .sha256
+)
+```
+
+The inverse helper `windowsPathFromSFTP` converts SFTP form back to native Windows paths when you need them outside the
+agent. See [Windows SFTP servers and path notation](#windows-sftp-servers-and-path-notation).
+
+### Requirements and limits
+
+- The SSH server must allow `exec` (not SFTP-only lockdowns that reject session channels).
+- The remote host must ship the expected tools for the detected shell family (`cp` / `md5sum` / `sha*sum` / `shasum` /
+  `md5`, or PowerShell / `certutil` on Windows).
+- Prefer server-side copy for same-host renames of large files; use client-side copy when the SFTP server cannot run
+  shell commands or when you need progress callbacks over the transfer path.
 
 ---
 
@@ -827,6 +929,17 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `AlreadyClosed` | Operation called on a closed client or file handle |
 | `NotLoggedIn` | Operation called before `login()` |
 
+### Shell agent errors (`ShellAgentError`)
+
+Thrown by `shellAgent(shellType:)` and by `SSHShellAgent` operations:
+
+| Case | Cause |
+|------|-------|
+| `.couldNotHeuristicallyDetectShellType` | Auto-detection could not identify a supported remote shell |
+| `.hostDoesNotSupportOperation` | Requested hash algorithm (or equivalent) is unavailable on that shell family |
+| `.commandFailed(exitCode:stdout:stderr:)` | Remote command exited non-zero |
+| `.unexpectedOutput(String)` | Command output could not be parsed (for example a hash line) |
+
 ### libssh2 errors (`LibSSH2Error`)
 
 Low-level errors surfaced from the C layer. Key cases:
@@ -843,6 +956,9 @@ do {
     try await client.upload(from: localURL, to: remotePath) { _, _, _, _ in true }
 } catch FileTransferErrors.remoteFileAlreadyExists(let path) {
     // handle conflict
+} catch let ShellAgentError.commandFailed(exitCode, stdout, stderr) {
+    // remote shell command failed (server-side copy or hash)
+    print("exit \(exitCode): \(stderr.isEmpty ? stdout : stderr)")
 } catch let error as LibSSH2Error {
     // handle low-level SSH/SFTP error
     print(error.description)
