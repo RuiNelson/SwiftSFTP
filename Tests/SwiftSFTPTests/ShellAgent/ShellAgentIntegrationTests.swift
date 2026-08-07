@@ -750,6 +750,22 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    @Test("silent multi-second command succeeds under a short operationsTimeOut")
+    func silentCommandBeyondOperationsTimeout() async throws {
+        // The agent disables the session blocking timeout while waiting for framing markers so long silent remote work
+        // is not aborted by a short post-login operationsTimeOut.
+        try await withClient { client in
+            client.timeout = 1.0
+            try await withShellAgent(client) { agent in
+                let started = ContinuousClock.now
+                let result = try agent.executeOnPersistentShell("sleep 3")
+                let elapsed = ContinuousClock.now - started
+                #expect(result.exitStatus == 0)
+                #expect(elapsed >= .seconds(2))
+            }
+        }
+    }
+
     @Test("persistent shell does not strip cmd prompts from Unix output")
     func persistentShellKeepsUnixLinesWhole() async throws {
         try await withClient { client in

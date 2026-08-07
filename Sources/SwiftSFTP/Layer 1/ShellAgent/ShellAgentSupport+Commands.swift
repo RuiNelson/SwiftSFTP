@@ -962,9 +962,13 @@ extension ShellAgentSupport {
 
     /// Runs `script` under `powershell.exe` so it works when OpenSSH's default shell is `cmd.exe`.
     ///
-    /// Used only for one-shot detection probes. Persistent PowerShell agents use `-Command -` stdin instead.
+    /// Forces terminating errors and propagates native tool exit codes (`$LASTEXITCODE`) so the process exit status
+    /// captured by the cmd framing (`%ERRORLEVEL%`) reflects real failures.
     static func powerShellRemoteCommand(_ script: String) -> String {
-        let escaped = script.replacingOccurrences(of: "\"", with: "\\\"")
+        // Single-line wrapper: cmdlet failures and nested native tools both yield a non-zero process exit.
+        let wrapped =
+            "$ErrorActionPreference='Stop'; try { \(script); if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } catch { exit 1 }"
+        let escaped = wrapped.replacingOccurrences(of: "\"", with: "\\\"")
         return "powershell -NoProfile -NonInteractive -Command \"\(escaped)\""
     }
 
@@ -982,7 +986,13 @@ extension ShellAgentSupport {
     }
 
     /// Wraps a single remote command with begin/exit/done markers for the persistent channel.
-    static func wrapForPersistentShell(_ command: String, shellType: ShellType) -> String {
+    ///
+    /// - Parameter nonce: Per-command token embedded in every marker so remote output cannot spoof completion.
+    static func wrapForPersistentShell(_ command: String, shellType: ShellType, nonce: String) -> String {
+        let begin = SSHShellAgent.markerBegin(nonce: nonce)
+        let rcPrefix = SSHShellAgent.markerRCPrefix(nonce: nonce)
+        let done = SSHShellAgent.markerDone(nonce: nonce)
+
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             // Run as one shell line group so `$?` reflects the command (including `a && b` pipelines).
@@ -990,10 +1000,10 @@ extension ShellAgentSupport {
             // `printf` opens the status marker with a newline: output that is not newline-terminated would otherwise
             // share a line with the marker and be swallowed by the reader.
             return """
-            echo \(SSHShellAgent.markerBegin)
+            echo \(begin)
             \(command)
-            printf '\\n\(SSHShellAgent.markerRCPrefix)%s\\n' "$?"
-            echo \(SSHShellAgent.markerDone)
+            printf '\\n\(rcPrefix)%s\\n' "$?"
+            echo \(done)
             
             """
 
@@ -1001,10 +1011,10 @@ extension ShellAgentSupport {
             // Host is cmd; run the PowerShell snippet in a one-shot child, then print markers from cmd. cmd.exe expects
             // CRLF line endings on the wire.
             let ps = powerShellRemoteCommand(command)
-            return windowsPersistentShellFraming(ps)
+            return windowsPersistentShellFraming(ps, begin: begin, rcPrefix: rcPrefix, done: done)
 
         case .windowsCommandPrompt:
-            return windowsPersistentShellFraming(command)
+            return windowsPersistentShellFraming(command, begin: begin, rcPrefix: rcPrefix, done: done)
         }
     }
 
@@ -1012,15 +1022,20 @@ extension ShellAgentSupport {
     ///
     /// Capturing into a variable keeps the status independent of the intervening `echo.`, and the blank line keeps
     /// output that is not CRLF-terminated from sharing a line with the status marker.
-    private static func windowsPersistentShellFraming(_ command: String) -> String {
+    private static func windowsPersistentShellFraming(
+        _ command: String,
+        begin: String,
+        rcPrefix: String,
+        done: String
+    ) -> String {
         let status = "__SWIFTSFTP_STATUS"
         return [
-            "echo \(SSHShellAgent.markerBegin)",
+            "echo \(begin)",
             command,
             "set \"\(status)=%ERRORLEVEL%\"",
             "echo.",
-            "echo \(SSHShellAgent.markerRCPrefix)%\(status)%",
-            "echo \(SSHShellAgent.markerDone)",
+            "echo \(rcPrefix)%\(status)%",
+            "echo \(done)",
             "",
         ].joined(separator: "\r\n")
     }

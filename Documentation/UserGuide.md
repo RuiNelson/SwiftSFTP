@@ -669,9 +669,17 @@ The agent does not own the TCP connection. It reuses the client's session under 
 shell and SFTP calls on one client never interleave libssh2 traffic. One channel is opened when you create the agent and
 kept for every `copy` / `move` / `calculateHash` until you call `close()`. The client must already be logged in.
 
+Unix-like hosts run commands under a persistent `/bin/sh -s` channel (not bash). Windows hosts use a persistent
+`cmd.exe /K` session; PowerShell tool bodies still run as one-shot `powershell.exe` children under that cmd.
+
+While a framed shell command is waiting for completion, the agent temporarily disables the session's ordinary blocking
+timeout so long silent remote work (large copies, archives, downloads) is not cut short by a short `operationsTimeOut`.
+If a command fails mid-stream in a way that may desynchronize the channel, the agent closes itself and further
+operations throw `AlreadyClosed`.
+
 Call `close()` when you are done (same lifecycle as an open `SFTPFile`). The agent inherits the client's
 `trapOnDeInitWithoutClose` setting: if that flag is `true` and the agent is destroyed without `close()`, the process
-raises `SIGTRAP` in debug.
+raises `SIGTRAP` in debug. Closing the agent after the parent client is already closed is safe (no trap).
 
 ### Obtaining an agent
 

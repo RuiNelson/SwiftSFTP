@@ -19,10 +19,45 @@ struct ShellAgentUnitTests {
         #expect(ShellAgentSupport.powerShellQuote("a'b") == "'a''b'")
     }
 
-    @Test("cmdQuote wraps with double quotes")
+    @Test("cmdQuote uses cmd.exe doubling rules")
     func cmdQuote() {
         #expect(ShellAgentSupport.cmdQuote(#"C:\path\file.txt"#) == #""C:\path\file.txt""#)
-        #expect(ShellAgentSupport.cmdQuote(#"say "hi""#) == #""say \"hi\"""#)
+        // Embedded quotes are doubled, not backslash-escaped (cmd rule).
+        #expect(ShellAgentSupport.cmdQuote(#"say "hi""#) == #""say ""hi""""#)
+        // Percent expands env vars inside quotes; double so paths stay literal.
+        #expect(ShellAgentSupport.cmdQuote(#"C:\Users\%USERNAME%\x"#) == #""C:\Users\%%USERNAME%%\x""#)
+    }
+
+    @Test("cmdQuote keeps injection metacharacters inside the quoted span")
+    func cmdQuoteInjectionShapes() {
+        let amp = ShellAgentSupport.cmdQuote(#"C:\data\a&whoami.txt"#)
+        #expect(amp == #""C:\data\a&whoami.txt""#)
+        #expect(amp.hasPrefix("\""))
+        #expect(amp.hasSuffix("\""))
+
+        let pipe = ShellAgentSupport.cmdQuote(#"C:\data\a|calc.txt"#)
+        #expect(pipe == #""C:\data\a|calc.txt""#)
+
+        let redir = ShellAgentSupport.cmdQuote(#"C:\data\a>out.txt"#)
+        #expect(redir == #""C:\data\a>out.txt""#)
+
+        // A quote mid-path must not break out of the surrounding quotes (cmd doubles internal `"`).
+        let embedded = ShellAgentSupport.cmdQuote(#"C:\data\a"&whoami&.txt"#)
+        #expect(embedded == #""C:\data\a""&whoami&.txt""#)
+        // No lone `"` remains after un-doubling: every internal quote is a pair.
+        let undoubled = embedded.replacingOccurrences(of: "\"\"", with: "")
+        #expect(undoubled == #""C:\data\a&whoami&.txt""#)
+    }
+
+    @Test("powerShellRemoteCommand forces terminating errors and LASTEXITCODE")
+    func powerShellRemoteCommandExitPropagation() {
+        let cmd = ShellAgentSupport.powerShellRemoteCommand("Copy-Item -LiteralPath 'a' -Destination 'b'")
+        #expect(cmd.hasPrefix("powershell -NoProfile -NonInteractive -Command \""))
+        #expect(cmd.contains("$ErrorActionPreference='Stop'"))
+        #expect(cmd.contains("$LASTEXITCODE"))
+        #expect(cmd.contains("exit $LASTEXITCODE"))
+        #expect(cmd.contains("catch { exit 1 }"))
+        #expect(cmd.contains("Copy-Item -LiteralPath 'a' -Destination 'b'"))
     }
 
     // MARK: - uname classification
@@ -748,16 +783,26 @@ struct ShellAgentUnitTests {
 
     @Test("wrapForPersistentShell keeps the status marker on its own line")
     func persistentShellFramingIsolatesStatusMarker() {
+        let nonce = "deadbeefcafebabe"
+        let rcPrefix = SSHShellAgent.markerRCPrefix(nonce: nonce)
+        let begin = SSHShellAgent.markerBegin(nonce: nonce)
+        let done = SSHShellAgent.markerDone(nonce: nonce)
+
         // Output that is not newline-terminated must not share a line with the status marker, or the reader drops it.
-        let unix = ShellAgentSupport.wrapForPersistentShell("printf abc", shellType: .linux)
-        #expect(unix.contains(#"printf '\n\#(SSHShellAgent.markerRCPrefix)%s\n' "$?""#))
-        #expect(!unix.contains("echo \(SSHShellAgent.markerRCPrefix)"))
+        let unix = ShellAgentSupport.wrapForPersistentShell("printf abc", shellType: .linux, nonce: nonce)
+        #expect(unix.contains(#"printf '\n\#(rcPrefix)%s\n' "$?""#))
+        #expect(unix.contains("echo \(begin)"))
+        #expect(unix.contains("echo \(done)"))
+        #expect(!unix.contains("echo \(rcPrefix)"))
+        // Fixed markers without the nonce must not appear (prevents spoofing via path content).
+        #expect(!unix.contains("__SWIFTSFTP_DONE__\n"))
+        #expect(!unix.contains("__SWIFTSFTP_RC__:"))
 
         for shellType in [ShellType.windowsCommandPrompt, .windowsPowerShell] {
             let lines = ShellAgentSupport
-                .wrapForPersistentShell("whoami", shellType: shellType)
+                .wrapForPersistentShell("whoami", shellType: shellType, nonce: nonce)
                 .components(separatedBy: "\r\n")
-            let statusLine = "echo \(SSHShellAgent.markerRCPrefix)%__SWIFTSFTP_STATUS%"
+            let statusLine = "echo \(rcPrefix)%__SWIFTSFTP_STATUS%"
             guard let statusIndex = lines.firstIndex(of: statusLine), statusIndex > 0 else {
                 Issue.record("No status marker line for \(shellType)")
                 continue
@@ -765,7 +810,28 @@ struct ShellAgentUnitTests {
             #expect(lines[statusIndex - 1] == "echo.")
             // The status is captured before the blank line so `%ERRORLEVEL%` cannot be clobbered in between.
             #expect(lines.contains(#"set "__SWIFTSFTP_STATUS=%ERRORLEVEL%""#))
+            #expect(lines.contains("echo \(begin)"))
+            #expect(lines.contains("echo \(done)"))
         }
+
+        // PowerShell-hosted framing still goes through the exit-code wrapper.
+        let ps = ShellAgentSupport.wrapForPersistentShell(
+            "Copy-Item a b",
+            shellType: .windowsPowerShell,
+            nonce: nonce
+        )
+        #expect(ps.contains("$ErrorActionPreference='Stop'"))
+        #expect(ps.contains("$LASTEXITCODE"))
+    }
+
+    @Test("command nonces are hex and unique enough for framing")
+    func commandNonceShape() {
+        let a = SSHShellAgent.makeCommandNonce()
+        let b = SSHShellAgent.makeCommandNonce()
+        #expect(a.count == 32)
+        #expect(a.allSatisfy { ($0 >= "0" && $0 <= "9") || ($0 >= "a" && $0 <= "f") })
+        #expect(a != b)
+        #expect(SSHShellAgent.markerDone(nonce: a).contains(a))
     }
 
     @Test("tar zip probe uses a trailing-X mktemp template")

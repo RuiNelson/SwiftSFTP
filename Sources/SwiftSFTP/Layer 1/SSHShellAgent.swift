@@ -21,11 +21,28 @@ public final class SSHShellAgent: Sendable {
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SSHShellAgent.InternalState")
     private nonisolated(unsafe) var _closed: Bool = false
 
-    /// Wire markers delimiting one command on the persistent shell channel.
-    static let markerBegin = "__SWIFTSFTP_BEGIN__"
-    static let markerRCPrefix = "__SWIFTSFTP_RC__:"
-    static let markerDone = "__SWIFTSFTP_DONE__"
+    /// Handshake marker printed once after the channel starts (not command-scoped).
     static let markerReady = "__SWIFTSFTP_READY__"
+
+    /// Per-command begin marker. `nonce` must be unique for each framed command.
+    static func markerBegin(nonce: String) -> String {
+        "__SWIFTSFTP_BEGIN__/\(nonce)"
+    }
+
+    /// Per-command exit-status prefix (`…/<nonce>:<code>`).
+    static func markerRCPrefix(nonce: String) -> String {
+        "__SWIFTSFTP_RC__/\(nonce):"
+    }
+
+    /// Per-command completion marker.
+    static func markerDone(nonce: String) -> String {
+        "__SWIFTSFTP_DONE__/\(nonce)"
+    }
+
+    /// Hex token safe to embed in shell echo lines (no spaces or metacharacters).
+    static func makeCommandNonce() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
 
     init(
         client: SFTPClient,
@@ -59,24 +76,46 @@ public extension SSHShellAgent {
 
     /// Closes the persistent shell channel.
     ///
-    /// Calling `close()` more than once is allowed; later calls log a warning and return.
+    /// Calling `close()` more than once is allowed; later calls log a warning and return. If the parent client is
+    /// already closed, the agent is marked closed without touching the channel (the session teardown owns those
+    /// resources), so `trapOnDeInitWithoutClose` does not fire after a parent-first shutdown.
     func close() async throws {
-        try client.withSessionIO {
-            try internalStateQueue.sync {
+        client.withSessionIO {
+            internalStateQueue.sync {
                 guard !_closed else {
                     logger?.warning("Trying to close shell agent that was already closed")
                     return
                 }
 
-                try client.checkOpenForFileOperation()
-
-                // Mark closed first so further API calls fail even if free/close partially fails.
+                // Mark closed first so trap mode is satisfied even when the parent session is already gone.
                 _closed = true
+
+                if client.closed {
+                    return
+                }
+
                 try? ChannelSendEOF(channel: channel)
                 try? ChannelClose(channel: channel)
                 try? ChannelWaitClosed(channel: channel)
-                try ChannelFree(channel: channel)
+                try? ChannelFree(channel: channel)
             }
+        }
+    }
+
+    /// Marks the agent unusable after a mid-command channel failure so further ops do not run on a desynced stream.
+    private func markUnusableAfterChannelFailure() {
+        internalStateQueue.sync {
+            guard !_closed else {
+                return
+            }
+            _closed = true
+            if client.closed {
+                return
+            }
+            try? ChannelSendEOF(channel: channel)
+            try? ChannelClose(channel: channel)
+            try? ChannelWaitClosed(channel: channel)
+            try? ChannelFree(channel: channel)
         }
     }
 }
@@ -414,6 +453,10 @@ extension SSHShellAgent {
     }
 
     /// Writes `command` to the open shell channel and reads until the done marker.
+    ///
+    /// Temporarily disables the session's ordinary blocking-call timeout for the marker wait so long silent remote work
+    /// (large `cp`/`tar`/`curl`, multi-GB fills) is not aborted by a short `operationsTimeOut`. On any failure the
+    /// agent is marked closed — the channel stream may be desynchronized and must not accept further commands.
     func executeOnPersistentShell(
         _ command: String,
         onOutputLine: ((String) -> Void)? = nil
@@ -421,100 +464,137 @@ extension SSHShellAgent {
         try client.withSessionIO {
             try checkClosed()
 
-            let script = ShellAgentSupport.wrapForPersistentShell(command, shellType: shellType)
-            try writeAll(Data(script.utf8))
-
-            var filteredStdout = Data()
-            var filteredStderr = Data()
-            var stdoutLineBuffer = Data()
-            var exitStatus = 0
-            var finished = false
-            let chunkSize = 32 * 1024
-
-            func handleLine(_ rawLine: String, isStdout: Bool) {
-                // cmd.exe may prefix output with a prompt (`C:\path>`). Match markers with `contains`.
-                let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let rcRange = trimmed.range(of: Self.markerRCPrefix) {
-                    let code = trimmed[rcRange.upperBound...]
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Drop trailing prompt junk if any.
-                    let digits = code.prefix(while: { $0.isNumber || $0 == "-" })
-                    exitStatus = Int(digits) ?? exitStatus
-                    return
-                }
-                if trimmed.contains(Self.markerDone) {
-                    finished = true
-                    return
-                }
-                if trimmed.contains(Self.markerBegin) {
-                    return
-                }
-                guard !trimmed.isEmpty else {
-                    return
-                }
-                // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such
-                // prompt, and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
-                let payload = shellType.iKnowThis ? trimmed : ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
-                guard !payload.isEmpty else {
-                    return
-                }
-                onOutputLine?(payload)
-                if isStdout {
-                    filteredStdout.append(contentsOf: payload.utf8)
-                    filteredStdout.append(UInt8(ascii: "\n"))
-                }
-                else {
-                    filteredStderr.append(contentsOf: payload.utf8)
-                    filteredStderr.append(UInt8(ascii: "\n"))
-                }
+            let previousTimeoutMs = SessionGetTimeout(session: client.session)
+            // `0` means no blocking-call timeout in libssh2 (same as `operationsTimeOut: nil` / `.infinity`).
+            SessionSetTimeout(session: client.session, timeoutMilliseconds: 0)
+            defer {
+                SessionSetTimeout(session: client.session, timeoutMilliseconds: previousTimeoutMs)
             }
 
-            func feed(_ chunk: Data, lineBuffer: inout Data, isStdout: Bool) {
-                lineBuffer.append(chunk)
-                while let newline = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let lineData = lineBuffer[..<newline]
-                    lineBuffer.removeSubrange(...newline)
-                    let line = String(decoding: lineData, as: UTF8.self)
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
-                    handleLine(line, isStdout: isStdout)
-                }
+            do {
+                return try readFramedCommand(command, onOutputLine: onOutputLine)
             }
-
-            while !finished {
-                // Extended data is merged into standard (see startProcess); only one stream is read.
-                let outChunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
-
-                if !outChunk.isEmpty {
-                    feed(outChunk, lineBuffer: &stdoutLineBuffer, isStdout: true)
-                }
-
-                if finished {
-                    break
-                }
-
-                if outChunk.isEmpty, ChannelEOF(channel: channel) {
-                    throw ShellAgentError.commandFailed(
-                        exitCode: -1,
-                        stdout: String(decoding: filteredStdout, as: UTF8.self),
-                        stderr: "Shell channel closed before command completed"
-                    )
-                }
+            catch {
+                markUnusableAfterChannelFailure()
+                throw error
             }
+        }
+    }
 
-            if !stdoutLineBuffer.isEmpty {
-                let line = String(decoding: stdoutLineBuffer, as: UTF8.self)
+    private func readFramedCommand(
+        _ command: String,
+        onOutputLine: ((String) -> Void)?
+    ) throws -> RemoteProcessResult {
+        let nonce = Self.makeCommandNonce()
+        let beginMarker = Self.markerBegin(nonce: nonce)
+        let rcPrefix = Self.markerRCPrefix(nonce: nonce)
+        let doneMarker = Self.markerDone(nonce: nonce)
+
+        let script = ShellAgentSupport.wrapForPersistentShell(command, shellType: shellType, nonce: nonce)
+        try writeAll(Data(script.utf8))
+
+        var filteredStdout = Data()
+        var filteredStderr = Data()
+        var stdoutLineBuffer = Data()
+        // Fail closed: a DONE without a parsed RC must not look like success.
+        var exitStatus: Int?
+        var finished = false
+        let chunkSize = 32 * 1024
+
+        func handleLine(_ rawLine: String, isStdout: Bool) {
+            // cmd.exe may prefix output with a prompt (`C:\path>`). Match markers with `contains` of the full
+            // nonce-bearing token so unrelated output cannot spoof completion.
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let rcRange = trimmed.range(of: rcPrefix) {
+                let code = trimmed[rcRange.upperBound...]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !line.isEmpty {
-                    handleLine(line, isStdout: true)
+                // Drop trailing prompt junk if any.
+                let digits = code.prefix(while: { $0.isNumber || $0 == "-" })
+                if let parsed = Int(digits) {
+                    exitStatus = parsed
                 }
+                return
+            }
+            if trimmed.contains(doneMarker) {
+                finished = true
+                return
+            }
+            if trimmed.contains(beginMarker) {
+                return
+            }
+            guard !trimmed.isEmpty else {
+                return
+            }
+            // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such
+            // prompt, and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
+            let payload = shellType.iKnowThis ? trimmed : ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
+            guard !payload.isEmpty else {
+                return
+            }
+            onOutputLine?(payload)
+            if isStdout {
+                filteredStdout.append(contentsOf: payload.utf8)
+                filteredStdout.append(UInt8(ascii: "\n"))
+            }
+            else {
+                filteredStderr.append(contentsOf: payload.utf8)
+                filteredStderr.append(UInt8(ascii: "\n"))
+            }
+        }
+
+        func feed(_ chunk: Data, lineBuffer: inout Data, isStdout: Bool) {
+            lineBuffer.append(chunk)
+            while let newline = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+                let lineData = lineBuffer[..<newline]
+                lineBuffer.removeSubrange(...newline)
+                let line = String(decoding: lineData, as: UTF8.self)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+                handleLine(line, isStdout: isStdout)
+            }
+        }
+
+        while !finished {
+            // Extended data is merged into standard (see startProcess); only one stream is read.
+            let outChunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
+
+            if !outChunk.isEmpty {
+                feed(outChunk, lineBuffer: &stdoutLineBuffer, isStdout: true)
             }
 
-            return RemoteProcessResult(
-                stdout: filteredStdout,
-                stderr: filteredStderr,
-                exitStatus: exitStatus
+            if finished {
+                break
+            }
+
+            if outChunk.isEmpty, ChannelEOF(channel: channel) {
+                throw ShellAgentError.commandFailed(
+                    exitCode: -1,
+                    stdout: String(decoding: filteredStdout, as: UTF8.self),
+                    stderr: "Shell channel closed before command completed"
+                )
+            }
+        }
+
+        if !stdoutLineBuffer.isEmpty {
+            let line = String(decoding: stdoutLineBuffer, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !line.isEmpty {
+                handleLine(line, isStdout: true)
+            }
+        }
+
+        guard let resolvedStatus = exitStatus else {
+            throw ShellAgentError.commandFailed(
+                exitCode: -1,
+                stdout: String(decoding: filteredStdout, as: UTF8.self),
+                stderr: "Shell command completed without an exit-status marker"
             )
         }
+
+        return RemoteProcessResult(
+            stdout: filteredStdout,
+            stderr: filteredStderr,
+            exitStatus: resolvedStatus
+        )
     }
 
     private func writeAll(_ data: Data) throws {
@@ -567,17 +647,12 @@ extension SSHShellAgent {
     private static func startProcess(on channel: LibSSH2Channel, shellType: ShellType) throws {
         // Prefer long-lived stdin readers over interactive `shell` (avoids MOTD/prompts/PTY issues).
         switch shellType {
-        case .darwin:
+        case .darwin, .linux, .posixCompatible:
+            // Portable POSIX shell (FreeBSD, minimal Linux images, and macOS all ship `/bin/sh`).
             try ChannelProcessStartup(
                 channel: channel,
                 request: "exec",
-                message: "/bin/bash --norc --noprofile -s"
-            )
-        case .linux, .posixCompatible:
-            try ChannelProcessStartup(
-                channel: channel,
-                request: "exec",
-                message: "/bin/bash --norc --noprofile -s"
+                message: "/bin/sh -s"
             )
         case .windowsPowerShell, .windowsCommandPrompt:
             // Persistent `cmd /K`. PowerShell tool invocations are still one-shot under that cmd (see
