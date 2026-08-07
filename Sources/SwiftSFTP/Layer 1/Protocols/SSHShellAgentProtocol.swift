@@ -65,6 +65,15 @@ public typealias ShellAgentProgress = (String) -> Void
 /// Implementations keep a **persistent** session channel (interactive shell or long-lived PowerShell stdin) rather than
 /// using the SFTP subsystem, so work such as server-side copies and on-host hashing stays on the remote machine. Call
 /// ``close()`` when finished; operations throw ``AlreadyClosed`` afterward.
+///
+/// ## Paths
+///
+/// Every path argument on this protocol is rewritten the same way before the remote command runs:
+///
+/// - SFTP form (`/C:/Users/...`, `docs/file.txt`) and native Windows form are both accepted.
+/// - On Windows shells, paths become OS form (`C:\Users\...`).
+/// - On Unix shells, paths stay POSIX with `/` separators.
+/// - Where an operation creates a new path, parent directories are created when the shell supports it.
 public protocol SSHShellAgentProtocol: Sendable {
     // MARK: Lifecycle
 
@@ -83,10 +92,6 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Copies a remote path to another remote path entirely on the server.
     ///
-    /// Parent directories of `to` are created when the shell supports it. Paths may be supplied in SFTP form
-    /// (`/C:/Users/...`, `docs/file.txt`) or native Windows form; on Windows shells they are rewritten to OS paths
-    /// (`C:\Users\...`) before the remote command runs. On Unix shells they stay POSIX/`/`-separated.
-    ///
     /// When `progress` is non-`nil`, the remote command is run with verbose reporting where supported. Each completed
     /// path the tool prints is passed to `progress`. If the host emits nothing parseable, `progress` is never called.
     ///
@@ -99,12 +104,8 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Moves a remote path to another remote path entirely on the server.
     ///
-    /// Parent directories of `to` are created when the shell supports it. Same path rewriting rules as
-    /// ``copy(from:to:progress:)``. Prefer this over SFTP rename when the source and destination may span
-    /// filesystems (the shell `mv` / `Move-Item` path handles that).
-    ///
-    /// When `progress` is non-`nil`, verbose remote reporting is enabled where supported; completed paths are passed to
-    /// `progress`. If nothing parseable is emitted, `progress` is never called.
+    /// Prefer this over SFTP rename when the source and destination may span filesystems (the shell `mv` /
+    /// `Move-Item` path handles that). Progress behaves like ``copy(from:to:progress:)``.
     ///
     /// - Parameters:
     ///   - from: Existing remote source path.
@@ -115,9 +116,8 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Concatenates remote files into a single destination path entirely on the server.
     ///
-    /// Sources are written in order. Parent directories of `to` are created when the shell supports it. Paths follow the
-    /// same rewriting rules as ``copy(from:to:progress:)``. Suitable for binary and text payloads (Unix `cat`, Windows
-    /// binary `copy /b` or a PowerShell stream copy).
+    /// Sources are written in order. Suitable for binary and text payloads (Unix `cat`, Windows binary `copy /b` or a
+    /// PowerShell stream copy).
     ///
     /// - Parameters:
     ///   - files: One or more existing remote source paths, in the order they should appear in the result.
@@ -128,9 +128,6 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Creates (or overwrites) a remote file filled with zero bytes.
     ///
-    /// Parent directories are created when the shell supports it. Paths follow the same rewriting rules as
-    /// ``copy(from:to:progress:)``.
-    ///
     /// - Parameters:
     ///   - file: Remote destination path.
     ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
@@ -140,8 +137,7 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Creates (or overwrites) a remote file filled with random bytes from the host CSPRNG.
     ///
-    /// Parent directories are created when the shell supports it. Paths follow the same rewriting rules as
-    /// ``copy(from:to:progress:)``. On Unix this is typically `/dev/urandom`; on Windows a cryptographic RNG is used.
+    /// On Unix this is typically `/dev/urandom`; on Windows a cryptographic RNG is used.
     ///
     /// - Parameters:
     ///   - file: Remote destination path.
@@ -152,8 +148,7 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Creates a tar archive on the server from remote paths.
     ///
-    /// Compression modes are limited to those accepted by both GNU tar and bsdtar. Parent directories of `output` are
-    /// created when the shell supports it. Paths follow the same rewriting rules as ``copy(from:to:progress:)``.
+    /// Compression modes are limited to those accepted by both GNU tar and bsdtar.
     ///
     /// - Parameters:
     ///   - input: One or more remote files or directories to include (order preserved).
@@ -164,9 +159,6 @@ public protocol SSHShellAgentProtocol: Sendable {
     func tar(input: [String], output: String, compression: TarCompression) async throws
 
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
-    ///
-    /// Paths may be supplied in SFTP form (`/C:/Users/...`) or native Windows form; on Windows shells they are
-    /// rewritten to OS paths before hashing. On Unix shells they stay POSIX/`/`-separated.
     ///
     /// - Parameters:
     ///   - file: Remote regular-file path to hash.
