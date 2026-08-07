@@ -4,7 +4,8 @@ public extension SFTPClient {
     /// Creates a shell agent with a **persistent** SSH channel for server-side operations.
     ///
     /// When `shellType` is `nil`, the remote host is probed with one-shot `exec` helpers (`uname`, then Windows
-    /// PowerShell / `cmd` heuristics). The client must already be logged in. The returned agent reuses one channel until
+    /// PowerShell / `cmd` heuristics). The client must already be logged in. The returned agent reuses one channel
+    /// until
     /// ``SSHShellAgent/close()``; it inherits this client's `trapOnDeInitWithoutClose` and logger.
     ///
     /// - Parameter shellType: Explicit shell family, or `nil` to detect automatically.

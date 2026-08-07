@@ -170,13 +170,12 @@ extension ShellAgentSupport {
 
         case .windowsPowerShell:
             let path = powerShellQuote(pathNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
+            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
+                .isSFTPDriveRootOrSlash {
+                ""
             }
             else {
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
             }
             // SetLength establishes the size; NTFS may store it sparsely, which still reads as zeros.
             return
@@ -216,13 +215,12 @@ extension ShellAgentSupport {
 
         case .windowsPowerShell:
             let path = powerShellQuote(pathNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
+            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
+                .isSFTPDriveRootOrSlash {
+                ""
             }
             else {
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
             }
             // Chunked CSPRNG write so multi-GB files need not fit in memory.
             return
@@ -231,13 +229,12 @@ extension ShellAgentSupport {
         case .windowsCommandPrompt:
             // No portable pure-cmd CSPRNG; use a one-shot PowerShell child (same as other cmd-hosted ops).
             let path = powerShellQuote(pathNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
+            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
+                .isSFTPDriveRootOrSlash {
+                ""
             }
             else {
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
             }
             let script =
                 "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); $__rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $__left = [int64]\(length); try { while ($__left -gt 0) { $__n = [int]([Math]::Min([int64]1048576, $__left)); $__chunk = New-Object byte[] $__n; $__rng.GetBytes($__chunk); $__f.Write($__chunk, 0, $__n); $__left -= $__n } } finally { $__rng.Dispose(); $__f.Dispose() }"
@@ -261,8 +258,8 @@ extension ShellAgentSupport {
         let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
         let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
 
-        // Shared flag forms: -c create, optional compression, -f archive, then members.
-        // Both GNU tar and bsdtar accept this layout.
+        // Shared flag forms: -c create, optional compression, -f archive, then members. Both GNU tar and bsdtar accept
+        // this layout.
         let compressionFlags = compression.tarCreateFlags.joined(separator: " ")
         let compressionPart = compressionFlags.isEmpty ? "" : "\(compressionFlags) "
 
@@ -280,13 +277,12 @@ extension ShellAgentSupport {
             // Windows ships bsdtar as `tar.exe`; same flags as libarchive/bsdtar.
             let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
+            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
+                .isSFTPDriveRootOrSlash {
+                ""
             }
             else {
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
             }
             return "\(ensureParent)tar -c \(compressionPart)-f \(archive) \(members)"
 
@@ -371,12 +367,14 @@ extension ShellAgentSupport {
             }
 
         case .tar:
-            // Empty archive with ZIP format: succeeds on bsdtar/libarchive, fails on stock GNU tar.
+            // Empty archive with ZIP format: succeeds on bsdtar/libarchive, fails on stock GNU tar. Never `exit` the
+            // persistent shell — use a subshell status (`(exit N)`) or `cmd /b`.
             switch shellType {
             case .darwin, .linux, .posixCompatible:
                 return
-                    "tmp=$(mktemp ${TMPDIR:-/tmp}/swiftsftp-zip-probe.XXXXXX.zip) && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; exit $ec"
+                    "tmp=$(mktemp ${TMPDIR:-/tmp}/swiftsftp-zip-probe.XXXXXX.zip) && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; (exit $ec)"
             case .windowsPowerShell:
+                // Runs as one-shot powershell.exe under cmd host framing.
                 return
                     "$tmp = Join-Path $env:TEMP (\"swiftsftp-zip-probe-\" + [guid]::NewGuid().ToString() + \".zip\"); tar --format=zip -cf $tmp --files-from NUL 2>$null; $ec = $LASTEXITCODE; Remove-Item -Force -ErrorAction SilentlyContinue $tmp; if ($null -eq $ec) { exit 1 } else { exit $ec }"
             case .windowsCommandPrompt:
@@ -389,7 +387,8 @@ extension ShellAgentSupport {
             case .darwin, .linux, .posixCompatible:
                 throw ShellAgentError.hostDoesNotSupportOperation
             case .windowsPowerShell:
-                return "if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
+                return
+                    "if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
             case .windowsCommandPrompt:
                 return
                     "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
@@ -515,13 +514,12 @@ extension ShellAgentSupport {
             // Persistent host is cmd; always go through powershell.exe for Compress-Archive.
             let paths = sourcesNative.map(powerShellQuote).joined(separator: ", ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
+            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
+                .isSFTPDriveRootOrSlash {
+                ""
             }
             else {
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
             }
             let level = powerShellCompressArchiveLevel(compressionLevel)
             let script =
@@ -543,6 +541,95 @@ extension ShellAgentSupport {
         case 0: "NoCompression"
         case 1 ... 3: "Fastest"
         default: "Optimal"
+        }
+    }
+
+    /// Preferred 7-Zip executable names, first match wins.
+    static let sevenZipBinaryPreferenceOrder = ["7z", "7zz", "7za"]
+
+    /// Remote probe that exits 0 when a 7-Zip CLI appears to be installed.
+    static func sevenZipProbeCommand(shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            // Prefer `command -v` over a full `7z` invocation (avoids noisy banners).
+            "command -v 7z >/dev/null 2>&1 || command -v 7zz >/dev/null 2>&1 || command -v 7za >/dev/null 2>&1"
+        case .windowsPowerShell:
+            "if (-not (Get-Command 7z,7zz,7za -ErrorAction SilentlyContinue | Select-Object -First 1)) { exit 1 }"
+        case .windowsCommandPrompt:
+            "where 7z >nul 2>nul || where 7zz >nul 2>nul || where 7za >nul 2>nul"
+        }
+    }
+
+    /// Resolves which binary name is present on the remote host for use in archive commands.
+    ///
+    /// Prints a preferred binary name on stdout. Does not call `exit` on Unix (that would kill a persistent `bash -s`).
+    static func sevenZipResolveBinaryCommand(shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            // Echo the first available name; if none, print nothing and fail via `(exit 1)` in a subshell.
+            "if command -v 7z >/dev/null 2>&1; then echo 7z; elif command -v 7zz >/dev/null 2>&1; then echo 7zz; elif command -v 7za >/dev/null 2>&1; then echo 7za; else (exit 1); fi"
+        case .windowsPowerShell:
+            "$c = Get-Command 7z,7zz,7za -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $c) { exit 1 }; Write-Output $c.Name"
+        case .windowsCommandPrompt:
+            // Print first matching executable path (caller strips to base name).
+            "where 7z 2>nul || where 7zz 2>nul || where 7za 2>nul"
+        }
+    }
+
+    static func sevenZipCommand(
+        shellType: ShellType,
+        binary: String,
+        input: [String],
+        output: String,
+        compressionLevel: Int
+    ) throws -> String {
+        guard !input.isEmpty else {
+            throw ShellAgentError.invalidArgument("sevenZip requires at least one input path")
+        }
+        guard (0 ... 9).contains(compressionLevel) else {
+            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
+        }
+        // Only allow known 7-Zip binary names (resolved by probe, never from caller input).
+        guard sevenZipBinaryPreferenceOrder.contains(binary) else {
+            throw ShellAgentError.invalidArgument("unsupported 7-Zip binary name: \(binary)")
+        }
+
+        let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
+        let outputNative = pathForRemoteShell(output, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        // `a` = add/create; `-y` assume Yes; `-bd` disable progress; `-mxN` compression level.
+        // Passing directories includes their contents. Remove existing archive first so the result is a full recreate.
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
+            let archive = unixShellQuote(outputNative)
+            let create = "rm -f \(archive) && \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return create
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+
+        case .windowsPowerShell:
+            let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent = windowsPowerShellEnsureParent(
+                parentSFTP: parentSFTP,
+                parentNative: parentNative
+            )
+            return
+                "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
+
+        case .windowsCommandPrompt:
+            let members = sourcesNative.map(cmdQuote).joined(separator: " ")
+            let archive = cmdQuote(outputNative)
+            let create =
+                "if exist \(archive) del /f /q \(archive) & \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return create
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
         }
     }
 
@@ -640,10 +727,10 @@ extension ShellAgentSupport {
     static func readyProbe(shellType: ShellType) -> String {
         switch shellType {
         case .darwin, .linux, .posixCompatible:
-            return "echo \(SSHShellAgent.markerReady)\n"
+            "echo \(SSHShellAgent.markerReady)\n"
         case .windowsPowerShell, .windowsCommandPrompt:
             // Persistent host is `cmd /K` for both Windows families.
-            return "echo \(SSHShellAgent.markerReady)\r\n"
+            "echo \(SSHShellAgent.markerReady)\r\n"
         }
     }
 
@@ -657,12 +744,12 @@ extension ShellAgentSupport {
             \(command)
             echo \(SSHShellAgent.markerRCPrefix)$?
             echo \(SSHShellAgent.markerDone)
-
+            
             """
 
         case .windowsPowerShell:
-            // Host is cmd; run the PowerShell snippet in a one-shot child, then print markers from cmd.
-            // cmd.exe expects CRLF line endings on the wire.
+            // Host is cmd; run the PowerShell snippet in a one-shot child, then print markers from cmd. cmd.exe expects
+            // CRLF line endings on the wire.
             let ps = powerShellRemoteCommand(command)
             return [
                 "echo \(SSHShellAgent.markerBegin)",

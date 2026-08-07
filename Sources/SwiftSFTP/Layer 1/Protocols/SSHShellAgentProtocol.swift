@@ -119,6 +119,20 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// errors.
     func zip(input: [String], output: String, compressionLevel: Int, tool: ZipTool) async throws
 
+    /// Creates a 7-Zip archive on the server via the `7z` / `7zz` / `7za` utility (p7zip / 7-Zip).
+    ///
+    /// The agent probes for `7z`, then `7zz`, then `7za`. Archive type usually follows the `output` extension (for
+    /// example `.7z`, `.zip`). Common on macOS (Homebrew) and Linux (p7zip); optional on Windows.
+    ///
+    /// - Parameters:
+    ///   - input: One or more remote files or directories to include.
+    ///   - output: Remote archive path to create or overwrite.
+    ///   - compressionLevel: Level `0...9` passed as `-mxN` (`0` store / fastest, `9` ultra).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise
+    /// ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func sevenZip(input: [String], output: String, compressionLevel: Int) async throws
+
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
     /// - Parameters:

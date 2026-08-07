@@ -147,7 +147,7 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         input: [String],
         output: String,
         compressionLevel: Int,
-        tool: ZipTool
+        tool: ZipTool = .poke
     ) async throws {
         let resolvedTool = try resolveZipTool(tool)
         let command = try ShellAgentSupport.zipCommand(
@@ -158,6 +158,63 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             tool: resolvedTool
         )
         try runTransferCommand(command, progress: nil)
+    }
+
+    public func sevenZip(input: [String], output: String, compressionLevel: Int) async throws {
+        // Validate caller arguments before probing the host so missing 7-Zip does not mask invalid input.
+        guard !input.isEmpty else {
+            throw ShellAgentError.invalidArgument("sevenZip requires at least one input path")
+        }
+        guard (0 ... 9).contains(compressionLevel) else {
+            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
+        }
+        let binary = try resolveSevenZipBinary()
+        let command = try ShellAgentSupport.sevenZipCommand(
+            shellType: shellType,
+            binary: binary,
+            input: input,
+            output: output,
+            compressionLevel: compressionLevel
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    /// Picks `7z`, `7zz`, or `7za` when present on the remote host.
+    private func resolveSevenZipBinary() throws -> String {
+        let resolve = ShellAgentSupport.sevenZipResolveBinaryCommand(shellType: shellType)
+        let result = try executeOnPersistentShell(resolve)
+        guard result.exitStatus == 0 else {
+            throw ShellAgentError.hostDoesNotSupportOperation
+        }
+        let name = result.stdoutString
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+            .map { String($0) }
+        // Windows `where` may print a full path; keep the last path component and strip `.exe`.
+        if let name {
+            var base = name
+            if let slash = base.lastIndex(of: "\\") {
+                base = String(base[base.index(after: slash)...])
+            }
+            else if let slash = base.lastIndex(of: "/") {
+                base = String(base[base.index(after: slash)...])
+            }
+            if base.lowercased().hasSuffix(".exe") {
+                base = String(base.dropLast(4))
+            }
+            let normalized = base.lowercased()
+            if ShellAgentSupport.sevenZipBinaryPreferenceOrder.contains(where: { $0 == normalized }) {
+                return normalized
+            }
+            // Accept exact match against preferred names regardless of case.
+            if let match = ShellAgentSupport.sevenZipBinaryPreferenceOrder.first(where: {
+                $0.caseInsensitiveCompare(base) == .orderedSame
+            }) {
+                return match
+            }
+        }
+        throw ShellAgentError.hostDoesNotSupportOperation
     }
 
     /// Resolves ``ZipTool/poke`` by probing the remote host in preference order.
@@ -399,7 +456,8 @@ extension SSHShellAgent {
                 message: "/bin/bash --norc --noprofile -s"
             )
         case .windowsPowerShell, .windowsCommandPrompt:
-            // Persistent `cmd /K`. PowerShell tool invocations are still one-shot under that cmd (see wrapForPersistentShell):
+            // Persistent `cmd /K`. PowerShell tool invocations are still one-shot under that cmd (see
+            // wrapForPersistentShell):
             // `powershell -Command -` buffers until stdin EOF, so it cannot host a multi-command session by itself.
             try ChannelProcessStartup(
                 channel: channel,
@@ -436,7 +494,12 @@ extension SSHShellAgent {
         var lineBuffer = Data()
         let chunkSize = 32 * 1024
         let wait = client.timeout
-        let seconds: TimeInterval = if wait == .infinity || wait <= 0 { 30 } else { max(wait, 5) }
+        let seconds: TimeInterval = if wait == .infinity || wait <= 0 {
+            30
+        }
+        else {
+            max(wait, 5)
+        }
         let deadline = Date().addingTimeInterval(seconds)
 
         while Date() < deadline {

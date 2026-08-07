@@ -818,6 +818,22 @@ try await agent.zip(
 Empty `input` or a level outside `0...9` throws `invalidArgument`. `.microsoft` on a Unix shell throws
 `hostDoesNotSupportOperation`. If `.poke` finds no usable tool, it also throws `hostDoesNotSupportOperation`.
 
+### Create a 7-Zip archive
+
+Uses the remote **7-Zip / p7zip** CLI (`7z`, then `7zz`, then `7za`):
+
+```swift
+try await agent.sevenZip(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/bundle.7z",
+    compressionLevel: 9
+)
+```
+
+`compressionLevel` is `0...9` (`-mxN`). The archive type generally follows the `output` extension (`.7z`, `.zip`,
+…). Empty `input` or a level outside `0...9` throws `invalidArgument`. Missing 7-Zip on the host throws
+`hostDoesNotSupportOperation`. Common via Homebrew (`p7zip`) on macOS and distro packages on Linux.
+
 ### Calculating a remote hash
 
 ```swift

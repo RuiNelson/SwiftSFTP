@@ -124,6 +124,53 @@ struct ShellAgentUnitTests {
         #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
     }
 
+    @Test("sevenZip command uses -mx and preferred binary names")
+    func sevenZipCommandShapes() throws {
+        let cmd = try ShellAgentSupport.sevenZipCommand(
+            shellType: .linux,
+            binary: "7z",
+            input: ["/data/a", "/data/b"],
+            output: "/data/out/x.7z",
+            compressionLevel: 9
+        )
+        #expect(cmd.contains("mkdir -p '/data/out'"))
+        #expect(cmd.contains("7z a -y -bd -mx9 "))
+        #expect(cmd.contains("'/data/out/x.7z'"))
+        #expect(cmd.contains("rm -f "))
+
+        #expect(throws: ShellAgentError.invalidArgument("sevenZip requires at least one input path")) {
+            try ShellAgentSupport.sevenZipCommand(
+                shellType: .linux,
+                binary: "7z",
+                input: [],
+                output: "/x.7z",
+                compressionLevel: 5
+            )
+        }
+        #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
+            try ShellAgentSupport.sevenZipCommand(
+                shellType: .linux,
+                binary: "7z",
+                input: ["/a"],
+                output: "/x.7z",
+                compressionLevel: 11
+            )
+        }
+        #expect(throws: ShellAgentError.invalidArgument("unsupported 7-Zip binary name: evil")) {
+            try ShellAgentSupport.sevenZipCommand(
+                shellType: .linux,
+                binary: "evil",
+                input: ["/a"],
+                output: "/x.7z",
+                compressionLevel: 1
+            )
+        }
+
+        let probe = ShellAgentSupport.sevenZipProbeCommand(shellType: .darwin)
+        #expect(probe.contains("command -v 7z"))
+        #expect(ShellAgentSupport.sevenZipBinaryPreferenceOrder == ["7z", "7zz", "7za"])
+    }
+
     @Test("zip command shapes for infoZip, tar, and microsoft")
     func zipCommandShapes() throws {
         let info = try ShellAgentSupport.zipCommand(
