@@ -149,6 +149,13 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         compressionLevel: Int,
         tool: ZipTool = .poke
     ) async throws {
+        // Validate caller arguments before probing the host so missing zip tooling does not mask invalid input.
+        guard !input.isEmpty else {
+            throw ShellAgentError.invalidArgument("zip requires at least one input path")
+        }
+        guard (0 ... 9).contains(compressionLevel) else {
+            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
+        }
         let resolvedTool = try resolveZipTool(tool)
         let command = try ShellAgentSupport.zipCommand(
             shellType: shellType,
@@ -198,8 +205,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         guard !to.isEmpty else {
             throw ShellAgentError.invalidArgument("unzip requires a non-empty destination directory")
         }
-        try await ensureDestinationDirectory(to)
+        // Resolve tooling before creating `to`, so an unsupported host leaves no empty directory behind.
         let resolvedTool = try resolveUnzipTool(tool)
+        try await ensureDestinationDirectory(to)
         let command = try ShellAgentSupport.unzipCommand(
             shellType: shellType,
             file: file,
@@ -216,8 +224,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         guard !to.isEmpty else {
             throw ShellAgentError.invalidArgument("unSevenZip requires a non-empty destination directory")
         }
-        try await ensureDestinationDirectory(to)
+        // Resolve tooling before creating `to`, so an unsupported host leaves no empty directory behind.
         let binary = try resolveSevenZipBinary()
+        try await ensureDestinationDirectory(to)
         let command = try ShellAgentSupport.unSevenZipCommand(
             shellType: shellType,
             binary: binary,
@@ -344,8 +353,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         guard !url.absoluteString.isEmpty else {
             throw ShellAgentError.invalidArgument("download requires a non-empty URL")
         }
-        try await ensureParentDirectory(of: file)
+        // Probe for curl before creating directories, so a host without it leaves no empty parent behind.
         try requireCurl()
+        try await ensureParentDirectory(of: file)
         let command = try ShellAgentSupport.downloadCommand(
             shellType: shellType,
             url: url,
@@ -442,8 +452,9 @@ extension SSHShellAgent {
                 guard !trimmed.isEmpty else {
                     return
                 }
-                // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines.
-                let payload = ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
+                // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such
+                // prompt, and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
+                let payload = shellType.iKnowThis ? trimmed : ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
                 guard !payload.isEmpty else {
                     return
                 }

@@ -372,8 +372,10 @@ extension ShellAgentSupport {
             // persistent shell — use a subshell status (`(exit N)`) or `cmd /b`.
             switch shellType {
             case .darwin, .linux, .posixCompatible:
+                // The `X`s must trail the template: BSD `mktemp` (macOS) does not substitute them before a suffix, so
+                // `…XXXXXX.zip` would name one fixed file that a stale leftover or a concurrent probe could block.
                 return
-                    "tmp=$(mktemp ${TMPDIR:-/tmp}/swiftsftp-zip-probe.XXXXXX.zip) && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; (exit $ec)"
+                    "tmp=$(mktemp \"${TMPDIR:-/tmp}/swiftsftp-zip-probe-XXXXXXXX\") && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; (exit $ec)"
             case .windowsPowerShell:
                 // Runs as one-shot powershell.exe under cmd host framing.
                 return
@@ -984,10 +986,13 @@ extension ShellAgentSupport {
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             // Run as one shell line group so `$?` reflects the command (including `a && b` pipelines).
+            //
+            // `printf` opens the status marker with a newline: output that is not newline-terminated would otherwise
+            // share a line with the marker and be swallowed by the reader.
             return """
             echo \(SSHShellAgent.markerBegin)
             \(command)
-            echo \(SSHShellAgent.markerRCPrefix)$?
+            printf '\\n\(SSHShellAgent.markerRCPrefix)%s\\n' "$?"
             echo \(SSHShellAgent.markerDone)
             
             """
@@ -996,22 +1001,27 @@ extension ShellAgentSupport {
             // Host is cmd; run the PowerShell snippet in a one-shot child, then print markers from cmd. cmd.exe expects
             // CRLF line endings on the wire.
             let ps = powerShellRemoteCommand(command)
-            return [
-                "echo \(SSHShellAgent.markerBegin)",
-                ps,
-                "echo \(SSHShellAgent.markerRCPrefix)%ERRORLEVEL%",
-                "echo \(SSHShellAgent.markerDone)",
-                "",
-            ].joined(separator: "\r\n")
+            return windowsPersistentShellFraming(ps)
 
         case .windowsCommandPrompt:
-            return [
-                "echo \(SSHShellAgent.markerBegin)",
-                command,
-                "echo \(SSHShellAgent.markerRCPrefix)%ERRORLEVEL%",
-                "echo \(SSHShellAgent.markerDone)",
-                "",
-            ].joined(separator: "\r\n")
+            return windowsPersistentShellFraming(command)
         }
+    }
+
+    /// cmd.exe marker framing: capture the status first, then break the line before printing the marker.
+    ///
+    /// Capturing into a variable keeps the status independent of the intervening `echo.`, and the blank line keeps
+    /// output that is not CRLF-terminated from sharing a line with the status marker.
+    private static func windowsPersistentShellFraming(_ command: String) -> String {
+        let status = "__SWIFTSFTP_STATUS"
+        return [
+            "echo \(SSHShellAgent.markerBegin)",
+            command,
+            "set \"\(status)=%ERRORLEVEL%\"",
+            "echo.",
+            "echo \(SSHShellAgent.markerRCPrefix)%\(status)%",
+            "echo \(SSHShellAgent.markerDone)",
+            "",
+        ].joined(separator: "\r\n")
     }
 }

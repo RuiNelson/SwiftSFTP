@@ -733,6 +733,51 @@ struct ShellAgentUnitTests {
         #expect(digest.hexString == "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d")
     }
 
+    @Test("Data(hexString:) rejects anything but plain hex pairs")
+    func hexStringRejectsNonHex() {
+        #expect(Data(hexString: "0a1b")?.hexString == "0a1b")
+        // `UInt8(_:radix:)` would happily read a signed literal.
+        #expect(Data(hexString: "+f") == nil)
+        #expect(Data(hexString: "-1") == nil)
+        // Non-ASCII digits satisfy `isHexDigit` but are not wire hex.
+        #expect(Data(hexString: "ａb") == nil)
+        #expect(Data(hexString: "abc") == nil)
+    }
+
+    // MARK: - Persistent shell framing
+
+    @Test("wrapForPersistentShell keeps the status marker on its own line")
+    func persistentShellFramingIsolatesStatusMarker() {
+        // Output that is not newline-terminated must not share a line with the status marker, or the reader drops it.
+        let unix = ShellAgentSupport.wrapForPersistentShell("printf abc", shellType: .linux)
+        #expect(unix.contains(#"printf '\n\#(SSHShellAgent.markerRCPrefix)%s\n' "$?""#))
+        #expect(!unix.contains("echo \(SSHShellAgent.markerRCPrefix)"))
+
+        for shellType in [ShellType.windowsCommandPrompt, .windowsPowerShell] {
+            let lines = ShellAgentSupport
+                .wrapForPersistentShell("whoami", shellType: shellType)
+                .components(separatedBy: "\r\n")
+            let statusLine = "echo \(SSHShellAgent.markerRCPrefix)%__SWIFTSFTP_STATUS%"
+            guard let statusIndex = lines.firstIndex(of: statusLine), statusIndex > 0 else {
+                Issue.record("No status marker line for \(shellType)")
+                continue
+            }
+            #expect(lines[statusIndex - 1] == "echo.")
+            // The status is captured before the blank line so `%ERRORLEVEL%` cannot be clobbered in between.
+            #expect(lines.contains(#"set "__SWIFTSFTP_STATUS=%ERRORLEVEL%""#))
+        }
+    }
+
+    @Test("tar zip probe uses a trailing-X mktemp template")
+    func tarZipProbeTemplateIsUnique() throws {
+        // BSD `mktemp` (macOS) leaves `X`s alone unless they end the template, which would pin the probe to one fixed
+        // path that a stale file or a concurrent probe could block.
+        for shellType in [ShellType.darwin, .linux, .posixCompatible] {
+            let probe = try ShellAgentSupport.zipToolProbeCommand(tool: .tar, shellType: shellType)
+            #expect(probe.contains(#"mktemp "${TMPDIR:-/tmp}/swiftsftp-zip-probe-XXXXXXXX""#))
+        }
+    }
+
     @Test("digestByteCount matches algorithm sizes")
     func digestByteCounts() {
         #expect(ShellAgentSupport.digestByteCount(for: .md5) == 16)

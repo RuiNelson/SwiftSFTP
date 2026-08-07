@@ -739,6 +739,30 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    @Test("persistent shell keeps output that is not newline-terminated")
+    func persistentShellKeepsUnterminatedOutput() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let result = try agent.executeOnPersistentShell("printf 'PAYLOAD-NO-NEWLINE'")
+                #expect(result.exitStatus == 0)
+                #expect(result.stdoutString.contains("PAYLOAD-NO-NEWLINE"))
+            }
+        }
+    }
+
+    @Test("persistent shell does not strip cmd prompts from Unix output")
+    func persistentShellKeepsUnixLinesWhole() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                // Unix hosts print no `C:\path>` prompt, so lines shaped like one are real output.
+                let result = try agent.executeOnPersistentShell("echo 'C:something>tail'; echo 'a: 1 > 2'")
+                #expect(result.exitStatus == 0)
+                #expect(result.stdoutString.contains("C:something>tail"))
+                #expect(result.stdoutString.contains("a: 1 > 2"))
+            }
+        }
+    }
+
     @Test("executeRemoteCommand captures stdout from a simple echo")
     func executeRemoteCommandEcho() async throws {
         try await withClient { client in
