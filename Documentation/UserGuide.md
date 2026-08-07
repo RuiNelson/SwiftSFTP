@@ -215,6 +215,25 @@ Store the fingerprint securely and supply it via `.shortHandAcceptedKeys` on sub
 
 ## Navigating the Remote Filesystem
 
+### Windows SFTP servers and path notation
+
+SFTP always uses `/` as the path separator. On **OpenSSH for Windows**, a drive path is exposed as `/C:/Users/...`, not
+`C:\Users\...`. Convert Windows notation with `String.sftpPathFromWindows` before calling the client:
+
+```swift
+let remote = #"C:\Users\alice\Documents\report.pdf"#.sftpPathFromWindows
+// → "/C:/Users/alice/Documents/report.pdf"
+
+try await client.upload(from: localURL, to: remote)
+try await client.listDirectory(path: #"D:\data"#.sftpPathFromWindows) // → "/D:/data"
+```
+
+Relative Windows paths keep a relative shape (`#"docs\file.txt"#.sftpPathFromWindows` → `"docs/file.txt"`). Paths that
+are already SFTP-style are only normalized. Drive letters are **not** rewritten automatically inside `SFTPClient`, so
+ordinary Unix paths such as `/var/log` are never treated as Windows drives.
+
+When unsure of the server layout, start from `currentWorkingDirectory` and list `"."`.
+
 ```swift
 // Working directory
 let cwd = try await client.currentWorkingDirectory
