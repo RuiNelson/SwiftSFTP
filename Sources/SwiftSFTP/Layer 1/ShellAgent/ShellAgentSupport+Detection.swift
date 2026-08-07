@@ -8,12 +8,12 @@ extension ShellAgentSupport {
 
         switch name.lowercased() {
         case "darwin":
-            return .zshDarwin
+            return .darwin
         case "linux":
-            return .bashLinux
+            return .linux
         default:
             // FreeBSD, OpenBSD, NetBSD, SunOS, AIX, …
-            return .otherUnixLike
+            return .posixCompatible
         }
     }
 }

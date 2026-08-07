@@ -29,12 +29,12 @@ struct ShellAgentUnitTests {
 
     @Test("classifyUname maps known kernels")
     func classifyUname() {
-        #expect(ShellAgentSupport.classifyUname("Darwin") == .zshDarwin)
-        #expect(ShellAgentSupport.classifyUname("Linux") == .bashLinux)
-        #expect(ShellAgentSupport.classifyUname("linux") == .bashLinux)
-        #expect(ShellAgentSupport.classifyUname("FreeBSD") == .otherUnixLike)
-        #expect(ShellAgentSupport.classifyUname("OpenBSD") == .otherUnixLike)
-        #expect(ShellAgentSupport.classifyUname("  Linux\n") == .bashLinux)
+        #expect(ShellAgentSupport.classifyUname("Darwin") == .darwin)
+        #expect(ShellAgentSupport.classifyUname("Linux") == .linux)
+        #expect(ShellAgentSupport.classifyUname("linux") == .linux)
+        #expect(ShellAgentSupport.classifyUname("FreeBSD") == .posixCompatible)
+        #expect(ShellAgentSupport.classifyUname("OpenBSD") == .posixCompatible)
+        #expect(ShellAgentSupport.classifyUname("  Linux\n") == .linux)
         #expect(ShellAgentSupport.classifyUname("") == nil)
         #expect(ShellAgentSupport.classifyUname("   ") == nil)
     }
@@ -43,12 +43,12 @@ struct ShellAgentUnitTests {
 
     @Test("supportsHashAlgorithm matches platform tooling")
     func supportsHashAlgorithm() {
-        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha256, shellType: .bashLinux))
-        #expect(ShellAgentSupport.supportsHashAlgorithm(.md5, shellType: .bashLinux))
-        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .bashLinux))
-        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .otherUnixLike))
-        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .zshDarwin))
-        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .zshDarwin))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha256, shellType: .linux))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.md5, shellType: .linux))
+        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .linux))
+        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .posixCompatible))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .darwin))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .darwin))
         #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha224, shellType: .windowsPowerShell))
     }
 
@@ -78,7 +78,7 @@ struct ShellAgentUnitTests {
         }
         #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
             try ShellAgentSupport.hashCommand(
-                shellType: .bashLinux,
+                shellType: .linux,
                 file: "/tmp/data.bin",
                 algorithm: .sha512224
             )
@@ -90,7 +90,7 @@ struct ShellAgentUnitTests {
     @Test("unix copy creates parent directories when needed")
     func unixCopyCommand() throws {
         let withParent = try ShellAgentSupport.copyCommand(
-            shellType: .bashLinux,
+            shellType: .linux,
             from: "/home/u/a.bin",
             to: "/home/u/nested/b.bin"
         )
@@ -99,7 +99,7 @@ struct ShellAgentUnitTests {
 
         // Sibling under an existing parent still issues mkdir -p (idempotent on Unix).
         let sibling = try ShellAgentSupport.copyCommand(
-            shellType: .bashLinux,
+            shellType: .linux,
             from: "/home/u/a.bin",
             to: "/home/u/b.bin"
         )
@@ -108,7 +108,7 @@ struct ShellAgentUnitTests {
 
         // Root-level destination has no mkdir step.
         let rootLevel = try ShellAgentSupport.copyCommand(
-            shellType: .bashLinux,
+            shellType: .linux,
             from: "/a.bin",
             to: "/b.bin"
         )
@@ -119,15 +119,15 @@ struct ShellAgentUnitTests {
     @Test("Linux hash uses md5sum and sha*sum")
     func linuxHashCommand() throws {
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .md5)
+            try ShellAgentSupport.hashCommand(shellType: .linux, file: "/tmp/f.bin", algorithm: .md5)
                 == "md5sum '/tmp/f.bin'"
         )
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .sha256)
+            try ShellAgentSupport.hashCommand(shellType: .linux, file: "/tmp/f.bin", algorithm: .sha256)
                 == "sha256sum '/tmp/f.bin'"
         )
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .sha1)
+            try ShellAgentSupport.hashCommand(shellType: .linux, file: "/tmp/f.bin", algorithm: .sha1)
                 == "sha1sum '/tmp/f.bin'"
         )
     }
@@ -135,15 +135,15 @@ struct ShellAgentUnitTests {
     @Test("Darwin hash uses md5 and shasum")
     func darwinHashCommand() throws {
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .md5)
+            try ShellAgentSupport.hashCommand(shellType: .darwin, file: "/tmp/f.bin", algorithm: .md5)
                 == "md5 -q '/tmp/f.bin'"
         )
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .sha256)
+            try ShellAgentSupport.hashCommand(shellType: .darwin, file: "/tmp/f.bin", algorithm: .sha256)
                 == "shasum -a 256 '/tmp/f.bin'"
         )
         #expect(
-            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .sha512224)
+            try ShellAgentSupport.hashCommand(shellType: .darwin, file: "/tmp/f.bin", algorithm: .sha512224)
                 == "shasum -a 512224 '/tmp/f.bin'"
         )
     }
@@ -155,6 +155,7 @@ struct ShellAgentUnitTests {
             file: "/C:/tmp/f.bin",
             algorithm: .sha256
         )
+        #expect(fromSFTP.contains("powershell -NoProfile -NonInteractive -Command"))
         #expect(fromSFTP.contains("Get-FileHash"))
         #expect(fromSFTP.contains("-Algorithm SHA256"))
         #expect(fromSFTP.contains(#"C:\tmp\f.bin"#))
@@ -165,6 +166,7 @@ struct ShellAgentUnitTests {
             algorithm: .sha256
         )
         #expect(fromNative.contains(#"C:\tmp\f.bin"#))
+        #expect(fromNative.hasPrefix("powershell "))
     }
 
     // MARK: - Path rewriting for remote shells
@@ -172,14 +174,14 @@ struct ShellAgentUnitTests {
     @Test("pathForRemoteShell keeps POSIX paths on Unix")
     func pathForRemoteShellUnix() {
         #expect(
-            ShellAgentSupport.pathForRemoteShell("/home/u/file.txt", shellType: .bashLinux) == "/home/u/file.txt"
+            ShellAgentSupport.pathForRemoteShell("/home/u/file.txt", shellType: .linux) == "/home/u/file.txt"
         )
         #expect(
-            ShellAgentSupport.pathForRemoteShell(#"docs\file.txt"#, shellType: .zshDarwin) == "docs/file.txt"
+            ShellAgentSupport.pathForRemoteShell(#"docs\file.txt"#, shellType: .darwin) == "docs/file.txt"
         )
         // Drive-letter SFTP form is left alone on Unix (literal path components).
         #expect(
-            ShellAgentSupport.pathForRemoteShell("/C:/abc/xyz.txt", shellType: .bashLinux) == "/C:/abc/xyz.txt"
+            ShellAgentSupport.pathForRemoteShell("/C:/abc/xyz.txt", shellType: .linux) == "/C:/abc/xyz.txt"
         )
     }
 
@@ -214,6 +216,7 @@ struct ShellAgentUnitTests {
             from: "/C:/src/a.bin",
             to: "/C:/dst/nested/b.bin"
         )
+        #expect(command.hasPrefix("powershell "))
         #expect(command.contains(#"C:\src\a.bin"#))
         #expect(command.contains(#"C:\dst\nested\b.bin"#))
         #expect(command.contains(#"C:\dst\nested"#))

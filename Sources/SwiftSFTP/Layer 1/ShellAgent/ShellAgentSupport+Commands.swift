@@ -8,7 +8,7 @@ extension ShellAgentSupport {
         let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
 
         switch shellType {
-        case .zshDarwin, .bashLinux, .otherUnixLike:
+        case .darwin, .linux, .posixCompatible:
             let src = unixShellQuote(fromNative)
             let dst = unixShellQuote(toNative)
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
@@ -18,15 +18,17 @@ extension ShellAgentSupport {
             return "mkdir -p \(parentQuoted) && cp -f \(src) \(dst)"
 
         case .windowsPowerShell:
+            // Always invoke via `powershell.exe` so commands work when OpenSSH's default shell is cmd.exe.
             let src = powerShellQuote(fromNative)
             let dst = powerShellQuote(toNative)
             // Drive roots (`/C:` → `C:\`) and `.` need no New-Item step.
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "Copy-Item -Force -LiteralPath \(src) -Destination \(dst)"
+                return powerShellRemoteCommand("Copy-Item -Force -LiteralPath \(src) -Destination \(dst)")
             }
             let parentQuoted = powerShellQuote(parentNative)
-            return
+            return powerShellRemoteCommand(
                 "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Copy-Item -Force -LiteralPath \(src) -Destination \(dst)"
+            )
 
         case .windowsCommandPrompt:
             let src = cmdQuote(fromNative)
@@ -47,7 +49,7 @@ extension ShellAgentSupport {
         let nativePath = pathForRemoteShell(file, shellType: shellType)
 
         switch shellType {
-        case .zshDarwin, .bashLinux, .otherUnixLike:
+        case .darwin, .linux, .posixCompatible:
             return try unixHashCommand(shellType: shellType, file: nativePath, algorithm: algorithm)
 
         case .windowsPowerShell:
@@ -55,7 +57,7 @@ extension ShellAgentSupport {
                 throw ShellAgentError.hostDoesNotSupportOperation
             }
             let path = powerShellQuote(nativePath)
-            return "(Get-FileHash -LiteralPath \(path) -Algorithm \(name)).Hash"
+            return powerShellRemoteCommand("(Get-FileHash -LiteralPath \(path) -Algorithm \(name)).Hash")
 
         case .windowsCommandPrompt:
             guard let name = certutilHashAlgorithm(for: algorithm) else {
@@ -79,7 +81,7 @@ extension ShellAgentSupport {
         let path = unixShellQuote(file)
 
         switch shellType {
-        case .zshDarwin:
+        case .darwin:
             // macOS ships `md5` and `shasum` (no GNU md5sum / sha256sum by default).
             switch algorithm {
             case .md5:
@@ -100,7 +102,7 @@ extension ShellAgentSupport {
                 return "shasum -a 512256 \(path)"
             }
 
-        case .bashLinux, .otherUnixLike:
+        case .linux, .posixCompatible:
             // GNU coreutils: md5sum and sha{1,224,256,384,512}sum.
             let tool: String = switch algorithm {
             case .md5: "md5sum"
@@ -117,5 +119,11 @@ extension ShellAgentSupport {
         case .windowsCommandPrompt, .windowsPowerShell:
             throw ShellAgentError.hostDoesNotSupportOperation
         }
+    }
+
+    /// Runs `script` under `powershell.exe` so it works when OpenSSH's default shell is `cmd.exe`.
+    static func powerShellRemoteCommand(_ script: String) -> String {
+        let escaped = script.replacingOccurrences(of: "\"", with: "\\\"")
+        return "powershell -NoProfile -NonInteractive -Command \"\(escaped)\""
     }
 }

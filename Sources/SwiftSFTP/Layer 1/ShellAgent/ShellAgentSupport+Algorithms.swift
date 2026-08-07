@@ -2,10 +2,10 @@ extension ShellAgentSupport {
     /// Whether `algorithm` can be hashed with the remote tools used for `shellType`.
     static func supportsHashAlgorithm(_ algorithm: CalculateHashAlgorithm, shellType: ShellType) -> Bool {
         switch shellType {
-        case .zshDarwin:
+        case .darwin:
             // `md5 -q` + `shasum -a` (Perl Digest::SHA): all cases, including 512224 / 512256.
             true
-        case .bashLinux, .otherUnixLike:
+        case .linux, .posixCompatible:
             // GNU coreutils: md5sum + sha*sum. No sha512/224 or sha512/256.
             switch algorithm {
             case .md5, .sha1, .sha224, .sha256, .sha384, .sha512:

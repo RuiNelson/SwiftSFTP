@@ -7,7 +7,7 @@ extension ShellAgentSupport {
     /// Windows input are rewritten to native paths (`C:\...`) so `exec`'d tools see OS paths.
     static func pathForRemoteShell(_ path: String, shellType: ShellType) -> String {
         switch shellType {
-        case .zshDarwin, .bashLinux, .otherUnixLike:
+        case .darwin, .linux, .posixCompatible:
             // Accept accidental backslashes; never invent drive-letter SFTP forms on Unix hosts.
             path
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23,7 +23,7 @@ extension ShellAgentSupport {
     /// SFTP-style path used only for parent-directory computation with PathWorks (`/` separators).
     static func sftpFormForParentComputation(_ path: String, shellType: ShellType) -> String {
         switch shellType {
-        case .zshDarwin, .bashLinux, .otherUnixLike:
+        case .darwin, .linux, .posixCompatible:
             pathForRemoteShell(path, shellType: shellType)
         case .windowsCommandPrompt, .windowsPowerShell:
             path.sftpPathFromWindows

@@ -10,16 +10,16 @@ struct ShellAgentIntegrationTests {
     func autoDetectsLinux() async throws {
         try await withClient { client in
             let agent = try await client.shellAgent()
-            #expect(agent.shellType == .bashLinux)
-            #expect(agent.shellType.isUnixLike)
+            #expect(agent.shellType == .linux)
+            #expect(agent.shellType.iKnowThis)
         }
     }
 
     @Test("shellAgent accepts an explicit shell type")
     func explicitShellType() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent(shellType: .bashLinux)
-            #expect(agent.shellType == .bashLinux)
+            let agent = try await client.shellAgent(shellType: .linux)
+            #expect(agent.shellType == .linux)
         }
     }
 
@@ -134,7 +134,7 @@ struct ShellAgentIntegrationTests {
             }
 
             // Linux coreutils cannot do SHA-512/224 or SHA-512/256.
-            if agent.shellType == .bashLinux {
+            if agent.shellType == .linux {
                 await #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
                     _ = try await agent.calculateHash(file: path, algorithm: .sha512224)
                 }

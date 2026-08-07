@@ -7,7 +7,7 @@ extension ShellAgentSupport {
         stdout: String
     ) throws -> Data {
         switch shellType {
-        case .zshDarwin, .bashLinux, .otherUnixLike:
+        case .darwin, .linux, .posixCompatible:
             try parseUnixChecksumOutput(stdout, algorithm: algorithm)
 
         case .windowsPowerShell:
