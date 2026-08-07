@@ -135,7 +135,7 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 
 ## Benchmarks
 
-Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server, comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
+Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server and client (Client ↔ Wi-Fi AP ↔ Server), comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
 
 <p>
   <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 4.87 MiB/s (baseline), SwiftSFTP 1 worker 4.98 MiB/s (+2%), SwiftSFTP 5 workers 11.69 MiB/s (+140%), SwiftSFTP 5 workers resumable 11.69 MiB/s (+140%)" width="49%" />
