@@ -194,6 +194,60 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - Concat
+
+    @Test("concat joins remote files in order")
+    func concatJoinsFilesInOrder() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-concat")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+                let part1 = "\(dir)/a.bin"
+                let part2 = "\(dir)/b.bin"
+                let combined = "\(dir)/nested/combined.bin"
+                let payload1 = Data([0x01, 0x02, 0x03])
+                let payload2 = Data([0xAA, 0xBB, 0xCC, 0xDD])
+
+                let h1 = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: part1,
+                    permissions: .serverDefault
+                )
+                try await h1.write(payload1)
+                try await h1.close()
+
+                let h2 = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: part2,
+                    permissions: .serverDefault
+                )
+                try await h2.write(payload2)
+                try await h2.close()
+
+                try await agent.concat(files: [part1, part2], to: combined)
+
+                let verification = try await client.openFile(.read, path: combined, permissions: [])
+                let joined = try await verification.readAll()
+                try await verification.close()
+                #expect(joined == payload1 + payload2)
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("concat rejects an empty source list")
+    func concatEmptySources() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("concat requires at least one source file")) {
+                    try await agent.concat(files: [], to: "/tmp/out.bin")
+                }
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")

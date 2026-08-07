@@ -124,6 +124,41 @@ struct ShellAgentUnitTests {
         #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
     }
 
+    @Test("unix concat uses cat and creates parents")
+    func unixConcatCommand() throws {
+        let command = try ShellAgentSupport.concatCommand(
+            shellType: .linux,
+            files: ["/data/a.bin", "/data/b.bin"],
+            to: "/data/out/combined.bin"
+        )
+        #expect(command.contains("mkdir -p '/data/out'"))
+        #expect(command.contains("cat '/data/a.bin' '/data/b.bin' > '/data/out/combined.bin'"))
+
+        #expect(throws: ShellAgentError.invalidArgument("concat requires at least one source file")) {
+            try ShellAgentSupport.concatCommand(shellType: .linux, files: [], to: "/data/out.bin")
+        }
+    }
+
+    @Test("Windows concat uses binary copy /b or PowerShell streams")
+    func windowsConcatCommand() throws {
+        let cmd = try ShellAgentSupport.concatCommand(
+            shellType: .windowsCommandPrompt,
+            files: [#"C:\a.bin"#, #"C:\b.bin"#],
+            to: #"C:\out\c.bin"#
+        )
+        #expect(cmd.contains("copy /b"))
+        #expect(cmd.contains(#""C:\a.bin""#))
+        #expect(cmd.contains(#""C:\b.bin""#))
+
+        let ps = try ShellAgentSupport.concatCommand(
+            shellType: .windowsPowerShell,
+            files: ["/C:/a.bin", "/C:/b.bin"],
+            to: "/C:/out/c.bin"
+        )
+        #expect(ps.contains("File]::Open"))
+        #expect(ps.contains("CopyTo"))
+    }
+
     @Test("unix move creates parent directories and supports verbose")
     func unixMoveCommand() throws {
         let withParent = try ShellAgentSupport.moveCommand(

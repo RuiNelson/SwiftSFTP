@@ -732,6 +732,25 @@ Same path rewriting and parent-directory rules as copy. Prefer `move` over SFTP 
 may sit on different filesystems — the remote `mv` / `Move-Item` path handles that. Progress behaves like
 `copy`: only when the remote prints parseable completion lines.
 
+### Server-side concat
+
+Joins remote files **in order** into one destination path on the host (binary-safe):
+
+```swift
+try await agent.concat(
+    files: [
+        "/data/part-001.bin",
+        "/data/part-002.bin",
+        "/data/part-003.bin",
+    ],
+    to: "/data/combined.bin"
+)
+```
+
+Parent directories of `to` are created when supported. An empty `files` array throws
+`ShellAgentError.invalidArgument`. Under the hood this is `cat … > dest` on Unix, `copy /b` on Windows Command Prompt,
+and a PowerShell stream copy when the agent is in the PowerShell family.
+
 ### Calculating a remote hash
 
 ```swift
@@ -970,6 +989,7 @@ Thrown by `shellAgent(shellType:)` and by `SSHShellAgent` operations:
 | `.hostDoesNotSupportOperation` | Requested hash algorithm (or equivalent) is unavailable on that shell family |
 | `.commandFailed(exitCode:stdout:stderr:)` | Remote command exited non-zero |
 | `.unexpectedOutput(String)` | Command output could not be parsed (for example a hash line) |
+| `.invalidArgument(String)` | Caller passed an unusable argument (for example an empty `files` list to `concat`) |
 
 ### libssh2 errors (`LibSSH2Error`)
 

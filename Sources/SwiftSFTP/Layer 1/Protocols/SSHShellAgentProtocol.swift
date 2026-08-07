@@ -75,6 +75,19 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func move(from: String, to: String, progress: ShellAgentProgress?) async throws
 
+    /// Concatenates remote files into a single destination path entirely on the server.
+    ///
+    /// Sources are written in order. Parent directories of `to` are created when the shell supports it. Paths follow the
+    /// same rewriting rules as ``copy(from:to:progress:)``. Suitable for binary and text payloads (Unix `cat`, Windows
+    /// binary `copy /b` or a PowerShell stream copy).
+    ///
+    /// - Parameters:
+    ///   - files: One or more existing remote source paths, in the order they should appear in the result.
+    ///   - to: Remote destination path (created or overwritten).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `files` is empty; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func concat(files: [String], to: String) async throws
+
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
     /// Paths may be supplied in SFTP form (`/C:/Users/...`) or native Windows form; on Windows shells they are

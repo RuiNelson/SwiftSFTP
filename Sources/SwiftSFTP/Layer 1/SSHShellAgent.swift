@@ -106,6 +106,15 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         try runTransferCommand(command, progress: progress)
     }
 
+    public func concat(files: [String], to: String) async throws {
+        let command = try ShellAgentSupport.concatCommand(
+            shellType: shellType,
+            files: files,
+            to: to
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
     public func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data {
         let command = try ShellAgentSupport.hashCommand(
             shellType: shellType,

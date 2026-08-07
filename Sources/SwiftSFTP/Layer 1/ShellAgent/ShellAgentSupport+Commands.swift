@@ -92,6 +92,59 @@ extension ShellAgentSupport {
         }
     }
 
+    static func concatCommand(
+        shellType: ShellType,
+        files: [String],
+        to: String
+    ) throws -> String {
+        guard !files.isEmpty else {
+            throw ShellAgentError.invalidArgument("concat requires at least one source file")
+        }
+
+        let sourcesNative = files.map { pathForRemoteShell($0, shellType: shellType) }
+        let toNative = pathForRemoteShell(to, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let quotedSources = sourcesNative.map(unixShellQuote).joined(separator: " ")
+            let dst = unixShellQuote(toNative)
+            // `cat` streams bytes in order; `>` creates/truncates the destination.
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return "cat \(quotedSources) > \(dst)"
+            }
+            let parentQuoted = unixShellQuote(parentNative)
+            return "mkdir -p \(parentQuoted) && cat \(quotedSources) > \(dst)"
+
+        case .windowsPowerShell:
+            // Binary-safe stream concat (Get-Content is text-oriented and can corrupt binary).
+            let srcList = sourcesNative.map(powerShellQuote).joined(separator: ", ")
+            let dst = powerShellQuote(toNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                let parentQuoted = powerShellQuote(parentNative)
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; "
+            }
+            return
+                "\(ensureParent)$__o = [System.IO.File]::Open(\(dst), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); try { foreach ($__s in @(\(srcList))) { $__i = [System.IO.File]::OpenRead($__s); try { $__i.CopyTo($__o) } finally { $__i.Dispose() } } } finally { $__o.Dispose() }"
+
+        case .windowsCommandPrompt:
+            // `copy /b a + b dest` concatenates binary files.
+            let quotedSources = sourcesNative.map(cmdQuote).joined(separator: " + ")
+            let dst = cmdQuote(toNative)
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return "copy /b /y \(quotedSources) \(dst)"
+            }
+            let parentQuoted = cmdQuote(parentNative)
+            return "mkdir \(parentQuoted) 2>nul & copy /b /y \(quotedSources) \(dst)"
+        }
+    }
+
     static func hashCommand(
         shellType: ShellType,
         file: String,
