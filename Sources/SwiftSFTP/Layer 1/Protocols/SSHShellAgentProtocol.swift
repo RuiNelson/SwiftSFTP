@@ -2,8 +2,8 @@ import Foundation
 
 /// Digest algorithms supported by ``SSHShellAgentProtocol/calculateHash(file:algorithm:)``.
 ///
-/// Availability depends on the remote shell and tooling. Unix-like hosts typically expose every case via OpenSSL;
-/// Windows PowerShell / Command Prompt support a smaller set (MD5 and the SHA-1/2 family).
+/// Availability depends on the remote shell and tooling. Linux uses GNU `md5sum` / `sha*sum`; macOS uses `md5` and
+/// `shasum`. Windows PowerShell / Command Prompt support a smaller set (MD5 and the SHA-1/2 family).
 public enum CalculateHashAlgorithm: Sendable, CaseIterable, Equatable {
     case md5
     case sha1

@@ -93,19 +93,19 @@ struct ShellAgentIntegrationTests {
             let agent = try await client.shellAgent()
             let path = "\(TS.fixturesPath)/TINY.bin"
 
-            // Single 0x00 byte — vectors verified against OpenSSL on the test server.
+            // Single 0x00 byte — vectors from md5sum / sha256sum / sha224sum on the test server.
             let md5 = try await agent.calculateHash(file: path, algorithm: .md5)
             #expect(md5.hexString == "93b885adfe0da089cdf634904fd59f71")
 
             let sha256 = try await agent.calculateHash(file: path, algorithm: .sha256)
             #expect(sha256.hexString == "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d")
 
-            let sha512224 = try await agent.calculateHash(file: path, algorithm: .sha512224)
-            #expect(sha512224.hexString == "283bb59af7081ed08197227d8f65b9591ffe1155be43e9550e57f941")
+            let sha224 = try await agent.calculateHash(file: path, algorithm: .sha224)
+            #expect(sha224.hexString == "fff9292b4201617bdc4d3053fce02734166a683d7d858a7f5f59b073")
         }
     }
 
-    @Test("calculateHash covers every algorithm against a known payload")
+    @Test("calculateHash covers every supported algorithm against a known payload")
     func hashAllAlgorithms() async throws {
         try await withClient { client in
             let agent = try await client.shellAgent()
@@ -122,15 +122,22 @@ struct ShellAgentIntegrationTests {
             try await handle.write(payload)
             try await handle.close()
 
-            // Cross-check a few digests with the package's own SHA-256 helper and fixed OpenSSL vectors.
             let sha256 = try await agent.calculateHash(file: path, algorithm: .sha256)
             #expect(sha256 == payload.sha256)
 
-            for algorithm in CalculateHashAlgorithm.allCases {
+            for algorithm in CalculateHashAlgorithm.allCases
+                where ShellAgentSupport.supportsHashAlgorithm(algorithm, shellType: agent.shellType) {
                 let digest = try await agent.calculateHash(file: path, algorithm: algorithm)
                 #expect(digest.count == ShellAgentSupport.digestByteCount(for: algorithm))
                 // Non-trivial content should not produce an all-zero digest.
                 #expect(digest.contains(where: { $0 != 0 }))
+            }
+
+            // Linux coreutils cannot do SHA-512/224 or SHA-512/256.
+            if agent.shellType == .bashLinux {
+                await #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
+                    _ = try await agent.calculateHash(file: path, algorithm: .sha512224)
+                }
             }
 
             try await client.delete(path: dir)

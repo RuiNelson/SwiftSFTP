@@ -41,16 +41,15 @@ struct ShellAgentUnitTests {
 
     // MARK: - Algorithm mapping
 
-    @Test("openssl digest names cover every algorithm")
-    func opensslDigestNames() {
-        #expect(ShellAgentSupport.opensslDigestName(for: .md5) == "md5")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha1) == "sha1")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha224) == "sha224")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha256) == "sha256")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha384) == "sha384")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha512) == "sha512")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha512224) == "sha512-224")
-        #expect(ShellAgentSupport.opensslDigestName(for: .sha512256) == "sha512-256")
+    @Test("supportsHashAlgorithm matches platform tooling")
+    func supportsHashAlgorithm() {
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha256, shellType: .bashLinux))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.md5, shellType: .bashLinux))
+        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .bashLinux))
+        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .otherUnixLike))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512224, shellType: .zshDarwin))
+        #expect(ShellAgentSupport.supportsHashAlgorithm(.sha512256, shellType: .zshDarwin))
+        #expect(!ShellAgentSupport.supportsHashAlgorithm(.sha224, shellType: .windowsPowerShell))
     }
 
     @Test("PowerShell rejects algorithms it cannot compute")
@@ -61,8 +60,8 @@ struct ShellAgentUnitTests {
         #expect(ShellAgentSupport.powerShellHashAlgorithm(for: .sha256) == "SHA256")
     }
 
-    @Test("hashCommand throws hostDoesNotSupportOperation for unsupported Windows digests")
-    func hashCommandUnsupportedOnWindows() throws {
+    @Test("hashCommand throws hostDoesNotSupportOperation for unsupported digests")
+    func hashCommandUnsupportedAlgorithms() throws {
         #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
             try ShellAgentSupport.hashCommand(
                 shellType: .windowsPowerShell,
@@ -75,6 +74,13 @@ struct ShellAgentUnitTests {
                 shellType: .windowsCommandPrompt,
                 file: #"C:\data.bin"#,
                 algorithm: .sha512256
+            )
+        }
+        #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
+            try ShellAgentSupport.hashCommand(
+                shellType: .bashLinux,
+                file: "/tmp/data.bin",
+                algorithm: .sha512224
             )
         }
     }
@@ -110,14 +116,36 @@ struct ShellAgentUnitTests {
         #expect(!rootLevel.contains("mkdir"))
     }
 
-    @Test("unix hash uses openssl dgst -r")
-    func unixHashCommand() throws {
-        let command = try ShellAgentSupport.hashCommand(
-            shellType: .bashLinux,
-            file: "/tmp/f.bin",
-            algorithm: .sha256
+    @Test("Linux hash uses md5sum and sha*sum")
+    func linuxHashCommand() throws {
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .md5)
+                == "md5sum '/tmp/f.bin'"
         )
-        #expect(command == "openssl dgst -sha256 -r '/tmp/f.bin'")
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .sha256)
+                == "sha256sum '/tmp/f.bin'"
+        )
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .bashLinux, file: "/tmp/f.bin", algorithm: .sha1)
+                == "sha1sum '/tmp/f.bin'"
+        )
+    }
+
+    @Test("Darwin hash uses md5 and shasum")
+    func darwinHashCommand() throws {
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .md5)
+                == "md5 -q '/tmp/f.bin'"
+        )
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .sha256)
+                == "shasum -a 256 '/tmp/f.bin'"
+        )
+        #expect(
+            try ShellAgentSupport.hashCommand(shellType: .zshDarwin, file: "/tmp/f.bin", algorithm: .sha512224)
+                == "shasum -a 512224 '/tmp/f.bin'"
+        )
     }
 
     @Test("PowerShell hash uses Get-FileHash with native Windows path")
@@ -205,32 +233,39 @@ struct ShellAgentUnitTests {
 
     // MARK: - Output parsing
 
-    @Test("parseOpenSSLDigestOutput reads coreutils-style lines")
-    func parseOpenSSLDigestOutput() throws {
+    @Test("parseUnixChecksumOutput reads md5sum/sha*sum/shasum lines")
+    func parseUnixChecksumOutput() throws {
         // TINY.bin is a single 0x00 byte; MD5 known vector.
-        let md5Line = "93b885adfe0da089cdf634904fd59f71 *Fixtures/TINY.bin\n"
-        let md5 = try ShellAgentSupport.parseOpenSSLDigestOutput(md5Line, algorithm: .md5)
+        let md5Line = "93b885adfe0da089cdf634904fd59f71  Fixtures/TINY.bin\n"
+        let md5 = try ShellAgentSupport.parseUnixChecksumOutput(md5Line, algorithm: .md5)
         #expect(md5.count == 16)
         #expect(md5.hexString == "93b885adfe0da089cdf634904fd59f71")
 
-        let sha256Line = "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d *Fixtures/TINY.bin"
-        let sha256 = try ShellAgentSupport.parseOpenSSLDigestOutput(sha256Line, algorithm: .sha256)
+        let sha256Line = "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d  Fixtures/TINY.bin"
+        let sha256 = try ShellAgentSupport.parseUnixChecksumOutput(sha256Line, algorithm: .sha256)
         #expect(sha256.count == 32)
         #expect(sha256.hexString == "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d")
+
+        // `md5 -q` prints bare hex.
+        let bare = try ShellAgentSupport.parseUnixChecksumOutput(
+            "93b885adfe0da089cdf634904fd59f71\n",
+            algorithm: .md5
+        )
+        #expect(bare.hexString == "93b885adfe0da089cdf634904fd59f71")
     }
 
-    @Test("parseOpenSSLDigestOutput rejects empty or malformed output")
-    func parseOpenSSLDigestOutputRejectsGarbage() {
+    @Test("parseUnixChecksumOutput rejects empty or malformed output")
+    func parseUnixChecksumOutputRejectsGarbage() {
         #expect(throws: ShellAgentError.self) {
-            try ShellAgentSupport.parseOpenSSLDigestOutput("", algorithm: .sha256)
+            try ShellAgentSupport.parseUnixChecksumOutput("", algorithm: .sha256)
         }
         #expect(throws: ShellAgentError.self) {
-            try ShellAgentSupport.parseOpenSSLDigestOutput("not-hex *file\n", algorithm: .sha256)
+            try ShellAgentSupport.parseUnixChecksumOutput("not-hex  file\n", algorithm: .sha256)
         }
         #expect(throws: ShellAgentError.self) {
             // Wrong length for sha256.
-            try ShellAgentSupport.parseOpenSSLDigestOutput(
-                "93b885adfe0da089cdf634904fd59f71 *file\n",
+            try ShellAgentSupport.parseUnixChecksumOutput(
+                "93b885adfe0da089cdf634904fd59f71  file\n",
                 algorithm: .sha256
             )
         }
