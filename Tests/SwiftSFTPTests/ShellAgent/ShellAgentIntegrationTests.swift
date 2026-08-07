@@ -9,17 +9,19 @@ struct ShellAgentIntegrationTests {
     @Test("shellAgent auto-detects Linux on the test server")
     func autoDetectsLinux() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             #expect(agent.shellType == .linux)
             #expect(agent.shellType.iKnowThis)
+            }
         }
     }
 
     @Test("shellAgent accepts an explicit shell type")
     func explicitShellType() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent(shellType: .linux)
+            try await withShellAgent(client, shellType: .linux) { agent in
             #expect(agent.shellType == .linux)
+            }
         }
     }
 
@@ -28,7 +30,7 @@ struct ShellAgentIntegrationTests {
     @Test("copy copies a remote file without downloading it")
     func copy() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-copy")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -57,13 +59,14 @@ struct ShellAgentIntegrationTests {
             #expect(sourceMeta != nil)
 
             try await client.delete(path: dir)
+            }
         }
     }
 
     @Test("copy fails for a missing source")
     func copyMissingSource() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-copy-missing")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -82,13 +85,14 @@ struct ShellAgentIntegrationTests {
             }
 
             try await client.delete(path: dir)
+            }
         }
     }
 
     @Test("copy progress reports destination when verbose output is available")
     func copyProgress() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-copy-progress")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -120,6 +124,7 @@ struct ShellAgentIntegrationTests {
             #expect(copied == payload)
 
             try await client.delete(path: dir)
+            }
         }
     }
 
@@ -128,7 +133,7 @@ struct ShellAgentIntegrationTests {
     @Test("move relocates a remote file on the server")
     func moveRelocatesFile() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-move")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -162,13 +167,14 @@ struct ShellAgentIntegrationTests {
             }
 
             try await client.delete(path: dir)
+            }
         }
     }
 
     @Test("move fails for a missing source")
     func moveMissingSource() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-move-missing")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -184,6 +190,7 @@ struct ShellAgentIntegrationTests {
             }
 
             try await client.delete(path: dir)
+            }
         }
     }
 
@@ -192,7 +199,7 @@ struct ShellAgentIntegrationTests {
     @Test("calculateHash matches known digests for TINY.bin")
     func hashTinyFixture() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let path = "\(TS.fixturesPath)/TINY.bin"
 
             // Single 0x00 byte — vectors from md5sum / sha256sum / sha224sum on the test server.
@@ -204,13 +211,14 @@ struct ShellAgentIntegrationTests {
 
             let sha224 = try await agent.calculateHash(file: path, algorithm: .sha224)
             #expect(sha224.hexString == "fff9292b4201617bdc4d3053fce02734166a683d7d858a7f5f59b073")
+            }
         }
     }
 
     @Test("calculateHash covers every supported algorithm against a known payload")
     func hashAllAlgorithms() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             let dir = uniqueRemotePath("shell-hash-all")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
@@ -243,13 +251,14 @@ struct ShellAgentIntegrationTests {
             }
 
             try await client.delete(path: dir)
+            }
         }
     }
 
     @Test("calculateHash fails for a missing file")
     func hashMissingFile() async throws {
         try await withClient { client in
-            let agent = try await client.shellAgent()
+            try await withShellAgent(client) { agent in
             do {
                 _ = try await agent.calculateHash(
                     file: "\(TS.testHome)/no-such-file-\(UUID().uuidString).bin",
@@ -262,6 +271,7 @@ struct ShellAgentIntegrationTests {
             }
             catch {
                 Issue.record("Unexpected error: \(error)")
+            }
             }
         }
     }
@@ -298,6 +308,7 @@ struct ShellAgentIntegrationTests {
         }
 
         let agent = try await client.shellAgent()
+        // Parent close invalidates the agent; do not call agent.close() afterward.
         try await client.close()
 
         do {

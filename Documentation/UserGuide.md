@@ -659,22 +659,30 @@ try await client.delete(path: "/uploads/old_folder")
 
 ## Shell Agent (Server-Side Operations)
 
-`SSHShellAgent` runs short commands over the same SSH session as your `SFTPClient`, using SSH `exec` rather than the
-SFTP subsystem. Work such as copying a file on the host or hashing a remote path stays on the server, so the payload
-never crosses the network twice.
+`SSHShellAgent` runs short commands over the same SSH session as your `SFTPClient`, using a **persistent** shell channel
+rather than the SFTP subsystem. Work such as copying a file on the host or hashing a remote path stays on the server, so
+the payload never crosses the network twice.
 
-The agent does not own the connection. It reuses the client's session under the same I/O lock as SFTP operations, so
-shell and SFTP calls on one client never interleave libssh2 traffic. The client must already be logged in.
+The agent does not own the TCP connection. It reuses the client's session under the same I/O lock as SFTP operations, so
+shell and SFTP calls on one client never interleave libssh2 traffic. One channel is opened when you create the agent and
+kept for every `copy` / `move` / `calculateHash` until you call `close()`. The client must already be logged in.
+
+Call `close()` when you are done (same lifecycle as an open `SFTPFile`). The agent inherits the client's
+`trapOnDeInitWithoutClose` setting: if that flag is `true` and the agent is destroyed without `close()`, the process
+raises `SIGTRAP` in debug.
 
 ### Obtaining an agent
 
 ```swift
 // Detect the remote shell family (uname, then Windows PowerShell / cmd heuristics)
 let agent = try await client.shellAgent()
+defer { try? await agent.close() }
+
 print(agent.shellType)   // e.g. .darwin, .linux, .windowsPowerShell
 
 // Or force a family when you already know the host
 let linuxAgent = try await client.shellAgent(shellType: .linux)
+defer { try? await linuxAgent.close() }
 ```
 
 Detection throws `ShellAgentError.couldNotHeuristicallyDetectShellType` when none of the probes succeed.

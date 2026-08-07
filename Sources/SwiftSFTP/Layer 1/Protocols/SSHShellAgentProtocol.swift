@@ -24,9 +24,25 @@ public typealias ShellAgentProgress = (String) -> Void
 
 /// High-level remote shell operations run through an authenticated SSH session.
 ///
-/// Implementations open short-lived session channels (`exec`) rather than using the SFTP subsystem, so work such as
-/// server-side copies and on-host hashing stays on the remote machine.
+/// Implementations keep a **persistent** session channel (interactive shell or long-lived PowerShell stdin) rather than
+/// using the SFTP subsystem, so work such as server-side copies and on-host hashing stays on the remote machine. Call
+/// ``close()`` when finished; operations throw ``AlreadyClosed`` afterward.
 public protocol SSHShellAgentProtocol: Sendable {
+    // MARK: Lifecycle
+
+    /// Closes the persistent shell channel.
+    ///
+    /// Calling `close()` more than once is allowed by the concrete implementation; later calls log a warning and
+    /// return.
+    ///
+    /// - Throws: ``AlreadyClosed`` is not thrown for double-close; libssh2 errors may surface while shutting down.
+    func close() async throws
+
+    /// Whether the shell channel has been closed.
+    var closed: Bool { get }
+
+    // MARK: Operations
+
     /// Copies a remote path to another remote path entirely on the server.
     ///
     /// Parent directories of `to` are created when the shell supports it. Paths may be supplied in SFTP form
@@ -71,6 +87,8 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data
 }
+
+// Default progress-less overloads live below.
 
 public extension SSHShellAgentProtocol {
     /// Copies on the server without a progress callback.

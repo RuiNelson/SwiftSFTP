@@ -96,3 +96,20 @@ func withClient(
     }
     try await client.close()
 }
+
+/// Runs `body` with a shell agent and always closes the agent (async-safe alternative to `defer`).
+func withShellAgent(
+    _ client: SFTPClient,
+    shellType: ShellType? = nil,
+    _ body: (SSHShellAgent) async throws -> Void
+) async throws {
+    let agent = try await client.shellAgent(shellType: shellType)
+    do {
+        try await body(agent)
+    }
+    catch {
+        try? await agent.close()
+        throw error
+    }
+    try await agent.close()
+}

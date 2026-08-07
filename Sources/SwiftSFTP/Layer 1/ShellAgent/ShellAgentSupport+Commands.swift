@@ -24,18 +24,17 @@ extension ShellAgentSupport {
             return "mkdir -p \(parentQuoted) && \(cp) \(src) \(dst)"
 
         case .windowsPowerShell:
-            // Always invoke via `powershell.exe` so commands work when OpenSSH's default shell is cmd.exe.
+            // Emitted as raw PowerShell for the persistent `-Command -` session (not wrapped in powershell.exe).
             let src = powerShellQuote(fromNative)
             let dst = powerShellQuote(toNative)
             let verboseFlag = verbose ? " -Verbose" : ""
             // Drive roots (`/C:` → `C:\`) and `.` need no New-Item step.
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return powerShellRemoteCommand("Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)")
+                return "Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
             }
             let parentQuoted = powerShellQuote(parentNative)
-            return powerShellRemoteCommand(
+            return
                 "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
-            )
 
         case .windowsCommandPrompt:
             // `copy` has no useful per-file completion stream; verbose is a no-op for progress.
@@ -76,12 +75,11 @@ extension ShellAgentSupport {
             let dst = powerShellQuote(toNative)
             let verboseFlag = verbose ? " -Verbose" : ""
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return powerShellRemoteCommand("Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)")
+                return "Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
             }
             let parentQuoted = powerShellQuote(parentNative)
-            return powerShellRemoteCommand(
+            return
                 "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
-            )
 
         case .windowsCommandPrompt:
             let src = cmdQuote(fromNative)
@@ -110,7 +108,7 @@ extension ShellAgentSupport {
                 throw ShellAgentError.hostDoesNotSupportOperation
             }
             let path = powerShellQuote(nativePath)
-            return powerShellRemoteCommand("(Get-FileHash -LiteralPath \(path) -Algorithm \(name)).Hash")
+            return "(Get-FileHash -LiteralPath \(path) -Algorithm \(name)).Hash"
 
         case .windowsCommandPrompt:
             guard let name = certutilHashAlgorithm(for: algorithm) else {
@@ -175,8 +173,59 @@ extension ShellAgentSupport {
     }
 
     /// Runs `script` under `powershell.exe` so it works when OpenSSH's default shell is `cmd.exe`.
+    ///
+    /// Used only for one-shot detection probes. Persistent PowerShell agents use `-Command -` stdin instead.
     static func powerShellRemoteCommand(_ script: String) -> String {
         let escaped = script.replacingOccurrences(of: "\"", with: "\\\"")
         return "powershell -NoProfile -NonInteractive -Command \"\(escaped)\""
+    }
+
+    // MARK: Persistent shell framing
+
+    /// Probe written once after the channel starts so MOTD/banners can be drained.
+    static func readyProbe(shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            return "echo \(SSHShellAgent.markerReady)\n"
+        case .windowsPowerShell, .windowsCommandPrompt:
+            // Persistent host is `cmd /K` for both Windows families.
+            return "echo \(SSHShellAgent.markerReady)\r\n"
+        }
+    }
+
+    /// Wraps a single remote command with begin/exit/done markers for the persistent channel.
+    static func wrapForPersistentShell(_ command: String, shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            // Run as one shell line group so `$?` reflects the command (including `a && b` pipelines).
+            return """
+            echo \(SSHShellAgent.markerBegin)
+            \(command)
+            echo \(SSHShellAgent.markerRCPrefix)$?
+            echo \(SSHShellAgent.markerDone)
+
+            """
+
+        case .windowsPowerShell:
+            // Host is cmd; run the PowerShell snippet in a one-shot child, then print markers from cmd.
+            // cmd.exe expects CRLF line endings on the wire.
+            let ps = powerShellRemoteCommand(command)
+            return [
+                "echo \(SSHShellAgent.markerBegin)",
+                ps,
+                "echo \(SSHShellAgent.markerRCPrefix)%ERRORLEVEL%",
+                "echo \(SSHShellAgent.markerDone)",
+                "",
+            ].joined(separator: "\r\n")
+
+        case .windowsCommandPrompt:
+            return [
+                "echo \(SSHShellAgent.markerBegin)",
+                command,
+                "echo \(SSHShellAgent.markerRCPrefix)%ERRORLEVEL%",
+                "echo \(SSHShellAgent.markerDone)",
+                "",
+            ].joined(separator: "\r\n")
+        }
     }
 }

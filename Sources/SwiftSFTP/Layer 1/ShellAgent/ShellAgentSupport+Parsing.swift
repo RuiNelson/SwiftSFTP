@@ -1,6 +1,23 @@
 import Foundation
 
 extension ShellAgentSupport {
+    /// Removes a leading `C:\path>` cmd.exe prompt, if present.
+    static func stripWindowsCmdPrompt(_ line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 3 else {
+            return trimmed
+        }
+        let second = trimmed.index(after: trimmed.startIndex)
+        guard trimmed[trimmed.startIndex].isLetter, trimmed[second] == ":" else {
+            return trimmed
+        }
+        guard let gt = trimmed.firstIndex(of: ">") else {
+            return trimmed
+        }
+        return String(trimmed[trimmed.index(after: gt)...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Extracts a completed destination path from a verbose copy/move line, if the format is recognized.
     ///
     /// Supported shapes:

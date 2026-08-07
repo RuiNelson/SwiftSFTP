@@ -1,15 +1,16 @@
 import Foundation
 
 public extension SFTPClient {
-    /// Creates a shell agent for server-side operations on this client's SSH session.
+    /// Creates a shell agent with a **persistent** SSH channel for server-side operations.
     ///
-    /// When `shellType` is `nil`, the remote host is probed with `uname` and, if needed, Windows PowerShell / `cmd`
-    /// heuristics. The client must already be logged in.
+    /// When `shellType` is `nil`, the remote host is probed with one-shot `exec` helpers (`uname`, then Windows
+    /// PowerShell / `cmd` heuristics). The client must already be logged in. The returned agent reuses one channel until
+    /// ``SSHShellAgent/close()``; it inherits this client's `trapOnDeInitWithoutClose` and logger.
     ///
     /// - Parameter shellType: Explicit shell family, or `nil` to detect automatically.
-    /// - Returns: A shell agent bound to this client.
+    /// - Returns: A shell agent bound to this client with an open channel.
     /// - Throws: ``ShellAgentError/couldNotHeuristicallyDetectShellType``, ``AlreadyClosed``, ``NotLoggedIn``, or
-    /// libssh2 errors from the detection probes.
+    /// libssh2 errors from the detection probes or channel open.
     func shellAgent(shellType: ShellType? = nil) async throws -> SSHShellAgent {
         try checkClosed()
         _ = try sftp
@@ -21,15 +22,14 @@ public extension SFTPClient {
             try await detectShellType()
         }
 
-        return SSHShellAgent(client: self, shellType: resolved)
+        return try SSHShellAgent.open(client: self, shellType: resolved)
     }
 }
 
 extension SFTPClient {
-    /// Opens a session channel, runs `command` via SSH `exec`, and returns captured output plus exit status.
+    /// One-shot `exec` helper used only for shell-type detection (not for agent operations).
     ///
-    /// When `onOutputLine` is set, complete lines from stdout and stderr are forwarded as they arrive (and any trailing
-    /// partial line at EOF). Used for verbose copy/move progress parsing.
+    /// When `onOutputLine` is set, complete lines from stdout and stderr are forwarded as they arrive.
     func executeRemoteCommand(
         _ command: String,
         onOutputLine: ((String) -> Void)? = nil
@@ -44,7 +44,6 @@ extension SFTPClient {
             }
 
             try ChannelProcessStartup(channel: channel, request: "exec", message: command)
-            // We never write stdin for shell-agent commands.
             try? ChannelSendEOF(channel: channel)
 
             var stdout = Data()
@@ -85,7 +84,6 @@ extension SFTPClient {
                     if ChannelEOF(channel: channel) {
                         break
                     }
-                    // Blocking mode: empty reads without EOF means the remote is done sending.
                     break
                 }
             }
@@ -121,7 +119,6 @@ extension SFTPClient {
             }
         }
 
-        // Windows PowerShell (default shell or explicit powershell host).
         let psResult = try executeRemoteCommand(
             "powershell -NoProfile -Command \"if ($null -ne $PSVersionTable) { 'PowerShell' }\""
         )
@@ -130,7 +127,6 @@ extension SFTPClient {
             return .windowsPowerShell
         }
 
-        // Direct PowerShell as the login shell: `$PSVersionTable` is meaningful without wrapping.
         let directPS = try executeRemoteCommand("if ($null -ne $PSVersionTable) { 'PowerShell' }")
         if directPS.exitStatus == 0,
            directPS.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).contains("PowerShell") {
