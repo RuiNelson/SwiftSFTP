@@ -25,8 +25,8 @@ struct ShellAgentIntegrationTests {
 
     // MARK: - Server-side copy
 
-    @Test("copyServerSide copies a remote file without downloading it")
-    func copyServerSide() async throws {
+    @Test("copy copies a remote file without downloading it")
+    func copy() async throws {
         try await withClient { client in
             let agent = try await client.shellAgent()
             let dir = uniqueRemotePath("shell-copy")
@@ -44,7 +44,7 @@ struct ShellAgentIntegrationTests {
             try await handle.write(payload)
             try await handle.close()
 
-            try await agent.copyServerSide(from: source, to: destination)
+            try await agent.copy(from: source, to: destination)
 
             let verification = try await client.openFile(.read, path: destination, permissions: [])
             let copied = try await verification.readAll()
@@ -60,18 +60,120 @@ struct ShellAgentIntegrationTests {
         }
     }
 
-    @Test("copyServerSide fails for a missing source")
-    func copyServerSideMissingSource() async throws {
+    @Test("copy fails for a missing source")
+    func copyMissingSource() async throws {
         try await withClient { client in
             let agent = try await client.shellAgent()
             let dir = uniqueRemotePath("shell-copy-missing")
             try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
 
             do {
-                try await agent.copyServerSide(
+                try await agent.copy(
                     from: "\(dir)/does-not-exist.bin",
                     to: "\(dir)/out.bin"
                 )
+                Issue.record("Expected commandFailed for missing source")
+            }
+            catch let ShellAgentError.commandFailed(exitCode, _, _) {
+                #expect(exitCode != 0)
+            }
+            catch {
+                Issue.record("Unexpected error: \(error)")
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("copy progress reports destination when verbose output is available")
+    func copyProgress() async throws {
+        try await withClient { client in
+            let agent = try await client.shellAgent()
+            let dir = uniqueRemotePath("shell-copy-progress")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let source = "\(dir)/source.bin"
+            let destination = "\(dir)/dest.bin"
+            let payload = Data([0x01, 0x02, 0x03, 0x04])
+
+            let handle = try await client.openFile(
+                [.write, .create, .truncate],
+                path: source,
+                permissions: .serverDefault
+            )
+            try await handle.write(payload)
+            try await handle.close()
+
+            var reported: [String] = []
+            try await agent.copy(from: source, to: destination) { path in
+                reported.append(path)
+            }
+
+            // Linux `cp -v` emits a completion line; if nothing parseable, progress stays empty (allowed).
+            if !reported.isEmpty {
+                #expect(reported.contains(where: { $0.hasSuffix("dest.bin") || $0.contains("dest.bin") }))
+            }
+
+            let verification = try await client.openFile(.read, path: destination, permissions: [])
+            let copied = try await verification.readAll()
+            try await verification.close()
+            #expect(copied == payload)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    // MARK: - Move
+
+    @Test("move relocates a remote file on the server")
+    func moveRelocatesFile() async throws {
+        try await withClient { client in
+            let agent = try await client.shellAgent()
+            let dir = uniqueRemotePath("shell-move")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let source = "\(dir)/source.bin"
+            let destination = "\(dir)/nested/moved.bin"
+            let payload = Data((0 ..< 128).map { UInt8($0) })
+
+            let handle = try await client.openFile(
+                [.write, .create, .truncate],
+                path: source,
+                permissions: .serverDefault
+            )
+            try await handle.write(payload)
+            try await handle.close()
+
+            var reported: [String] = []
+            try await agent.move(from: source, to: destination) { path in
+                reported.append(path)
+            }
+
+            let sourceGone = try await client.statFile(path: source, followLink: false)
+            #expect(sourceGone == nil)
+
+            let verification = try await client.openFile(.read, path: destination, permissions: [])
+            let moved = try await verification.readAll()
+            try await verification.close()
+            #expect(moved == payload)
+
+            if !reported.isEmpty {
+                #expect(reported.contains(where: { $0.contains("moved.bin") }))
+            }
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("move fails for a missing source")
+    func moveMissingSource() async throws {
+        try await withClient { client in
+            let agent = try await client.shellAgent()
+            let dir = uniqueRemotePath("shell-move-missing")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            do {
+                try await agent.move(from: "\(dir)/missing.bin", to: "\(dir)/out.bin")
                 Issue.record("Expected commandFailed for missing source")
             }
             catch let ShellAgentError.commandFailed(exitCode, _, _) {
@@ -199,14 +301,14 @@ struct ShellAgentIntegrationTests {
         try await client.close()
 
         do {
-            try await agent.copyServerSide(from: "/tmp/a", to: "/tmp/b")
-            Issue.record("Expected AlreadyClosed from copyServerSide")
+            try await agent.copy(from: "/tmp/a", to: "/tmp/b")
+            Issue.record("Expected AlreadyClosed from copy")
         }
         catch is AlreadyClosed {
             // expected
         }
         catch {
-            Issue.record("Unexpected error from copyServerSide: \(error)")
+            Issue.record("Unexpected error from copy: \(error)")
         }
 
         do {

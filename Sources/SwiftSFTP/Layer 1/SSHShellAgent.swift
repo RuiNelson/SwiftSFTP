@@ -17,21 +17,26 @@ public final class SSHShellAgent: Sendable {
 }
 
 extension SSHShellAgent: SSHShellAgentProtocol {
-    public func copyServerSide(from: String, to: String) async throws {
-        // Paths may arrive in SFTP form (`/C:/...`) or OS form; rewrite for the remote shell.
+    public func copy(from: String, to: String, progress: ShellAgentProgress? = nil) async throws {
+        let reportProgress = progress != nil
         let command = try ShellAgentSupport.copyCommand(
             shellType: shellType,
             from: from,
-            to: to
+            to: to,
+            verbose: reportProgress
         )
-        let result = try client.executeRemoteCommand(command)
-        guard result.exitStatus == 0 else {
-            throw ShellAgentError.commandFailed(
-                exitCode: result.exitStatus,
-                stdout: result.stdoutString,
-                stderr: result.stderrString
-            )
-        }
+        try runTransferCommand(command, progress: progress)
+    }
+
+    public func move(from: String, to: String, progress: ShellAgentProgress? = nil) async throws {
+        let reportProgress = progress != nil
+        let command = try ShellAgentSupport.moveCommand(
+            shellType: shellType,
+            from: from,
+            to: to,
+            verbose: reportProgress
+        )
+        try runTransferCommand(command, progress: progress)
     }
 
     public func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data {
@@ -53,5 +58,25 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             algorithm: algorithm,
             stdout: result.stdoutString
         )
+    }
+
+    /// Runs a copy/move command, forwarding parseable completion lines to `progress` only when present.
+    private func runTransferCommand(_ command: String, progress: ShellAgentProgress?) throws {
+        let onLine: ((String) -> Void)? = progress.map { report in
+            { [shellType] line in
+                if let path = ShellAgentSupport.completedPath(fromVerboseLine: line, shellType: shellType) {
+                    report(path)
+                }
+            }
+        }
+
+        let result = try client.executeRemoteCommand(command, onOutputLine: onLine)
+        guard result.exitStatus == 0 else {
+            throw ShellAgentError.commandFailed(
+                exitCode: result.exitStatus,
+                stdout: result.stdoutString,
+                stderr: result.stderrString
+            )
+        }
     }
 }

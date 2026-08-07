@@ -27,7 +27,13 @@ public extension SFTPClient {
 
 extension SFTPClient {
     /// Opens a session channel, runs `command` via SSH `exec`, and returns captured output plus exit status.
-    func executeRemoteCommand(_ command: String) throws -> RemoteProcessResult {
+    ///
+    /// When `onOutputLine` is set, complete lines from stdout and stderr are forwarded as they arrive (and any trailing
+    /// partial line at EOF). Used for verbose copy/move progress parsing.
+    func executeRemoteCommand(
+        _ command: String,
+        onOutputLine: ((String) -> Void)? = nil
+    ) throws -> RemoteProcessResult {
         try withSessionIO {
             try checkClosed()
             _ = try sftp
@@ -43,17 +49,36 @@ extension SFTPClient {
 
             var stdout = Data()
             var stderr = Data()
+            var stdoutLineBuffer = Data()
+            var stderrLineBuffer = Data()
             let chunkSize = 32 * 1024
+
+            func appendAndEmit(chunk: Data, into storage: inout Data, lineBuffer: inout Data) {
+                storage.append(chunk)
+                guard let onOutputLine else {
+                    return
+                }
+                lineBuffer.append(chunk)
+                while let newline = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+                    let lineData = lineBuffer[..<newline]
+                    lineBuffer.removeSubrange(...newline)
+                    let line = String(decoding: lineData, as: UTF8.self)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+                    if !line.isEmpty {
+                        onOutputLine(line)
+                    }
+                }
+            }
 
             while true {
                 let outChunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
                 let errChunk = try ChannelRead(channel: channel, stream: .extended, maximumLength: chunkSize)
 
                 if !outChunk.isEmpty {
-                    stdout.append(outChunk)
+                    appendAndEmit(chunk: outChunk, into: &stdout, lineBuffer: &stdoutLineBuffer)
                 }
                 if !errChunk.isEmpty {
-                    stderr.append(errChunk)
+                    appendAndEmit(chunk: errChunk, into: &stderr, lineBuffer: &stderrLineBuffer)
                 }
 
                 if outChunk.isEmpty, errChunk.isEmpty {
@@ -62,6 +87,16 @@ extension SFTPClient {
                     }
                     // Blocking mode: empty reads without EOF means the remote is done sending.
                     break
+                }
+            }
+
+            if let onOutputLine {
+                for remnant in [stdoutLineBuffer, stderrLineBuffer] {
+                    let line = String(decoding: remnant, as: UTF8.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !line.isEmpty {
+                        onOutputLine(line)
+                    }
                 }
             }
 

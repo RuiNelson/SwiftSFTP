@@ -114,6 +114,68 @@ struct ShellAgentUnitTests {
         )
         #expect(rootLevel == "cp -f '/a.bin' '/b.bin'")
         #expect(!rootLevel.contains("mkdir"))
+
+        let verbose = try ShellAgentSupport.copyCommand(
+            shellType: .linux,
+            from: "/a.bin",
+            to: "/b.bin",
+            verbose: true
+        )
+        #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
+    }
+
+    @Test("unix move creates parent directories and supports verbose")
+    func unixMoveCommand() throws {
+        let withParent = try ShellAgentSupport.moveCommand(
+            shellType: .linux,
+            from: "/home/u/a.bin",
+            to: "/home/u/nested/b.bin"
+        )
+        #expect(withParent.contains("mkdir -p '/home/u/nested'"))
+        #expect(withParent.contains("mv -f '/home/u/a.bin' '/home/u/nested/b.bin'"))
+
+        let verbose = try ShellAgentSupport.moveCommand(
+            shellType: .linux,
+            from: "/a.bin",
+            to: "/b.bin",
+            verbose: true
+        )
+        #expect(verbose == "mv -fv '/a.bin' '/b.bin'")
+    }
+
+    @Test("completedPath parses unix and PowerShell verbose lines")
+    func completedPathParsing() {
+        #expect(
+            ShellAgentSupport.completedPath(
+                fromVerboseLine: "'/tmp/a.bin' -> '/tmp/b.bin'",
+                shellType: .linux
+            ) == "/tmp/b.bin"
+        )
+        #expect(
+            ShellAgentSupport.completedPath(
+                fromVerboseLine: "/tmp/a.bin -> /tmp/b.bin",
+                shellType: .darwin
+            ) == "/tmp/b.bin"
+        )
+        #expect(
+            ShellAgentSupport.completedPath(
+                fromVerboseLine: "noise without arrow",
+                shellType: .linux
+            ) == nil
+        )
+
+        let psLine =
+            #"VERBOSE: Performing the operation "Copy File" on target "Item: C:\src\a.bin Destination: C:\dst\b.bin"."#
+        #expect(
+            ShellAgentSupport.completedPath(fromVerboseLine: psLine, shellType: .windowsPowerShell)
+                == #"C:\dst\b.bin"#
+        )
+        #expect(
+            ShellAgentSupport.completedPath(
+                fromVerboseLine: "1 file(s) copied.",
+                shellType: .windowsCommandPrompt
+            ) == nil
+        )
     }
 
     @Test("Linux hash uses md5sum and sha*sum")

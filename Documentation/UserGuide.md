@@ -692,14 +692,37 @@ Detection throws `ShellAgentError.couldNotHeuristicallyDetectShellType` when non
 ### Server-side copy
 
 ```swift
-try await agent.copyServerSide(
+try await agent.copy(
     from: "/data/source.dat",
     to: "/data/archive/source.dat"
 )
+
+// Optional progress: only called when the remote tool reports a completed path (e.g. `cp -v`).
+// Not cancellable. If the host emits nothing parseable, the callback is never invoked.
+try await agent.copy(from: "/data/source.dat", to: "/data/archive/source.dat") { path in
+    print("copied:", path)
+}
 ```
 
 Parent directories of `to` are created when the remote tools support it (`mkdir -p` on Unix, `New-Item` / `mkdir` on
 Windows). This is the complement of [`copyClientSide`](#client-side-remote-copy): no data is streamed through your app.
+
+### Server-side move
+
+```swift
+try await agent.move(
+    from: "/data/source.dat",
+    to: "/data/archive/source.dat"
+)
+
+try await agent.move(from: "/data/source.dat", to: "/mnt/other/source.dat") { path in
+    print("moved:", path)
+}
+```
+
+Same path rewriting and parent-directory rules as copy. Prefer `move` over SFTP rename when the source and destination
+may sit on different filesystems — the remote `mv` / `Move-Item` path handles that. Progress behaves like
+`copy`: only when the remote prints parseable completion lines.
 
 ### Calculating a remote hash
 

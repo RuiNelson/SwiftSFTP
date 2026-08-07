@@ -1,7 +1,12 @@
 import PathWorks
 
 extension ShellAgentSupport {
-    static func copyCommand(shellType: ShellType, from: String, to: String) throws -> String {
+    static func copyCommand(
+        shellType: ShellType,
+        from: String,
+        to: String,
+        verbose: Bool = false
+    ) throws -> String {
         let fromNative = pathForRemoteShell(from, shellType: shellType)
         let toNative = pathForRemoteShell(to, shellType: shellType)
         let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
@@ -11,26 +16,29 @@ extension ShellAgentSupport {
         case .darwin, .linux, .posixCompatible:
             let src = unixShellQuote(fromNative)
             let dst = unixShellQuote(toNative)
+            let cp = verbose ? "cp -fv" : "cp -f"
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return "cp -f \(src) \(dst)"
+                return "\(cp) \(src) \(dst)"
             }
             let parentQuoted = unixShellQuote(parentNative)
-            return "mkdir -p \(parentQuoted) && cp -f \(src) \(dst)"
+            return "mkdir -p \(parentQuoted) && \(cp) \(src) \(dst)"
 
         case .windowsPowerShell:
             // Always invoke via `powershell.exe` so commands work when OpenSSH's default shell is cmd.exe.
             let src = powerShellQuote(fromNative)
             let dst = powerShellQuote(toNative)
+            let verboseFlag = verbose ? " -Verbose" : ""
             // Drive roots (`/C:` → `C:\`) and `.` need no New-Item step.
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return powerShellRemoteCommand("Copy-Item -Force -LiteralPath \(src) -Destination \(dst)")
+                return powerShellRemoteCommand("Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)")
             }
             let parentQuoted = powerShellQuote(parentNative)
             return powerShellRemoteCommand(
-                "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Copy-Item -Force -LiteralPath \(src) -Destination \(dst)"
+                "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
             )
 
         case .windowsCommandPrompt:
+            // `copy` has no useful per-file completion stream; verbose is a no-op for progress.
             let src = cmdQuote(fromNative)
             let dst = cmdQuote(toNative)
             if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
@@ -38,6 +46,51 @@ extension ShellAgentSupport {
             }
             let parentQuoted = cmdQuote(parentNative)
             return "mkdir \(parentQuoted) 2>nul & copy /Y \(src) \(dst)"
+        }
+    }
+
+    static func moveCommand(
+        shellType: ShellType,
+        from: String,
+        to: String,
+        verbose: Bool = false
+    ) throws -> String {
+        let fromNative = pathForRemoteShell(from, shellType: shellType)
+        let toNative = pathForRemoteShell(to, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let src = unixShellQuote(fromNative)
+            let dst = unixShellQuote(toNative)
+            let mv = verbose ? "mv -fv" : "mv -f"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return "\(mv) \(src) \(dst)"
+            }
+            let parentQuoted = unixShellQuote(parentNative)
+            return "mkdir -p \(parentQuoted) && \(mv) \(src) \(dst)"
+
+        case .windowsPowerShell:
+            let src = powerShellQuote(fromNative)
+            let dst = powerShellQuote(toNative)
+            let verboseFlag = verbose ? " -Verbose" : ""
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return powerShellRemoteCommand("Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)")
+            }
+            let parentQuoted = powerShellQuote(parentNative)
+            return powerShellRemoteCommand(
+                "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
+            )
+
+        case .windowsCommandPrompt:
+            let src = cmdQuote(fromNative)
+            let dst = cmdQuote(toNative)
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return "move /Y \(src) \(dst)"
+            }
+            let parentQuoted = cmdQuote(parentNative)
+            return "mkdir \(parentQuoted) 2>nul & move /Y \(src) \(dst)"
         }
     }
 

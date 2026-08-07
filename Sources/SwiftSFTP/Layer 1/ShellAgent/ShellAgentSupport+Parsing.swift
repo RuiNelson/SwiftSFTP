@@ -1,6 +1,61 @@
 import Foundation
 
 extension ShellAgentSupport {
+    /// Extracts a completed destination path from a verbose copy/move line, if the format is recognized.
+    ///
+    /// Supported shapes:
+    /// - Unix `cp -v` / `mv -v`: `'src' -> 'dst'` or `src -> dst`
+    /// - PowerShell `-Verbose`: `... Destination: C:\path...`
+    ///
+    /// Returns `nil` when the line is not a completion report (so callers must not invoke progress).
+    static func completedPath(fromVerboseLine line: String, shellType: ShellType) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            return unixVerboseDestination(from: trimmed)
+
+        case .windowsPowerShell:
+            return powerShellVerboseDestination(from: trimmed)
+
+        case .windowsCommandPrompt:
+            // cmd `copy` / `move` do not emit per-file completion lines we can trust.
+            return nil
+        }
+    }
+
+    /// `'/src' -> '/dst'` or `/src -> /dst` (GNU and BSD).
+    static func unixVerboseDestination(from line: String) -> String? {
+        guard let arrow = line.range(of: " -> ") else {
+            return nil
+        }
+        var destination = String(line[arrow.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if destination.hasPrefix("'"), destination.hasSuffix("'"), destination.count >= 2 {
+            destination = String(destination.dropFirst().dropLast())
+        }
+        else if destination.hasPrefix("\""), destination.hasSuffix("\""), destination.count >= 2 {
+            destination = String(destination.dropFirst().dropLast())
+        }
+        return destination.isEmpty ? nil : destination
+    }
+
+    /// PowerShell verbose: `VERBOSE: Performing the operation "Copy File" on target "Item: X Destination: Y".`
+    static func powerShellVerboseDestination(from line: String) -> String? {
+        guard let range = line.range(of: "Destination:", options: [.caseInsensitive, .backwards]) else {
+            return nil
+        }
+        var destination = String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip the VERBOSE sentence terminator: `".` or trailing quotes/periods.
+        while let last = destination.last, "\"'.".contains(last) {
+            destination = String(destination.dropLast())
+        }
+        destination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        return destination.isEmpty ? nil : destination
+    }
+
     static func parseHashOutput(
         shellType: ShellType,
         algorithm: CalculateHashAlgorithm,
