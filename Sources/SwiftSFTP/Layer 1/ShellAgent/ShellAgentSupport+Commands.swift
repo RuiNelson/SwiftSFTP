@@ -246,6 +246,61 @@ extension ShellAgentSupport {
         }
     }
 
+    static func tarCommand(
+        shellType: ShellType,
+        input: [String],
+        output: String,
+        compression: TarCompression
+    ) throws -> String {
+        guard !input.isEmpty else {
+            throw ShellAgentError.invalidArgument("tar requires at least one input path")
+        }
+
+        let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
+        let outputNative = pathForRemoteShell(output, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        // Shared flag forms: -c create, optional compression, -f archive, then members.
+        // Both GNU tar and bsdtar accept this layout.
+        let compressionFlags = compression.tarCreateFlags.joined(separator: " ")
+        let compressionPart = compressionFlags.isEmpty ? "" : "\(compressionFlags) "
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
+            let archive = unixShellQuote(outputNative)
+            let create = "tar -c \(compressionPart)-f \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return create
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+
+        case .windowsPowerShell:
+            // Windows ships bsdtar as `tar.exe`; same flags as libarchive/bsdtar.
+            let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+            }
+            return "\(ensureParent)tar -c \(compressionPart)-f \(archive) \(members)"
+
+        case .windowsCommandPrompt:
+            let members = sourcesNative.map(cmdQuote).joined(separator: " ")
+            let archive = cmdQuote(outputNative)
+            let create = "tar -c \(compressionPart)-f \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return create
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+        }
+    }
+
     static func hashCommand(
         shellType: ShellType,
         file: String,

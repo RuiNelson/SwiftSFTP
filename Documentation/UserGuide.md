@@ -766,6 +766,35 @@ try await agent.createRandomData(file: "/data/random-64MiB.bin", length: 64 * 10
 `length` must be non-negative (`0` creates an empty file). Parent directories of `file` are created when supported.
 Negative lengths throw `ShellAgentError.invalidArgument`.
 
+### Create a tar archive
+
+Builds an archive on the server from remote paths. Compression is limited to filters supported by **both** GNU tar and
+bsdtar:
+
+| `TarCompression` | Typical extension | Flag |
+|------------------|-------------------|------|
+| `.none` | `.tar` | — |
+| `.gzip` | `.tar.gz` | `-z` |
+| `.bzip2` | `.tar.bz2` | `-j` |
+| `.xz` | `.tar.xz` | `-J` |
+| `.compress` | `.tar.Z` | `-Z` |
+| `.lzma` | `.tar.lzma` | `--lzma` |
+| `.zstd` | `.tar.zst` | `--zstd` |
+
+`.zstd` is accepted by both GNU tar and bsdtar, but GNU tar usually needs the external `zstd` program on `PATH`
+(common on Raspberry Pi OS and desktop distros; not always present in minimal containers).
+
+```swift
+try await agent.tar(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/backup.tar.gz",
+    compression: .gzip
+)
+```
+
+An empty `input` array throws `ShellAgentError.invalidArgument`. Parent directories of `output` are created when
+supported. On Windows, the built-in `tar.exe` (bsdtar) is used with the same flags.
+
 ### Calculating a remote hash
 
 ```swift

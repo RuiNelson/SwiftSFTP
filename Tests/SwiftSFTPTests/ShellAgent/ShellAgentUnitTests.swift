@@ -124,6 +124,62 @@ struct ShellAgentUnitTests {
         #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
     }
 
+    @Test("tar command uses shared GNU/bsdtar compression flags")
+    func tarCommandFlags() throws {
+        let plain = try ShellAgentSupport.tarCommand(
+            shellType: .linux,
+            input: ["/data/a", "/data/b"],
+            output: "/data/out/archive.tar",
+            compression: .none
+        )
+        #expect(plain.contains("mkdir -p '/data/out'"))
+        #expect(plain.contains("tar -c -f '/data/out/archive.tar' '/data/a' '/data/b'"))
+        #expect(!plain.contains(" -z "))
+
+        let gzip = try ShellAgentSupport.tarCommand(
+            shellType: .darwin,
+            input: ["/tmp/x"],
+            output: "/tmp/x.tar.gz",
+            compression: .gzip
+        )
+        #expect(gzip.contains("tar -c -z -f '/tmp/x.tar.gz' '/tmp/x'"))
+
+        let xz = try ShellAgentSupport.tarCommand(
+            shellType: .linux,
+            input: ["/tmp/x"],
+            output: "/tmp/x.tar.xz",
+            compression: .xz
+        )
+        #expect(xz.contains("tar -c -J -f "))
+
+        let lzma = try ShellAgentSupport.tarCommand(
+            shellType: .linux,
+            input: ["/tmp/x"],
+            output: "/tmp/x.tar.lzma",
+            compression: .lzma
+        )
+        #expect(lzma.contains("--lzma"))
+
+        let zstd = try ShellAgentSupport.tarCommand(
+            shellType: .linux,
+            input: ["/tmp/x"],
+            output: "/tmp/x.tar.zst",
+            compression: .zstd
+        )
+        #expect(zstd.contains("--zstd"))
+
+        #expect(throws: ShellAgentError.invalidArgument("tar requires at least one input path")) {
+            try ShellAgentSupport.tarCommand(
+                shellType: .linux,
+                input: [],
+                output: "/tmp/out.tar",
+                compression: .none
+            )
+        }
+
+        #expect(TarCompression.allCases.count == 7)
+    }
+
     @Test("createZeros and createRandomData command shapes")
     func createDataCommands() throws {
         let zeros = try ShellAgentSupport.createZerosCommand(

@@ -308,6 +308,67 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - Tar
+
+    @Test("tar creates a gzip archive that extracts to the original payload")
+    func tarGzipRoundTrip() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-tar")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+                let payloadPath = "\(dir)/payload.bin"
+                let archivePath = "\(dir)/out/archive.tar.gz"
+                let extractDir = "\(dir)/extracted"
+                let payload = Data((0 ..< 512).map { UInt8($0 % 251) })
+
+                let handle = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: payloadPath,
+                    permissions: .serverDefault
+                )
+                try await handle.write(payload)
+                try await handle.close()
+
+                try await agent.tar(input: [payloadPath], output: archivePath, compression: .gzip)
+
+                let archiveMeta = try await client.statFile(path: archivePath, followLink: false)
+                #expect(archiveMeta != nil)
+                #expect((archiveMeta?.attributes.fileSize ?? 0) > 0)
+
+                // Extract with the same remote tar for a round-trip check.
+                try await client.createDirectory(path: extractDir, makePath: true, mode: .serverDefault)
+                let extract = try client.executeRemoteCommand(
+                    "tar -xzf \(ShellAgentSupport.unixShellQuote(archivePath)) -C \(ShellAgentSupport.unixShellQuote(extractDir))"
+                )
+                #expect(extract.exitStatus == 0)
+
+                // tar may store absolute paths; list extracted tree for the payload name.
+                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let match = entries.first(where: { $0.fileName == "payload.bin" })
+                let extractedPath = try #require(match?.fullPath)
+
+                let verification = try await client.openFile(.read, path: extractedPath, permissions: [])
+                let restored = try await verification.readAll()
+                try await verification.close()
+                #expect(restored == payload)
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("tar rejects an empty input list")
+    func tarEmptyInput() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("tar requires at least one input path")) {
+                    try await agent.tar(input: [], output: "/tmp/out.tar", compression: .none)
+                }
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")

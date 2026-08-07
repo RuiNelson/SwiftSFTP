@@ -133,6 +133,16 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         try runTransferCommand(command, progress: nil)
     }
 
+    public func tar(input: [String], output: String, compression: TarCompression) async throws {
+        let command = try ShellAgentSupport.tarCommand(
+            shellType: shellType,
+            input: input,
+            output: output,
+            compression: compression
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
     public func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data {
         let command = try ShellAgentSupport.hashCommand(
             shellType: shellType,

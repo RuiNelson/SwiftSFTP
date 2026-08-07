@@ -15,6 +15,44 @@ public enum CalculateHashAlgorithm: Sendable, CaseIterable, Equatable {
     case sha512256
 }
 
+/// Archive compression modes supported by **both** GNU tar and bsdtar (libarchive).
+///
+/// Flag forms used by the shell agent are the short options shared by both implementations (`-z`, `-j`, `-J`, `-Z`)
+/// plus long options accepted by both (`--lzma`, `--zstd`). Formats that exist only on one side are intentionally
+/// omitted.
+///
+/// - Note: `.zstd` needs a working zstd filter on the host. bsdtar often links libzstd; GNU tar typically shells out to
+/// the `zstd` binary (present on many modern systems, including Raspberry Pi OS, but not every minimal container).
+public enum TarCompression: Sendable, Equatable, CaseIterable {
+    /// Uncompressed `.tar`.
+    case none
+    /// gzip (`.tar.gz` / `.tgz`) — `tar -z`.
+    case gzip
+    /// bzip2 (`.tar.bz2`) — `tar -j`.
+    case bzip2
+    /// xz (`.tar.xz`) — `tar -J`.
+    case xz
+    /// compress / LZC (`.tar.Z`) — `tar -Z`.
+    case compress
+    /// lzma (`.tar.lzma`) — `tar --lzma`.
+    case lzma
+    /// zstd (`.tar.zst`) — `tar --zstd`.
+    case zstd
+
+    /// Arguments inserted after `tar -c` / before `-f` (for example `["-z"]` or `["--lzma"]`).
+    var tarCreateFlags: [String] {
+        switch self {
+        case .none: []
+        case .gzip: ["-z"]
+        case .bzip2: ["-j"]
+        case .xz: ["-J"]
+        case .compress: ["-Z"]
+        case .lzma: ["--lzma"]
+        case .zstd: ["--zstd"]
+        }
+    }
+}
+
 /// Optional progress report for shell-agent copy/move.
 ///
 /// Invoked only when the remote tool emits a parseable “file completed” line (for example `cp -v` / `mv -v`). The
@@ -111,7 +149,20 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
     /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func createRandomData(file: String, length: Int64) async throws
-    
+
+    /// Creates a tar archive on the server from remote paths.
+    ///
+    /// Compression modes are limited to those accepted by both GNU tar and bsdtar. Parent directories of `output` are
+    /// created when the shell supports it. Paths follow the same rewriting rules as ``copy(from:to:progress:)``.
+    ///
+    /// - Parameters:
+    ///   - input: One or more remote files or directories to include (order preserved).
+    ///   - output: Remote archive path to create or overwrite.
+    ///   - compression: Shared GNU/bsdtar compression filter.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func tar(input: [String], output: String, compression: TarCompression) async throws
+
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
     /// Paths may be supplied in SFTP form (`/C:/Users/...`) or native Windows form; on Windows shells they are
