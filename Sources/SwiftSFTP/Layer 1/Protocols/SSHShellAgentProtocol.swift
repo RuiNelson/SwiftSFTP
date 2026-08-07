@@ -133,6 +133,45 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func sevenZip(input: [String], output: String, compressionLevel: Int) async throws
 
+    /// Extracts a tar archive on the server into a destination directory.
+    ///
+    /// Compression is auto-detected by the remote `tar` (gzip, bzip2, xz, and other filters the host supports). The
+    /// destination directory is created via the parent ``SFTPClient`` when missing (`makePath: true`).
+    ///
+    /// - Parameters:
+    ///   - file: Remote archive path (`.tar`, `.tar.gz`, `.tgz`, …).
+    ///   - to: Remote directory to extract into.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty; otherwise
+    /// ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    func untar(file: String, to: String) async throws
+
+    /// Extracts a ZIP archive on the server into a destination directory.
+    ///
+    /// The destination directory is created via the parent ``SFTPClient`` when missing (`makePath: true`).
+    ///
+    /// - Parameters:
+    ///   - file: Remote `.zip` path.
+    ///   - to: Remote directory to extract into.
+    ///   - tool: Which remote unzip implementation to invoke. ``ZipTool/poke`` probes the host in preference order
+    /// (Info-ZIP `unzip`, then `tar` ZIP extract, then Microsoft `Expand-Archive`).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    func unzip(file: String, to: String, tool: ZipTool) async throws
+
+    /// Extracts a 7-Zip (or compatible) archive on the server into a destination directory.
+    ///
+    /// Probes for `7z`, then `7zz`, then `7za`. The destination directory is created via the parent ``SFTPClient`` when
+    /// missing (`makePath: true`).
+    ///
+    /// - Parameters:
+    ///   - file: Remote archive path (`.7z`, `.zip`, and other formats the CLI supports).
+    ///   - to: Remote directory to extract into.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    func unSevenZip(file: String, to: String) async throws
+
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
     /// - Parameters:
@@ -154,6 +193,11 @@ public extension SSHShellAgentProtocol {
     /// Moves on the server without a progress callback.
     func move(from: String, to: String) async throws {
         try await move(from: from, to: to, progress: nil)
+    }
+
+    /// Extracts a ZIP archive, probing the host for a suitable tool (``ZipTool/poke``).
+    func unzip(file: String, to: String) async throws {
+        try await unzip(file: file, to: to, tool: .poke)
     }
 }
 

@@ -171,6 +171,72 @@ struct ShellAgentUnitTests {
         #expect(ShellAgentSupport.sevenZipBinaryPreferenceOrder == ["7z", "7zz", "7za"])
     }
 
+    @Test("untar / unzip / unSevenZip extract command shapes")
+    func extractCommandShapes() throws {
+        let untar = try ShellAgentSupport.untarCommand(
+            shellType: .linux,
+            file: "/data/a.tar.gz",
+            to: "/data/out"
+        )
+        #expect(untar == "tar -xf '/data/a.tar.gz' -C '/data/out'")
+        #expect(!untar.contains("mkdir"))
+
+        let infoUnzip = try ShellAgentSupport.unzipCommand(
+            shellType: .darwin,
+            file: "/data/a.zip",
+            to: "/data/out",
+            tool: .infoZip
+        )
+        #expect(infoUnzip == "unzip -o -q '/data/a.zip' -d '/data/out'")
+
+        let tarUnzip = try ShellAgentSupport.unzipCommand(
+            shellType: .darwin,
+            file: "/data/a.zip",
+            to: "/data/out",
+            tool: .tar
+        )
+        #expect(tarUnzip == "tar -xf '/data/a.zip' -C '/data/out'")
+
+        let msUnzip = try ShellAgentSupport.unzipCommand(
+            shellType: .windowsPowerShell,
+            file: "/C:/data/a.zip",
+            to: "/C:/data/out",
+            tool: .microsoft
+        )
+        #expect(msUnzip.contains("Expand-Archive"))
+        #expect(msUnzip.contains("-Force"))
+
+        #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
+            try ShellAgentSupport.unzipCommand(
+                shellType: .linux,
+                file: "/a.zip",
+                to: "/out",
+                tool: .microsoft
+            )
+        }
+
+        let u7 = try ShellAgentSupport.unSevenZipCommand(
+            shellType: .linux,
+            binary: "7z",
+            file: "/data/a.7z",
+            to: "/data/out"
+        )
+        #expect(u7 == "7z x -y -bd -o'/data/out' '/data/a.7z'")
+
+        #expect(throws: ShellAgentError.invalidArgument("untar requires a non-empty archive path")) {
+            try ShellAgentSupport.untarCommand(shellType: .linux, file: "", to: "/out")
+        }
+        #expect(throws: ShellAgentError.invalidArgument("unzip requires a non-empty destination directory")) {
+            try ShellAgentSupport.unzipCommand(shellType: .linux, file: "/a.zip", to: "", tool: .infoZip)
+        }
+        #expect(throws: ShellAgentError.invalidArgument("unSevenZip requires a non-empty archive path")) {
+            try ShellAgentSupport.unSevenZipCommand(shellType: .linux, binary: "7z", file: "", to: "/out")
+        }
+
+        let unzipProbe = try ShellAgentSupport.unzipToolProbeCommand(tool: .infoZip, shellType: .linux)
+        #expect(unzipProbe.contains("command -v unzip"))
+    }
+
     @Test("zip command shapes for infoZip, tar, and microsoft")
     func zipCommandShapes() throws {
         let info = try ShellAgentSupport.zipCommand(

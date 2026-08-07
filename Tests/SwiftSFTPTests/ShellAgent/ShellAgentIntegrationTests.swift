@@ -336,12 +336,8 @@ struct ShellAgentIntegrationTests {
                 #expect(archiveMeta != nil)
                 #expect((archiveMeta?.attributes.fileSize ?? 0) > 0)
 
-                // Extract with the same remote tar for a round-trip check.
-                try await client.createDirectory(path: extractDir, makePath: true, mode: .serverDefault)
-                let extract = try client.executeRemoteCommand(
-                    "tar -xzf \(ShellAgentSupport.unixShellQuote(archivePath)) -C \(ShellAgentSupport.unixShellQuote(extractDir))"
-                )
-                #expect(extract.exitStatus == 0)
+                // Round-trip via untar (destination directory created by the agent through SFTP).
+                try await agent.untar(file: archivePath, to: extractDir)
 
                 // tar may store absolute paths; list extracted tree for the payload name.
                 let entries = try await client.listDirectory(path: extractDir, recursive: true)
@@ -364,6 +360,22 @@ struct ShellAgentIntegrationTests {
             try await withShellAgent(client) { agent in
                 await #expect(throws: ShellAgentError.invalidArgument("tar requires at least one input path")) {
                     try await agent.tar(input: [], output: "/tmp/out.tar", compression: .none)
+                }
+            }
+        }
+    }
+
+    @Test("untar rejects empty paths")
+    func untarEmptyPaths() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("untar requires a non-empty archive path")) {
+                    try await agent.untar(file: "", to: "/tmp/out")
+                }
+                await #expect(
+                    throws: ShellAgentError.invalidArgument("untar requires a non-empty destination directory")
+                ) {
+                    try await agent.untar(file: "/tmp/a.tar", to: "")
                 }
             }
         }
@@ -407,6 +419,20 @@ struct ShellAgentIntegrationTests {
                 #expect(meta != nil)
                 #expect((meta?.attributes.fileSize ?? 0) > 0)
 
+                let extractDir = "\(dir)/extracted"
+                do {
+                    try await agent.unzip(file: archivePath, to: extractDir, tool: .poke)
+                }
+                catch is ShellAgentError {
+                    // Create tool may exist without a matching extract tool; still success for create path.
+                    try await client.delete(path: dir)
+                    return
+                }
+
+                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let match = entries.first(where: { $0.fileName == "payload.bin" })
+                #expect(match != nil)
+
                 try await client.delete(path: dir)
             }
         }
@@ -426,6 +452,22 @@ struct ShellAgentIntegrationTests {
                         compressionLevel: 99,
                         tool: .infoZip
                     )
+                }
+            }
+        }
+    }
+
+    @Test("unzip rejects empty paths")
+    func unzipEmptyPaths() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("unzip requires a non-empty archive path")) {
+                    try await agent.unzip(file: "", to: "/tmp/out", tool: .infoZip)
+                }
+                await #expect(
+                    throws: ShellAgentError.invalidArgument("unzip requires a non-empty destination directory")
+                ) {
+                    try await agent.unzip(file: "/tmp/a.zip", to: "", tool: .infoZip)
                 }
             }
         }
@@ -468,6 +510,13 @@ struct ShellAgentIntegrationTests {
                 #expect(meta != nil)
                 #expect((meta?.attributes.fileSize ?? 0) > 0)
 
+                let extractDir = "\(dir)/extracted"
+                try await agent.unSevenZip(file: archivePath, to: extractDir)
+
+                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let match = entries.first(where: { $0.fileName == "payload.bin" })
+                #expect(match != nil)
+
                 try await client.delete(path: dir)
             }
         }
@@ -482,6 +531,24 @@ struct ShellAgentIntegrationTests {
                 }
                 await #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
                     try await agent.sevenZip(input: ["/tmp/a"], output: "/tmp/x.7z", compressionLevel: -1)
+                }
+            }
+        }
+    }
+
+    @Test("unSevenZip rejects empty paths")
+    func unSevenZipEmptyPaths() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(
+                    throws: ShellAgentError.invalidArgument("unSevenZip requires a non-empty archive path")
+                ) {
+                    try await agent.unSevenZip(file: "", to: "/tmp/out")
+                }
+                await #expect(
+                    throws: ShellAgentError.invalidArgument("unSevenZip requires a non-empty destination directory")
+                ) {
+                    try await agent.unSevenZip(file: "/tmp/a.7z", to: "")
                 }
             }
         }

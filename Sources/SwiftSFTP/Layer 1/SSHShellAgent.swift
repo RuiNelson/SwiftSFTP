@@ -179,6 +179,59 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         try runTransferCommand(command, progress: nil)
     }
 
+    public func untar(file: String, to: String) async throws {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("untar requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("untar requires a non-empty destination directory")
+        }
+        try await ensureDestinationDirectory(to)
+        let command = try ShellAgentSupport.untarCommand(shellType: shellType, file: file, to: to)
+        try runTransferCommand(command, progress: nil)
+    }
+
+    public func unzip(file: String, to: String, tool: ZipTool = .poke) async throws {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("unzip requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("unzip requires a non-empty destination directory")
+        }
+        try await ensureDestinationDirectory(to)
+        let resolvedTool = try resolveUnzipTool(tool)
+        let command = try ShellAgentSupport.unzipCommand(
+            shellType: shellType,
+            file: file,
+            to: to,
+            tool: resolvedTool
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    public func unSevenZip(file: String, to: String) async throws {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("unSevenZip requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("unSevenZip requires a non-empty destination directory")
+        }
+        try await ensureDestinationDirectory(to)
+        let binary = try resolveSevenZipBinary()
+        let command = try ShellAgentSupport.unSevenZipCommand(
+            shellType: shellType,
+            binary: binary,
+            file: file,
+            to: to
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    /// Ensures `path` exists as a directory via the parent SFTP client (`makePath: true`).
+    private func ensureDestinationDirectory(_ path: String) async throws {
+        try await client.createDirectory(path: path, makePath: true, mode: .serverDefault)
+    }
+
     /// Picks `7z`, `7zz`, or `7za` when present on the remote host.
     private func resolveSevenZipBinary() throws -> String {
         let resolve = ShellAgentSupport.sevenZipResolveBinaryCommand(shellType: shellType)
@@ -217,7 +270,7 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         throw ShellAgentError.hostDoesNotSupportOperation
     }
 
-    /// Resolves ``ZipTool/poke`` by probing the remote host in preference order.
+    /// Resolves ``ZipTool/poke`` by probing the remote host in preference order (create tooling).
     private func resolveZipTool(_ tool: ZipTool) throws -> ZipTool {
         guard tool == .poke else {
             return tool
@@ -227,6 +280,29 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             let probe: String
             do {
                 probe = try ShellAgentSupport.zipToolProbeCommand(tool: candidate, shellType: shellType)
+            }
+            catch is ShellAgentError {
+                continue
+            }
+            let result = try executeOnPersistentShell(probe)
+            if result.exitStatus == 0 {
+                return candidate
+            }
+        }
+
+        throw ShellAgentError.hostDoesNotSupportOperation
+    }
+
+    /// Resolves ``ZipTool/poke`` for extract (Info-ZIP `unzip`, then tar ZIP, then Expand-Archive).
+    private func resolveUnzipTool(_ tool: ZipTool) throws -> ZipTool {
+        guard tool == .poke else {
+            return tool
+        }
+
+        for candidate in ZipTool.pokePreferenceOrder {
+            let probe: String
+            do {
+                probe = try ShellAgentSupport.unzipToolProbeCommand(tool: candidate, shellType: shellType)
             }
             catch is ShellAgentError {
                 continue

@@ -834,6 +834,29 @@ try await agent.sevenZip(
 …). Empty `input` or a level outside `0...9` throws `invalidArgument`. Missing 7-Zip on the host throws
 `hostDoesNotSupportOperation`. Common via Homebrew (`p7zip`) on macOS and distro packages on Linux.
 
+### Extract archives
+
+Each extract API takes the archive path and a **destination directory**. The agent creates that directory (and parents)
+through the parent `SFTPClient` when it does not already exist (`makePath: true`). There is no progress callback.
+
+```swift
+try await agent.untar(file: "/data/backup.tar.gz", to: "/data/restored")
+
+try await agent.unzip(file: "/data/bundle.zip", to: "/data/unzipped")
+// or force a tool:
+try await agent.unzip(file: "/data/bundle.zip", to: "/data/unzipped", tool: .infoZip)
+
+try await agent.unSevenZip(file: "/data/bundle.7z", to: "/data/from7z")
+```
+
+| Method | Remote tools | Notes |
+|--------|--------------|-------|
+| `untar` | `tar -xf … -C …` | Compression auto-detected (gzip, xz, …) by GNU tar / bsdtar |
+| `unzip` | Info-ZIP `unzip`, `tar` ZIP extract, or `Expand-Archive` | Same `ZipTool` / `.poke` preference as create, but probes `unzip` / `Expand-Archive` for extract |
+| `unSevenZip` | `7z` / `7zz` / `7za` `x -y -bd -o…` | Same binary preference as `sevenZip` |
+
+Empty `file` or `to` throws `invalidArgument`. Missing tooling throws `hostDoesNotSupportOperation` where applicable.
+
 ### Calculating a remote hash
 
 ```swift

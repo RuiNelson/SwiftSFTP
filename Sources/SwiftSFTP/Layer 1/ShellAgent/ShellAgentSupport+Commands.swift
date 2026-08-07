@@ -633,6 +633,194 @@ extension ShellAgentSupport {
         }
     }
 
+    /// Extracts a tar archive into an existing destination directory (caller ensures `to` via SFTP).
+    ///
+    /// Uses `tar -xf … -C …` so GNU tar and bsdtar auto-detect common compression filters from the archive.
+    static func untarCommand(shellType: ShellType, file: String, to: String) throws -> String {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("untar requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("untar requires a non-empty destination directory")
+        }
+
+        let archiveNative = pathForRemoteShell(file, shellType: shellType)
+        let destNative = pathForRemoteShell(to, shellType: shellType)
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            return "tar -xf \(unixShellQuote(archiveNative)) -C \(unixShellQuote(destNative))"
+
+        case .windowsPowerShell:
+            return "tar -xf \(powerShellQuote(archiveNative)) -C \(powerShellQuote(destNative))"
+
+        case .windowsCommandPrompt:
+            return "tar -xf \(cmdQuote(archiveNative)) -C \(cmdQuote(destNative))"
+        }
+    }
+
+    /// Extracts a ZIP archive into an existing destination directory (caller ensures `to` via SFTP).
+    static func unzipCommand(
+        shellType: ShellType,
+        file: String,
+        to: String,
+        tool: ZipTool
+    ) throws -> String {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("unzip requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("unzip requires a non-empty destination directory")
+        }
+
+        let archiveNative = pathForRemoteShell(file, shellType: shellType)
+        let destNative = pathForRemoteShell(to, shellType: shellType)
+
+        switch tool {
+        case .infoZip:
+            return infoUnzipCommand(shellType: shellType, archiveNative: archiveNative, destNative: destNative)
+
+        case .tar:
+            return tarUnzipCommand(shellType: shellType, archiveNative: archiveNative, destNative: destNative)
+
+        case .microsoft:
+            return try microsoftUnzipCommand(
+                shellType: shellType,
+                archiveNative: archiveNative,
+                destNative: destNative
+            )
+
+        case .poke:
+            throw ShellAgentError.invalidArgument("unzip tool .poke must be resolved before building a command")
+        }
+    }
+
+    /// Remote probe that exits 0 when `tool` can extract ZIP archives on `shellType`.
+    static func unzipToolProbeCommand(tool: ZipTool, shellType: ShellType) throws -> String {
+        switch tool {
+        case .infoZip:
+            switch shellType {
+            case .darwin, .linux, .posixCompatible:
+                return "command -v unzip >/dev/null 2>&1"
+            case .windowsPowerShell:
+                return "if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) { exit 1 }"
+            case .windowsCommandPrompt:
+                return "where unzip >nul 2>nul"
+            }
+
+        case .tar:
+            // Same capability gate as create: ZIP format needs bsdtar/libarchive.
+            return try zipToolProbeCommand(tool: .tar, shellType: shellType)
+
+        case .microsoft:
+            switch shellType {
+            case .darwin, .linux, .posixCompatible:
+                throw ShellAgentError.hostDoesNotSupportOperation
+            case .windowsPowerShell:
+                return
+                    "if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
+            case .windowsCommandPrompt:
+                return
+                    "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
+            }
+
+        case .poke:
+            throw ShellAgentError.invalidArgument("cannot probe unzip tool .poke")
+        }
+    }
+
+    /// Info-ZIP: `unzip -o -q archive -d dest` (overwrite without prompts).
+    private static func infoUnzipCommand(
+        shellType: ShellType,
+        archiveNative: String,
+        destNative: String
+    ) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            "unzip -o -q \(unixShellQuote(archiveNative)) -d \(unixShellQuote(destNative))"
+
+        case .windowsPowerShell:
+            "unzip -o -q \(powerShellQuote(archiveNative)) -d \(powerShellQuote(destNative))"
+
+        case .windowsCommandPrompt:
+            "unzip -o -q \(cmdQuote(archiveNative)) -d \(cmdQuote(destNative))"
+        }
+    }
+
+    /// bsdtar/libarchive ZIP reader: `tar -xf archive -C dest`.
+    private static func tarUnzipCommand(
+        shellType: ShellType,
+        archiveNative: String,
+        destNative: String
+    ) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            "tar -xf \(unixShellQuote(archiveNative)) -C \(unixShellQuote(destNative))"
+
+        case .windowsPowerShell:
+            "tar -xf \(powerShellQuote(archiveNative)) -C \(powerShellQuote(destNative))"
+
+        case .windowsCommandPrompt:
+            "tar -xf \(cmdQuote(archiveNative)) -C \(cmdQuote(destNative))"
+        }
+    }
+
+    /// Microsoft PowerShell `Expand-Archive` (Windows only).
+    private static func microsoftUnzipCommand(
+        shellType: ShellType,
+        archiveNative: String,
+        destNative: String
+    ) throws -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            throw ShellAgentError.hostDoesNotSupportOperation
+
+        case .windowsPowerShell:
+            return
+                "Expand-Archive -LiteralPath \(powerShellQuote(archiveNative)) -DestinationPath \(powerShellQuote(destNative)) -Force"
+
+        case .windowsCommandPrompt:
+            let script =
+                "Expand-Archive -LiteralPath \(powerShellQuote(archiveNative)) -DestinationPath \(powerShellQuote(destNative)) -Force"
+            return powerShellRemoteCommand(script)
+        }
+    }
+
+    /// Extracts with 7-Zip CLI into an existing destination (`x` keeps paths; `-o` has no space before the dir).
+    static func unSevenZipCommand(
+        shellType: ShellType,
+        binary: String,
+        file: String,
+        to: String
+    ) throws -> String {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("unSevenZip requires a non-empty archive path")
+        }
+        guard !to.isEmpty else {
+            throw ShellAgentError.invalidArgument("unSevenZip requires a non-empty destination directory")
+        }
+        guard sevenZipBinaryPreferenceOrder.contains(binary) else {
+            throw ShellAgentError.invalidArgument("unsupported 7-Zip binary name: \(binary)")
+        }
+
+        let archiveNative = pathForRemoteShell(file, shellType: shellType)
+        let destNative = pathForRemoteShell(to, shellType: shellType)
+
+        // `-o{dir}` must be concatenated (no space). Quote the path so spaces are safe: `-o'/path/with spaces'`.
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            return
+                "\(binary) x -y -bd -o\(unixShellQuote(destNative)) \(unixShellQuote(archiveNative))"
+
+        case .windowsPowerShell:
+            return
+                "\(binary) x -y -bd -o\(powerShellQuote(destNative)) \(powerShellQuote(archiveNative))"
+
+        case .windowsCommandPrompt:
+            return "\(binary) x -y -bd -o\(cmdQuote(destNative)) \(cmdQuote(archiveNative))"
+        }
+    }
+
     static func hashCommand(
         shellType: ShellType,
         file: String,
