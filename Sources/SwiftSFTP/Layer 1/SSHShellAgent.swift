@@ -143,6 +143,46 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         try runTransferCommand(command, progress: nil)
     }
 
+    public func zip(
+        input: [String],
+        output: String,
+        compressionLevel: Int,
+        tool: ZipTool
+    ) async throws {
+        let resolvedTool = try resolveZipTool(tool)
+        let command = try ShellAgentSupport.zipCommand(
+            shellType: shellType,
+            input: input,
+            output: output,
+            compressionLevel: compressionLevel,
+            tool: resolvedTool
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    /// Resolves ``ZipTool/poke`` by probing the remote host in preference order.
+    private func resolveZipTool(_ tool: ZipTool) throws -> ZipTool {
+        guard tool == .poke else {
+            return tool
+        }
+
+        for candidate in ZipTool.pokePreferenceOrder {
+            let probe: String
+            do {
+                probe = try ShellAgentSupport.zipToolProbeCommand(tool: candidate, shellType: shellType)
+            }
+            catch is ShellAgentError {
+                continue
+            }
+            let result = try executeOnPersistentShell(probe)
+            if result.exitStatus == 0 {
+                return candidate
+            }
+        }
+
+        throw ShellAgentError.hostDoesNotSupportOperation
+    }
+
     public func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data {
         let command = try ShellAgentSupport.hashCommand(
             shellType: shellType,

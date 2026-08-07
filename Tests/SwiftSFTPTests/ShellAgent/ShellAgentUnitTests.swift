@@ -124,6 +124,103 @@ struct ShellAgentUnitTests {
         #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
     }
 
+    @Test("zip command shapes for infoZip, tar, and microsoft")
+    func zipCommandShapes() throws {
+        let info = try ShellAgentSupport.zipCommand(
+            shellType: .darwin,
+            input: ["/data/a", "/data/b"],
+            output: "/data/out/x.zip",
+            compressionLevel: 6,
+            tool: .infoZip
+        )
+        #expect(info.contains("zip -r -q -6 "))
+        #expect(info.contains("'/data/out/x.zip'"))
+        #expect(info.contains("mkdir -p '/data/out'"))
+
+        let tarZip = try ShellAgentSupport.zipCommand(
+            shellType: .darwin,
+            input: ["/tmp/x"],
+            output: "/tmp/x.zip",
+            compressionLevel: 9,
+            tool: .tar
+        )
+        #expect(tarZip.contains("--format=zip"))
+        #expect(tarZip.contains("zip:compression-level=9"))
+        #expect(tarZip.contains("tar "))
+
+        let ps = try ShellAgentSupport.zipCommand(
+            shellType: .windowsPowerShell,
+            input: ["/C:/a"],
+            output: "/C:/out.zip",
+            compressionLevel: 0,
+            tool: .microsoft
+        )
+        #expect(ps.contains("Compress-Archive"))
+        #expect(ps.contains("NoCompression"))
+        #expect(!ps.contains("powershell -NoProfile"))
+
+        let cmd = try ShellAgentSupport.zipCommand(
+            shellType: .windowsCommandPrompt,
+            input: ["/C:/a"],
+            output: "/C:/out.zip",
+            compressionLevel: 6,
+            tool: .microsoft
+        )
+        #expect(cmd.contains("powershell -NoProfile -NonInteractive -Command"))
+        #expect(cmd.contains("Compress-Archive"))
+        #expect(cmd.contains("Optimal"))
+
+        #expect(throws: ShellAgentError.hostDoesNotSupportOperation) {
+            try ShellAgentSupport.zipCommand(
+                shellType: .linux,
+                input: ["/a"],
+                output: "/b.zip",
+                compressionLevel: 6,
+                tool: .microsoft
+            )
+        }
+        #expect(throws: ShellAgentError.invalidArgument("zip requires at least one input path")) {
+            try ShellAgentSupport.zipCommand(
+                shellType: .linux,
+                input: [],
+                output: "/b.zip",
+                compressionLevel: 6,
+                tool: .infoZip
+            )
+        }
+        #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
+            try ShellAgentSupport.zipCommand(
+                shellType: .linux,
+                input: ["/a"],
+                output: "/b.zip",
+                compressionLevel: 10,
+                tool: .infoZip
+            )
+        }
+        #expect(throws: ShellAgentError.invalidArgument("zip tool .poke must be resolved before building a command")) {
+            try ShellAgentSupport.zipCommand(
+                shellType: .linux,
+                input: ["/a"],
+                output: "/b.zip",
+                compressionLevel: 6,
+                tool: .poke
+            )
+        }
+
+        #expect(ZipTool.pokePreferenceOrder == [.infoZip, .tar, .microsoft])
+
+        let infoProbe = try ShellAgentSupport.zipToolProbeCommand(tool: .infoZip, shellType: .linux)
+        #expect(infoProbe.contains("command -v zip"))
+        let tarProbe = try ShellAgentSupport.zipToolProbeCommand(tool: .tar, shellType: .darwin)
+        #expect(tarProbe.contains("--format=zip"))
+        let msCmdProbe = try ShellAgentSupport.zipToolProbeCommand(
+            tool: .microsoft,
+            shellType: .windowsCommandPrompt
+        )
+        #expect(msCmdProbe.contains("powershell"))
+        #expect(msCmdProbe.contains("Compress-Archive"))
+    }
+
     @Test("tar command uses shared GNU/bsdtar compression flags")
     func tarCommandFlags() throws {
         let plain = try ShellAgentSupport.tarCommand(

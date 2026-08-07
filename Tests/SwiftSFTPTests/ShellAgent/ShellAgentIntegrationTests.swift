@@ -369,6 +369,68 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - Zip
+
+    @Test("zip creates an archive when a suitable tool is available")
+    func zipCreatesArchiveWhenToolAvailable() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-zip")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+                let payloadPath = "\(dir)/payload.bin"
+                let archivePath = "\(dir)/out/bundle.zip"
+                let payload = Data((0 ..< 256).map { UInt8($0) })
+
+                let handle = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: payloadPath,
+                    permissions: .serverDefault
+                )
+                try await handle.write(payload)
+                try await handle.close()
+
+                do {
+                    try await agent.zip(
+                        input: [payloadPath],
+                        output: archivePath,
+                        compressionLevel: 6,
+                        tool: .poke
+                    )
+                }
+                catch is ShellAgentError {
+                    // No Info-ZIP, no tar ZIP format, no Microsoft zip — skip quietly on this host.
+                    try await client.delete(path: dir)
+                    return
+                }
+
+                let meta = try await client.statFile(path: archivePath, followLink: false)
+                #expect(meta != nil)
+                #expect((meta?.attributes.fileSize ?? 0) > 0)
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("zip rejects invalid arguments")
+    func zipInvalidArguments() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("zip requires at least one input path")) {
+                    try await agent.zip(input: [], output: "/tmp/x.zip", compressionLevel: 6, tool: .infoZip)
+                }
+                await #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
+                    try await agent.zip(
+                        input: ["/tmp/a"],
+                        output: "/tmp/x.zip",
+                        compressionLevel: 99,
+                        tool: .infoZip
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")

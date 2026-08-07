@@ -795,6 +795,29 @@ try await agent.tar(
 An empty `input` array throws `ShellAgentError.invalidArgument`. Parent directories of `output` are created when
 supported. On Windows, the built-in `tar.exe` (bsdtar) is used with the same flags.
 
+### Create a ZIP archive
+
+```swift
+try await agent.zip(
+    input: ["/data/dir", "/data/readme.txt"],
+    output: "/data/bundle.zip",
+    compressionLevel: 6,
+    tool: .infoZip
+)
+```
+
+`compressionLevel` is `0...9` (`0` = store only, `9` = maximum deflate). `tool` selects the remote implementation:
+
+| `ZipTool` | Remote command | Notes |
+|-----------|----------------|-------|
+| `.infoZip` | Info-ZIP `zip -r -[0-9]` | Common on macOS; optional package on Linux |
+| `.tar` | `tar --format=zip --options zip:compression-level=N` | bsdtar / Windows `tar.exe`; not stock GNU tar |
+| `.microsoft` | PowerShell `Compress-Archive` | Windows only; under Command Prompt the agent calls `powershell.exe`. Levels map to NoCompression / Fastest / Optimal |
+| `.poke` | (auto) | Probes the host and picks the first available tool in order: Info-ZIP → tar ZIP → Microsoft |
+
+Empty `input` or a level outside `0...9` throws `invalidArgument`. `.microsoft` on a Unix shell throws
+`hostDoesNotSupportOperation`. If `.poke` finds no usable tool, it also throws `hostDoesNotSupportOperation`.
+
 ### Calculating a remote hash
 
 ```swift

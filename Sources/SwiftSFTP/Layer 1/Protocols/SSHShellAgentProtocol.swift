@@ -104,7 +104,19 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``,
     /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func tar(input: [String], output: String, compression: TarCompression) async throws
-    
+
+    /// Creates a ZIP archive on the server from remote paths.
+    ///
+    /// - Parameters:
+    ///   - input: One or more remote files or directories to include.
+    ///   - output: Remote `.zip` path to create or overwrite.
+    ///   - compressionLevel: Deflate level from `0` (store) through `9` (maximum). Exact mapping depends on `tool`.
+    ///   - tool: Which remote zip implementation to invoke. ``ZipTool/poke`` probes the host in preference order
+    /// (Info-ZIP, then `tar --format=zip`, then Microsoft `Compress-Archive`).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable on that shell family (including when
+    /// ``ZipTool/poke`` finds nothing); otherwise ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2
+    /// errors.
     func zip(input: [String], output: String, compressionLevel: Int, tool: ZipTool) async throws
 
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
@@ -182,4 +194,21 @@ public enum TarCompression: Sendable, Equatable, CaseIterable {
         case .zstd: ["--zstd"]
         }
     }
+}
+
+/// Remote ZIP implementations the shell agent can drive.
+public enum ZipTool: Sendable, Equatable, CaseIterable {
+    /// Info-ZIP `zip` utility (`zip -r -[0-9] archive members…`). Common on macOS and many Linux installs.
+    case infoZip
+    /// `tar --format=zip` (bsdtar / libarchive). Works on macOS and Windows `tar.exe`; not on stock GNU tar.
+    case tar
+    /// Microsoft PowerShell `Compress-Archive` (Windows). On Command Prompt shells the agent invokes `powershell.exe`
+    /// to run the same cmdlet. Not available on Unix shells.
+    case microsoft
+    /// Probe the remote host and use the first available tool in preference order: ``infoZip``, ``tar``, then
+    /// ``microsoft``.
+    case poke
+
+    /// Concrete tools tried by ``poke``, in order.
+    public static let pokePreferenceOrder: [ZipTool] = [.infoZip, .tar, .microsoft]
 }

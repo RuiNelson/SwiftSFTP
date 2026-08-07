@@ -301,6 +301,251 @@ extension ShellAgentSupport {
         }
     }
 
+    static func zipCommand(
+        shellType: ShellType,
+        input: [String],
+        output: String,
+        compressionLevel: Int,
+        tool: ZipTool
+    ) throws -> String {
+        guard !input.isEmpty else {
+            throw ShellAgentError.invalidArgument("zip requires at least one input path")
+        }
+        guard (0 ... 9).contains(compressionLevel) else {
+            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
+        }
+
+        let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
+        let outputNative = pathForRemoteShell(output, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        switch tool {
+        case .infoZip:
+            return try infoZipCommand(
+                shellType: shellType,
+                sourcesNative: sourcesNative,
+                outputNative: outputNative,
+                parentSFTP: parentSFTP,
+                parentNative: parentNative,
+                compressionLevel: compressionLevel
+            )
+
+        case .tar:
+            return try tarZipCommand(
+                shellType: shellType,
+                sourcesNative: sourcesNative,
+                outputNative: outputNative,
+                parentSFTP: parentSFTP,
+                parentNative: parentNative,
+                compressionLevel: compressionLevel
+            )
+
+        case .microsoft:
+            return try microsoftZipCommand(
+                shellType: shellType,
+                sourcesNative: sourcesNative,
+                outputNative: outputNative,
+                parentSFTP: parentSFTP,
+                parentNative: parentNative,
+                compressionLevel: compressionLevel
+            )
+
+        case .poke:
+            // Resolved at runtime by ``SSHShellAgent/zip(input:output:compressionLevel:tool:)`` after probing.
+            throw ShellAgentError.invalidArgument("zip tool .poke must be resolved before building a command")
+        }
+    }
+
+    /// Remote probe that exits 0 when `tool` appears usable on `shellType` (does not create a real archive).
+    static func zipToolProbeCommand(tool: ZipTool, shellType: ShellType) throws -> String {
+        switch tool {
+        case .infoZip:
+            switch shellType {
+            case .darwin, .linux, .posixCompatible:
+                return "command -v zip >/dev/null 2>&1"
+            case .windowsPowerShell:
+                return "if (-not (Get-Command zip -ErrorAction SilentlyContinue)) { exit 1 }"
+            case .windowsCommandPrompt:
+                return "where zip >nul 2>nul"
+            }
+
+        case .tar:
+            // Empty archive with ZIP format: succeeds on bsdtar/libarchive, fails on stock GNU tar.
+            switch shellType {
+            case .darwin, .linux, .posixCompatible:
+                return
+                    "tmp=$(mktemp ${TMPDIR:-/tmp}/swiftsftp-zip-probe.XXXXXX.zip) && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; exit $ec"
+            case .windowsPowerShell:
+                return
+                    "$tmp = Join-Path $env:TEMP (\"swiftsftp-zip-probe-\" + [guid]::NewGuid().ToString() + \".zip\"); tar --format=zip -cf $tmp --files-from NUL 2>$null; $ec = $LASTEXITCODE; Remove-Item -Force -ErrorAction SilentlyContinue $tmp; if ($null -eq $ec) { exit 1 } else { exit $ec }"
+            case .windowsCommandPrompt:
+                return
+                    "set \"tmp=%TEMP%\\swiftsftp-zip-probe-%RANDOM%.zip\" & tar --format=zip -cf \"%tmp%\" --files-from NUL >nul 2>nul & set \"ec=%ERRORLEVEL%\" & del /f /q \"%tmp%\" >nul 2>nul & exit /b %ec%"
+            }
+
+        case .microsoft:
+            switch shellType {
+            case .darwin, .linux, .posixCompatible:
+                throw ShellAgentError.hostDoesNotSupportOperation
+            case .windowsPowerShell:
+                return "if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
+            case .windowsCommandPrompt:
+                return
+                    "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
+            }
+
+        case .poke:
+            throw ShellAgentError.invalidArgument("cannot probe zip tool .poke")
+        }
+    }
+
+    /// Info-ZIP: `zip -r -q -[0-9] archive members…` (recreate archive each call).
+    private static func infoZipCommand(
+        shellType: ShellType,
+        sourcesNative: [String],
+        outputNative: String,
+        parentSFTP: String,
+        parentNative: String,
+        compressionLevel: Int
+    ) throws -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
+            let archive = unixShellQuote(outputNative)
+            // `-r` recurses directories; `-[0-9]` sets deflate level (`-0` store only).
+            let create = "rm -f \(archive) && zip -r -q -\(compressionLevel) \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return create
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+
+        case .windowsPowerShell:
+            let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent = windowsPowerShellEnsureParent(
+                parentSFTP: parentSFTP,
+                parentNative: parentNative
+            )
+            // Prefer `zip` if installed (Git for Windows, etc.); remove existing archive first.
+            return
+                "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; zip -r -q -\(compressionLevel) \(archive) \(members)"
+
+        case .windowsCommandPrompt:
+            let members = sourcesNative.map(cmdQuote).joined(separator: " ")
+            let archive = cmdQuote(outputNative)
+            let create =
+                "if exist \(archive) del /f /q \(archive) & zip -r -q -\(compressionLevel) \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return create
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+        }
+    }
+
+    /// bsdtar/libarchive ZIP writer: `tar --format=zip --options zip:compression-level=N -cf …`.
+    private static func tarZipCommand(
+        shellType: ShellType,
+        sourcesNative: [String],
+        outputNative: String,
+        parentSFTP: String,
+        parentNative: String,
+        compressionLevel: Int
+    ) throws -> String {
+        let options = "--format=zip --options zip:compression-level=\(compressionLevel)"
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
+            let archive = unixShellQuote(outputNative)
+            let create = "tar \(options) -cf \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return create
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+
+        case .windowsPowerShell:
+            let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent = windowsPowerShellEnsureParent(
+                parentSFTP: parentSFTP,
+                parentNative: parentNative
+            )
+            return "\(ensureParent)tar \(options) -cf \(archive) \(members)"
+
+        case .windowsCommandPrompt:
+            let members = sourcesNative.map(cmdQuote).joined(separator: " ")
+            let archive = cmdQuote(outputNative)
+            let create = "tar \(options) -cf \(archive) \(members)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return create
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+        }
+    }
+
+    /// Microsoft PowerShell `Compress-Archive` (Windows only).
+    ///
+    /// On ``ShellType/windowsCommandPrompt`` the script is launched via `powershell.exe` so the same tool works under
+    /// OpenSSH's default cmd host.
+    private static func microsoftZipCommand(
+        shellType: ShellType,
+        sourcesNative: [String],
+        outputNative: String,
+        parentSFTP: String,
+        parentNative: String,
+        compressionLevel: Int
+    ) throws -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            throw ShellAgentError.hostDoesNotSupportOperation
+
+        case .windowsPowerShell:
+            let paths = sourcesNative.map(powerShellQuote).joined(separator: ", ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent = windowsPowerShellEnsureParent(
+                parentSFTP: parentSFTP,
+                parentNative: parentNative
+            )
+            let level = powerShellCompressArchiveLevel(compressionLevel)
+            return
+                "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; Compress-Archive -Path @(\(paths)) -DestinationPath \(archive) -CompressionLevel \(level) -Force"
+
+        case .windowsCommandPrompt:
+            // Persistent host is cmd; always go through powershell.exe for Compress-Archive.
+            let paths = sourcesNative.map(powerShellQuote).joined(separator: ", ")
+            let archive = powerShellQuote(outputNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+            }
+            let level = powerShellCompressArchiveLevel(compressionLevel)
+            let script =
+                "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; Compress-Archive -Path @(\(paths)) -DestinationPath \(archive) -CompressionLevel \(level) -Force"
+            return powerShellRemoteCommand(script)
+        }
+    }
+
+    private static func windowsPowerShellEnsureParent(parentSFTP: String, parentNative: String) -> String {
+        if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+            return ""
+        }
+        return "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+    }
+
+    /// Maps 0...9 onto PowerShell `CompressionLevel` names.
+    private static func powerShellCompressArchiveLevel(_ level: Int) -> String {
+        switch level {
+        case 0: "NoCompression"
+        case 1 ... 3: "Fastest"
+        default: "Optimal"
+        }
+    }
+
     static func hashCommand(
         shellType: ShellType,
         file: String,
