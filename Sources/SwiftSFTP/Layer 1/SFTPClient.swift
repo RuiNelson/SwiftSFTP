@@ -813,9 +813,9 @@ public extension SFTPClient {
     }
 }
 
-// MARK: Private state
+// MARK: Shared session state
 
-private extension SFTPClient {
+extension SFTPClient {
     /// Returns the SFTP Session or throws NotLoggedIn if inexistent
     var sftp: LibSSH2SFTP {
         get throws {
