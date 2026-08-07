@@ -1,58 +1,5 @@
 import Foundation
 
-/// Digest algorithms supported by ``SSHShellAgentProtocol/calculateHash(file:algorithm:)``.
-///
-/// Availability depends on the remote shell and tooling. Linux uses GNU `md5sum` / `sha*sum`; macOS uses `md5` and
-/// `shasum`. Windows PowerShell / Command Prompt support a smaller set (MD5 and the SHA-1/2 family).
-public enum CalculateHashAlgorithm: Sendable, CaseIterable, Equatable {
-    case md5
-    case sha1
-    case sha224
-    case sha256
-    case sha384
-    case sha512
-    case sha512224
-    case sha512256
-}
-
-/// Archive compression modes supported by **both** GNU tar and bsdtar (libarchive).
-///
-/// Flag forms used by the shell agent are the short options shared by both implementations (`-z`, `-j`, `-J`, `-Z`)
-/// plus long options accepted by both (`--lzma`, `--zstd`). Formats that exist only on one side are intentionally
-/// omitted.
-///
-/// - Note: `.zstd` needs a working zstd filter on the host. bsdtar often links libzstd; GNU tar typically shells out to
-/// the `zstd` binary (present on many modern systems, including Raspberry Pi OS, but not every minimal container).
-public enum TarCompression: Sendable, Equatable, CaseIterable {
-    /// Uncompressed `.tar`.
-    case none
-    /// gzip (`.tar.gz` / `.tgz`) — `tar -z`.
-    case gzip
-    /// bzip2 (`.tar.bz2`) — `tar -j`.
-    case bzip2
-    /// xz (`.tar.xz`) — `tar -J`.
-    case xz
-    /// compress / LZC (`.tar.Z`) — `tar -Z`.
-    case compress
-    /// lzma (`.tar.lzma`) — `tar --lzma`.
-    case lzma
-    /// zstd (`.tar.zst`) — `tar --zstd`.
-    case zstd
-
-    /// Arguments inserted after `tar -c` / before `-f` (for example `["-z"]` or `["--lzma"]`).
-    var tarCreateFlags: [String] {
-        switch self {
-        case .none: []
-        case .gzip: ["-z"]
-        case .bzip2: ["-j"]
-        case .xz: ["-J"]
-        case .compress: ["-Z"]
-        case .lzma: ["--lzma"]
-        case .zstd: ["--zstd"]
-        }
-    }
-}
-
 /// Optional progress report for shell-agent copy/move.
 ///
 /// Invoked only when the remote tool emits a parseable “file completed” line (for example `cp -v` / `mv -v`). The
@@ -157,6 +104,8 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``,
     /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func tar(input: [String], output: String, compression: TarCompression) async throws
+    
+    func zip(input: [String], output: String, compressionLevel: Int, tool: ZipTool) async throws
 
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
@@ -179,5 +128,58 @@ public extension SSHShellAgentProtocol {
     /// Moves on the server without a progress callback.
     func move(from: String, to: String) async throws {
         try await move(from: from, to: to, progress: nil)
+    }
+}
+
+/// Digest algorithms supported by ``SSHShellAgentProtocol/calculateHash(file:algorithm:)``.
+///
+/// Availability depends on the remote shell and tooling. Linux uses GNU `md5sum` / `sha*sum`; macOS uses `md5` and
+/// `shasum`. Windows PowerShell / Command Prompt support a smaller set (MD5 and the SHA-1/2 family).
+public enum CalculateHashAlgorithm: Sendable, CaseIterable, Equatable {
+    case md5
+    case sha1
+    case sha224
+    case sha256
+    case sha384
+    case sha512
+    case sha512224
+    case sha512256
+}
+
+/// Archive compression modes supported by **both** GNU tar and bsdtar (libarchive).
+///
+/// Flag forms used by the shell agent are the short options shared by both implementations (`-z`, `-j`, `-J`, `-Z`)
+/// plus long options accepted by both (`--lzma`, `--zstd`). Formats that exist only on one side are intentionally
+/// omitted.
+///
+/// - Note: `.zstd` needs a working zstd filter on the host. bsdtar often links libzstd; GNU tar typically shells out to
+/// the `zstd` binary (present on many modern systems, including Raspberry Pi OS, but not every minimal container).
+public enum TarCompression: Sendable, Equatable, CaseIterable {
+    /// Uncompressed `.tar`.
+    case none
+    /// gzip (`.tar.gz` / `.tgz`) — `tar -z`.
+    case gzip
+    /// bzip2 (`.tar.bz2`) — `tar -j`.
+    case bzip2
+    /// xz (`.tar.xz`) — `tar -J`.
+    case xz
+    /// compress / LZC (`.tar.Z`) — `tar -Z`.
+    case compress
+    /// lzma (`.tar.lzma`) — `tar --lzma`.
+    case lzma
+    /// zstd (`.tar.zst`) — `tar --zstd`.
+    case zstd
+    
+    /// Arguments inserted after `tar -c` / before `-f` (for example `["-z"]` or `["--lzma"]`).
+    var tarCreateFlags: [String] {
+        switch self {
+        case .none: []
+        case .gzip: ["-z"]
+        case .bzip2: ["-j"]
+        case .xz: ["-J"]
+        case .compress: ["-Z"]
+        case .lzma: ["--lzma"]
+        case .zstd: ["--zstd"]
+        }
     }
 }
