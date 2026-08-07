@@ -88,6 +88,30 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func concat(files: [String], to: String) async throws
 
+    /// Creates (or overwrites) a remote file filled with zero bytes.
+    ///
+    /// Parent directories are created when the shell supports it. Paths follow the same rewriting rules as
+    /// ``copy(from:to:progress:)``.
+    ///
+    /// - Parameters:
+    ///   - file: Remote destination path.
+    ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func createZeros(file: String, length: Int64) async throws
+
+    /// Creates (or overwrites) a remote file filled with random bytes from the host CSPRNG.
+    ///
+    /// Parent directories are created when the shell supports it. Paths follow the same rewriting rules as
+    /// ``copy(from:to:progress:)``. On Unix this is typically `/dev/urandom`; on Windows a cryptographic RNG is used.
+    ///
+    /// - Parameters:
+    ///   - file: Remote destination path.
+    ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
+    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func createRandomData(file: String, length: Int64) async throws
+    
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
     ///
     /// Paths may be supplied in SFTP form (`/C:/Users/...`) or native Windows form; on Windows shells they are

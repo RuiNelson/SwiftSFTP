@@ -248,6 +248,66 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - Create zeros / random
+
+    @Test("createZeros writes a zero-filled file of the requested length")
+    func createZerosFile() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-zeros")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+                let path = "\(dir)/nested/zeros.bin"
+                let length: Int64 = 4096
+
+                try await agent.createZeros(file: path, length: length)
+
+                let handle = try await client.openFile(.read, path: path, permissions: [])
+                let data = try await handle.readAll()
+                try await handle.close()
+                let bytes = try #require(data)
+                #expect(bytes.count == Int(length))
+                #expect(bytes.allSatisfy { $0 == 0 })
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("createRandomData writes a file of the requested length")
+    func createRandomDataFile() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-random")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+                let path = "\(dir)/rnd.bin"
+                let length: Int64 = 2048
+
+                try await agent.createRandomData(file: path, length: length)
+
+                let handle = try await client.openFile(.read, path: path, permissions: [])
+                let data = try await handle.readAll()
+                try await handle.close()
+                let bytes = try #require(data)
+                #expect(bytes.count == Int(length))
+                // Extremely unlikely that 2 KiB of urandom is all zeros.
+                #expect(bytes.contains(where: { $0 != 0 }))
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("createZeros rejects a negative length")
+    func createZerosNegativeLength() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                await #expect(throws: ShellAgentError.invalidArgument("createZeros length must be non-negative")) {
+                    try await agent.createZeros(file: "/tmp/z.bin", length: -1)
+                }
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")

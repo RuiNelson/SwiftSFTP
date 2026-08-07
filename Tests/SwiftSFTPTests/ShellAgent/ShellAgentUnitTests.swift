@@ -124,6 +124,38 @@ struct ShellAgentUnitTests {
         #expect(verbose == "cp -fv '/a.bin' '/b.bin'")
     }
 
+    @Test("createZeros and createRandomData command shapes")
+    func createDataCommands() throws {
+        let zeros = try ShellAgentSupport.createZerosCommand(
+            shellType: .linux,
+            file: "/data/out/z.bin",
+            length: 1024
+        )
+        #expect(zeros.contains("mkdir -p '/data/out'"))
+        #expect(zeros.contains("head -c 1024 /dev/zero > '/data/out/z.bin'"))
+
+        let random = try ShellAgentSupport.createRandomDataCommand(
+            shellType: .darwin,
+            file: "/tmp/r.bin",
+            length: 2048
+        )
+        #expect(random.contains("head -c 2048 /dev/urandom > '/tmp/r.bin'"))
+
+        #expect(throws: ShellAgentError.invalidArgument("createZeros length must be non-negative")) {
+            try ShellAgentSupport.createZerosCommand(shellType: .linux, file: "/t", length: -1)
+        }
+        #expect(throws: ShellAgentError.invalidArgument("createRandomData length must be non-negative")) {
+            try ShellAgentSupport.createRandomDataCommand(shellType: .linux, file: "/t", length: -1)
+        }
+
+        let winZeros = try ShellAgentSupport.createZerosCommand(
+            shellType: .windowsCommandPrompt,
+            file: "/C:/data/z.bin",
+            length: 100
+        )
+        #expect(winZeros.contains("fsutil file createnew"))
+    }
+
     @Test("unix concat uses cat and creates parents")
     func unixConcatCommand() throws {
         let command = try ShellAgentSupport.concatCommand(

@@ -145,6 +145,107 @@ extension ShellAgentSupport {
         }
     }
 
+    static func createZerosCommand(
+        shellType: ShellType,
+        file: String,
+        length: Int64
+    ) throws -> String {
+        guard length >= 0 else {
+            throw ShellAgentError.invalidArgument("createZeros length must be non-negative")
+        }
+
+        let pathNative = pathForRemoteShell(file, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(file, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let path = unixShellQuote(pathNative)
+            // `head -c` is available on Linux coreutils and macOS; streams zeros without loading the whole file.
+            let write = "head -c \(length) /dev/zero > \(path)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return write
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(write)"
+
+        case .windowsPowerShell:
+            let path = powerShellQuote(pathNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+            }
+            // SetLength establishes the size; NTFS may store it sparsely, which still reads as zeros.
+            return
+                "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); try { $__f.SetLength([int64]\(length)) } finally { $__f.Dispose() }"
+
+        case .windowsCommandPrompt:
+            let path = cmdQuote(pathNative)
+            // `fsutil file createnew` writes a zero-filled file of the given size.
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                return "fsutil file createnew \(path) \(length)"
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & fsutil file createnew \(path) \(length)"
+        }
+    }
+
+    static func createRandomDataCommand(
+        shellType: ShellType,
+        file: String,
+        length: Int64
+    ) throws -> String {
+        guard length >= 0 else {
+            throw ShellAgentError.invalidArgument("createRandomData length must be non-negative")
+        }
+
+        let pathNative = pathForRemoteShell(file, shellType: shellType)
+        let parentSFTP = sftpFormForParentComputation(file, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            let path = unixShellQuote(pathNative)
+            let write = "head -c \(length) /dev/urandom > \(path)"
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
+                return write
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && \(write)"
+
+        case .windowsPowerShell:
+            let path = powerShellQuote(pathNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+            }
+            // Chunked CSPRNG write so multi-GB files need not fit in memory.
+            return
+                "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); $__rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $__buf = New-Object byte[] 1048576; $__left = [int64]\(length); try { while ($__left -gt 0) { $__n = [int]([Math]::Min([int64]$__buf.Length, $__left)); $__chunk = New-Object byte[] $__n; $__rng.GetBytes($__chunk); $__f.Write($__chunk, 0, $__n); $__left -= $__n } } finally { $__rng.Dispose(); $__f.Dispose() }"
+
+        case .windowsCommandPrompt:
+            // No portable pure-cmd CSPRNG; use a one-shot PowerShell child (same as other cmd-hosted ops).
+            let path = powerShellQuote(pathNative)
+            let ensureParent: String
+            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
+                ensureParent = ""
+            }
+            else {
+                ensureParent =
+                    "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+            }
+            let script =
+                "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); $__rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $__left = [int64]\(length); try { while ($__left -gt 0) { $__n = [int]([Math]::Min([int64]1048576, $__left)); $__chunk = New-Object byte[] $__n; $__rng.GetBytes($__chunk); $__f.Write($__chunk, 0, $__n); $__left -= $__n } } finally { $__rng.Dispose(); $__f.Dispose() }"
+            // wrapForPersistentShell for cmd runs the body as-is; invoke PowerShell explicitly.
+            return powerShellRemoteCommand(script)
+        }
+    }
+
     static func hashCommand(
         shellType: ShellType,
         file: String,

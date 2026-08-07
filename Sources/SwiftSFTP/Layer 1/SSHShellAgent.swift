@@ -115,6 +115,24 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         try runTransferCommand(command, progress: nil)
     }
 
+    public func createZeros(file: String, length: Int64) async throws {
+        let command = try ShellAgentSupport.createZerosCommand(
+            shellType: shellType,
+            file: file,
+            length: length
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
+    public func createRandomData(file: String, length: Int64) async throws {
+        let command = try ShellAgentSupport.createRandomDataCommand(
+            shellType: shellType,
+            file: file,
+            length: length
+        )
+        try runTransferCommand(command, progress: nil)
+    }
+
     public func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data {
         let command = try ShellAgentSupport.hashCommand(
             shellType: shellType,

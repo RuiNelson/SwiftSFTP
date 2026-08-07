@@ -751,6 +751,21 @@ Parent directories of `to` are created when supported. An empty `files` array th
 `ShellAgentError.invalidArgument`. Under the hood this is `cat … > dest` on Unix, `copy /b` on Windows Command Prompt,
 and a PowerShell stream copy when the agent is in the PowerShell family.
 
+### Create zero-filled or random files
+
+Generate a remote file of an exact byte length without uploading payload from the client:
+
+```swift
+// All zeros (e.g. sparse/zero-filled where the OS allows)
+try await agent.createZeros(file: "/data/blank-1GiB.bin", length: 1_073_741_824)
+
+// Host CSPRNG (/dev/urandom or Windows RandomNumberGenerator)
+try await agent.createRandomData(file: "/data/random-64MiB.bin", length: 64 * 1024 * 1024)
+```
+
+`length` must be non-negative (`0` creates an empty file). Parent directories of `file` are created when supported.
+Negative lengths throw `ShellAgentError.invalidArgument`.
+
 ### Calculating a remote hash
 
 ```swift
