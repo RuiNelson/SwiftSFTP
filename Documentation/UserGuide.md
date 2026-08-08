@@ -123,13 +123,16 @@ The `closed` property is available on both if you need to check state.
 
 ## Authentication
 
-Credentials are a `UserAuthentication` value: remote username plus a `UserAuthenticationMode`.
-Authentication runs during `login(timeOut:)` (or inside `initAndLogin`). Prefer:
+Credentials are a `UserAuthentication` value: remote **username** plus a `UserAuthenticationMode`.
+They are applied during `login(timeOut:)` (or inside `initAndLogin`).
 
-| Mode | When to use |
-|------|-------------|
-| `.password(_:)` | Server accepts password auth |
+| Mode | Use when |
+|------|----------|
+| `.password(_:)` | Password authentication |
 | `.privateKeys(_:)` | One or more private keys (`PrivateKeySet`) |
+
+Empty usernames and empty passwords are rejected at client construction
+(`.invalidUsername` / `.invalidPassword`).
 
 ### Password
 
@@ -137,90 +140,90 @@ Authentication runs during `login(timeOut:)` (or inside `initAndLogin`). Prefer:
 UserAuthentication(name: "alice", auth: .password("s3cr3t"))
 ```
 
-Empty usernames and empty passwords are rejected at client construction
-(`.invalidUsername` / `.invalidPassword`).
-
-### Public key — one identity
-
-Use `.privateKeys` for a single key as well. Build a `PrivateKeySet` with the string or file
-convenience initializers (type-context `.init` form at the call site):
+### Private key from memory
 
 ```swift
-// Key file (optional passphrase if encrypted)
-UserAuthentication(
-    name: "alice",
-    auth: .privateKeys(.init(
-        URL(filePath: "/Users/alice/.ssh/id_ed25519"),
-        passphrase: nil
-    ))
+let pem = """
+-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIGYjP7RxFRNEUJLgrI3JIbf0HusB+uh40DOCcvkw4KZY
+-----END PRIVATE KEY-----
+"""
+let adaAuth = UserAuthentication(name: "ada", auth: .privateKeys(.init(pem)))
+```
+
+With a passphrase (encrypted PKCS#8):
+
+```swift
+let encPkcs8 = """
+-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIGjMF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBCv7OFsFytpLehx/f7u
+6otnAgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQZoWkoTusUX1UPv+Q
+l5660ARAQUnm6k8TrAhjqvfYutpenh8bn1TTs9ysjKRlEowQPf6Q1bmypow3NifQ
+G5Wmq8A8p+PLsMwH0q36YeRuNcPG5w==
+-----END ENCRYPTED PRIVATE KEY-----
+"""
+let brunaAuth = UserAuthentication(
+    name: "bruna",
+    auth: .privateKeys(.init(encPkcs8, passphrase: "nobodyknows"))
+)
+```
+
+### Private key from a file
+
+```swift
+let chiaraPrivateKeyFile = URL(fileURLWithPath: "/users/chiara/.ssh/id_rsa")
+let chiaraAuth = UserAuthentication(
+    name: "chiara",
+    auth: .privateKeys(.init(chiaraPrivateKeyFile))
 )
 
-// PEM / PKCS#8 / OpenSSH private key already in memory
-let pemKey: String = // … loaded from Keychain or elsewhere
-UserAuthentication(
-    name: "alice",
-    auth: .privateKeys(.init(pemKey, passphrase: nil))
+let chiaraEncryptedPrivateKeyFile = URL(fileURLWithPath: "/users/chiara/MyKeys/id_rsa.enc")
+let chiaraAuthEnc = UserAuthentication(
+    name: "chiara",
+    auth: .privateKeys(.init(chiaraEncryptedPrivateKeyFile, passphrase: "donttell"))
 )
 ```
 
 The public key is derived from the private material; you do not need a separate `.pub` file.
+Missing key files are rejected when constructing `SFTPClient`.
 
-### Public key — several identities
+### Several private keys (multiple files)
 
-Pass every candidate explicitly in a `PrivateKeySet`. SwiftSFTP does **not** scan `~/.ssh`,
-read `IdentityFile` from `ssh_config`, or query ssh-agent.
-
-```swift
-UserAuthentication(
-    name: "alice",
-    auth: .privateKeys(.init(files: [
-        .init(file: URL(filePath: "/Users/alice/.ssh/id_ed25519")),
-        .init(file: URL(filePath: "/Users/alice/.ssh/id_rsa")),
-        .init(
-            file: URL(filePath: "/Users/alice/.ssh/id_ecdsa"),
-            passphrase: "optional"
-        ),
-    ]))
-)
-```
-
-You can also mix in-memory and on-disk keys:
+Pass every candidate yourself. SwiftSFTP does **not** scan `~/.ssh`, read `ssh_config`, or
+use ssh-agent.
 
 ```swift
-let set = PrivateKeySet(
-    strings: [.init(representation: pemKey)],
-    files: [
-        .init(file: URL(filePath: "/Users/alice/.ssh/id_ed25519")),
-    ]
-)
-UserAuthentication(name: "alice", auth: .privateKeys(set))
+let files = ["/users/dina/.ssh/id_rsa", "/users/dina/.ssh/id_ecdsa"]
+let urls = files.map { URL(fileURLWithPath: $0) }
+let privateKeyFiles = urls.map { PrivateKeyFile(file: $0, passphrase: nil) }
+let privateKeySet = PrivateKeySet(files: privateKeyFiles)
+
+let dinaAuth = UserAuthentication(name: "dina", auth: .privateKeys(privateKeySet))
 ```
 
-#### How candidates are chosen
+### Several private keys (files and memory mixed)
 
-On login, for `.privateKeys`:
+```swift
+let mixedPrivateKeySet = PrivateKeySet(
+    strings: [PrivateKeyString(representation: pem, passphrase: nil)],
+    files: privateKeyFiles
+)
+let newDinaAuth = UserAuthentication(name: "dina", auth: .privateKeys(mixedPrivateKeySet))
+```
 
-1. Build candidates from `strings` first, then `files` (that order is the stable secondary sort).
-2. Classify each key’s algorithm family (RSA, Ed25519, ECDSA P-256/384/521).
-3. Read the server’s RFC 8308 `server-sig-algs` list when the server advertised it after handshake.
-4. **Filter** keys whose family cannot produce any listed signature algorithm (when the list is present).
-   Unclassifiable keys are still tried last.
-5. **Order** remaining keys by the server’s preference, or by a modern default
-   (Ed25519 → ECDSA → RSA-SHA2) if `server-sig-algs` is missing.
-6. Attempt each candidate until one authenticates or all fail.
+### How multi-key selection works
 
-This is closer to OpenSSH multi-`IdentityFile` behaviour than trying keys only in the order you
-typed them. Important limits:
+On login with `.privateKeys`:
 
-| `server-sig-algs` | `authorized_keys` |
-|-------------------|-------------------|
-| Algorithms the **daemon** accepts for signatures | Which **public keys** are allowed for the user |
-| Used to filter/order local keys | Only discovered by trying each key (probe) |
+1. Build candidates from in-memory strings first, then files.
+2. Classify each key (RSA, Ed25519, ECDSA P-256/384/521).
+3. Use the server’s RFC 8308 `server-sig-algs` when available.
+4. Prefer keys whose algorithms the server lists (and order by that preference).
+5. Try candidates until one authenticates or all fail.
 
-A key may match an accepted algorithm and still be rejected if it is not authorized for that username.
-
-An empty `PrivateKeySet` fails with `.invalidPrivateKey` rather than attempting auth with no identities.
-Missing key files in the set are rejected at init when their paths do not exist.
+`server-sig-algs` is about **signature algorithms the daemon supports**, not which public keys
+are in `authorized_keys`. A compatible key can still be rejected if it is not authorized for
+the username. An empty `PrivateKeySet` fails with `.invalidPrivateKey`.
 
 ### Supported key material
 
@@ -229,24 +232,14 @@ Missing key files in the set are rejected at init when their paths do not exist.
 | **Formats** | PEM, PKCS#8, OpenSSH (`BEGIN OPENSSH PRIVATE KEY`) |
 | **Algorithms** | RSA, ECDSA P-256 / P-384 / P-521, Ed25519 |
 
-Inspect material offline with `PrivateKeyString` / `PrivateKeyFile` (`valid`, `algorithm`) or
-`String`’s `KeyValidation` APIs — see [Validating SSH Keys (Offline)](#validating-ssh-keys-offline).
-Those checks only prove parseability, not server authorization.
+Offline checks: `PrivateKeyString` / `PrivateKeyFile` (`.valid`, `.algorithm`) or
+`String` + `KeyValidation` — see [Validating SSH Keys (Offline)](#validating-ssh-keys-offline).
+Those only prove parseability, not server authorization.
 
 ### Deprecated modes
 
-`.privateKeyFile(file:password:)` and `.privateKeyString(keyData:password:)` still compile for
-source compatibility but are deprecated. Migrate to `.privateKeys`:
-
-```swift
-// Deprecated
-.auth: .privateKeyFile(file: url, password: nil)
-.auth: .privateKeyString(keyData: pem, password: "x")
-
-// Preferred
-.auth: .privateKeys(.init(url))
-.auth: .privateKeys(.init(pem, passphrase: "x"))
-```
+`.privateKeyFile(file:password:)` and `.privateKeyString(keyData:password:)` still work but are
+deprecated. Prefer `.privateKeys(.init(...))` as in the examples above.
 
 > **Note:** SSH agent and keyboard-interactive authentication are not supported by `SFTPClient`.
 
