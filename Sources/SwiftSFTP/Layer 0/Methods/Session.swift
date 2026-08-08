@@ -231,6 +231,30 @@ public func SessionMethods(session: LibSSH2Session, methodType: LibSSH2SessionMe
     libssh2.libssh2_session_methods(session.rawValue, methodType.libssh2Value).string
 }
 
+/// Returns the server's RFC 8308 `server-sig-algs` list, when advertised.
+///
+/// After a successful handshake against a server that supports extension negotiation (`ext-info-c` /
+/// `SSH_MSG_EXT_INFO`), OpenSSH and other modern servers advertise which public-key signature algorithms they accept
+/// for user authentication. Use this list to filter and order candidate private keys before calling
+/// `UserAuthPublicKey*`.
+///
+/// libssh2 already consumes this list internally when upgrading RSA signatures (`ssh-rsa` → `rsa-sha2-*`). Upstream
+/// does not expose a getter; this wrapper uses the SwiftSFTP-local `libssh2_session_server_sign_algorithms` accessor.
+///
+/// - Parameter session: The session after handshake.
+/// - Returns: Algorithm names in server preference order, or `nil` when the server did not send `server-sig-algs`
+/// (older servers, or no EXT_INFO).
+public func SessionServerSignAlgorithms(session: LibSSH2Session) -> [String]? {
+    guard let raw = libssh2.libssh2_session_server_sign_algorithms(session.rawValue) else {
+        return nil
+    }
+    let list = String(cString: raw)
+        .split(separator: ",", omittingEmptySubsequences: true)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    return list.isEmpty ? nil : list
+}
+
 /// Returns the most recent session error code and human-readable message.
 ///
 /// - Parameters:

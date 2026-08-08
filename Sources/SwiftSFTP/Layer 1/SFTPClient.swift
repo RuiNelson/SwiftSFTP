@@ -78,13 +78,21 @@ public final class SFTPClient: SFTPClientProtocol {
                 throw SFTPClientInvalidConfig.invalidPassword
             }
 
+        case let .privateKeys(set):
+            for keyFile in set.files {
+                guard FileManager.default.fileExists(atPath: keyFile.file.path) else {
+                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+                }
+            }
+
         case let .privateKeyFile(file, _):
-            let filePath = file.path
-            guard FileManager.default.fileExists(atPath: filePath) else {
+            // Deprecated single-key mode; kept for API compatibility.
+            guard FileManager.default.fileExists(atPath: file.path) else {
                 throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
             }
 
-        default: ()
+        case .privateKeyString:
+            break
         }
 
         // store state

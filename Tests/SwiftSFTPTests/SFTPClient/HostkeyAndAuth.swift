@@ -99,7 +99,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "x",
                 auth: UserAuthentication(
                     name: "x",
-                    auth: .privateKeyFile(file: URL(fileURLWithPath: "/nonexistent/key"), password: nil)
+                    auth: .privateKeys(.privateKeyFile(URL(fileURLWithPath: "/nonexistent/key")))
                 ),
                 timeout: nil
             )
@@ -274,7 +274,7 @@ struct SFTPClientHostkeyAndAuth {
         try await withClient { _ in
             let client = try makeClient(
                 user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeyFile(file: keyPath, password: nil))
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.privateKeyFile(keyPath)))
             )
             try await client.login(timeOut: 10.0)
             #expect(!client.closed)
@@ -290,7 +290,7 @@ struct SFTPClientHostkeyAndAuth {
         try await withClient { _ in
             let client = try makeClient(
                 user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeyString(keyData: keyData, password: nil))
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.privateKeyString(keyData)))
             )
             try await client.login(timeOut: 10.0)
             #expect(!client.closed)
@@ -308,7 +308,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeyFile(file: keyPath, password: TS.keyPassphrase)
+                    auth: .privateKeys(.privateKeyFile(keyPath, passphrase: TS.keyPassphrase))
                 )
             )
             try await client.login(timeOut: 10.0)
@@ -327,7 +327,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeyString(keyData: keyData, password: TS.keyPassphrase)
+                    auth: .privateKeys(.privateKeyString(keyData, passphrase: TS.keyPassphrase))
                 )
             )
             try await client.login(timeOut: 10.0)
@@ -346,8 +346,59 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeyFile(file: keyPath, password: "wrong-passphrase")
+                    auth: .privateKeys(.privateKeyFile(keyPath, passphrase: "wrong-passphrase"))
                 )
+            )
+            await #expect(throws: (any Error).self) {
+                try await client.login(timeOut: 10.0)
+            }
+            try? await client.close()
+        }
+    }
+
+    @Test("privateKeys multi-identity picks RSA among other local keys for charmander")
+    func privateKeysMultiIdentitySelectsAuthorizedRSA() async throws {
+        let rsa = URL(fileURLWithPath: "TestServer/KeyPairs/rsa-private-openssh-clear")
+        let ed25519 = URL(fileURLWithPath: "TestServer/KeyPairs/ed25519-private-openssh-clear")
+        let p256 = URL(fileURLWithPath: "TestServer/KeyPairs/p256-private-openssh-clear")
+        guard FileManager.default.fileExists(atPath: rsa.path),
+              FileManager.default.fileExists(atPath: ed25519.path),
+              FileManager.default.fileExists(atPath: p256.path) else { return }
+
+        // Put the authorized RSA key last in the user list so success requires more than "always try the first key".
+        let set = PrivateKeySet(files: [
+            PrivateKeyFile(file: ed25519),
+            PrivateKeyFile(file: p256),
+            PrivateKeyFile(file: rsa),
+        ])
+
+        try await withClient { _ in
+            let client = try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+            )
+            try await client.login(timeOut: 10.0)
+            #expect(!client.closed)
+            try await client.close()
+        }
+    }
+
+    @Test("privateKeys multi-identity fails when no key is authorized")
+    func privateKeysMultiIdentityFailsWhenNoneAuthorized() async throws {
+        let ed25519 = URL(fileURLWithPath: "TestServer/KeyPairs/ed25519-private-openssh-clear")
+        let p256 = URL(fileURLWithPath: "TestServer/KeyPairs/p256-private-openssh-clear")
+        guard FileManager.default.fileExists(atPath: ed25519.path),
+              FileManager.default.fileExists(atPath: p256.path) else { return }
+
+        let set = PrivateKeySet(files: [
+            PrivateKeyFile(file: ed25519),
+            PrivateKeyFile(file: p256),
+        ])
+
+        try await withClient { _ in
+            let client = try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
             )
             await #expect(throws: (any Error).self) {
                 try await client.login(timeOut: 10.0)

@@ -2,5 +2,6 @@ module libssh2 {
     umbrella header "libssh2.h"
     header "libssh2_sftp.h"
     header "libssh2_publickey.h"
+    header "libssh2_swiftsftp.h"
     export *
 }
