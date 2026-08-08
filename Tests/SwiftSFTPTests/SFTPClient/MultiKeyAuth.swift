@@ -181,11 +181,16 @@ struct SFTPClientMultiKeyAuth {
         try await expectLoginFails(user: "charmander", set: PrivateKeySet(files: []))
     }
 
-    @Test("multi-key fails when only missing files are provided")
-    func multiKeyMissingFilesOnly() async throws {
+    @Test("multi-key rejects missing key files at client construction")
+    func multiKeyMissingFilesOnly() throws {
         let missing = URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)")
         let set = PrivateKeySet(files: [PrivateKeyFile(file: missing)])
-        try await expectLoginFails(user: "charmander", set: set)
+        #expect(throws: SFTPClientInvalidConfig.self) {
+            try makeClient(
+                user: "charmander",
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+            )
+        }
     }
 
     @Test("multi-key fails with wrong passphrase on sole encrypted key")
