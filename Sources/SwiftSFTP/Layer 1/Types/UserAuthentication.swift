@@ -24,15 +24,21 @@ import Foundation
 /// // One private key on disk
 /// UserAuthentication(
 ///     name: "alice",
-///     auth: .privateKeys(.privateKeyFile(url))
+///     auth: .privateKeys(.init(url))
+/// )
+///
+/// // One private key in memory (optional passphrase)
+/// UserAuthentication(
+///     name: "alice",
+///     auth: .privateKeys(.init(pem, passphrase: "optional"))
 /// )
 ///
 /// // Several private keys — library filters/orders and tries until one works
 /// UserAuthentication(
 ///     name: "alice",
-///     auth: .privateKeys(PrivateKeySet(files: [
-///         PrivateKeyFile(file: idEd25519),
-///         PrivateKeyFile(file: idRSA),
+///     auth: .privateKeys(.init(files: [
+///         .init(file: idEd25519),
+///         .init(file: idRSA),
 ///     ]))
 /// )
 /// ```
@@ -75,8 +81,8 @@ public struct UserAuthentication: Codable, Equatable, Sendable {
 ///
 /// The single-key cases ``privateKeyString(keyData:password:)`` and
 /// ``privateKeyFile(file:password:)`` remain for source compatibility and are deprecated;
-/// migrate to ``privateKeys(_:)`` via ``PrivateKeySet/privateKeyString(_:passphrase:)`` or
-/// ``PrivateKeySet/privateKeyFile(_:passphrase:)``.
+/// migrate to ``privateKeys(_:)`` with a single-key ``PrivateKeySet``, for example
+/// `.privateKeys(.init(pem))` or `.privateKeys(.init(url))`.
 public enum UserAuthenticationMode: Codable, Equatable, Sendable {
     /// Password authentication (SSH `password` method).
     ///
@@ -91,10 +97,9 @@ public enum UserAuthenticationMode: Codable, Equatable, Sendable {
     ///   - password: Passphrase if the key is encrypted; otherwise `nil`. Named `password` for historical API
     /// compatibility (it is the key passphrase).
     ///
-    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with
-    ///   ``PrivateKeySet/privateKeyString(_:passphrase:)`` instead:
-    ///   `.privateKeys(.privateKeyString(keyData, passphrase: password))`.
-    @available(*, deprecated, message: "Use .privateKeys(.privateKeyString(_:passphrase:)) instead")
+    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with a string ``PrivateKeySet`` instead:
+    ///   `.privateKeys(.init(keyData, passphrase: password))`.
+    @available(*, deprecated, message: "Use .privateKeys(.init(_:passphrase:)) with the PEM string instead")
     case privateKeyString(keyData: String, password: String?)
 
     /// One private key loaded from a filesystem path at authentication time.
@@ -104,10 +109,9 @@ public enum UserAuthenticationMode: Codable, Equatable, Sendable {
     ///   - password: Passphrase if the key is encrypted; otherwise `nil`. Named `password` for historical API
     /// compatibility (it is the key passphrase).
     ///
-    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with
-    ///   ``PrivateKeySet/privateKeyFile(_:passphrase:)`` instead:
-    ///   `.privateKeys(.privateKeyFile(file, passphrase: password))`.
-    @available(*, deprecated, message: "Use .privateKeys(.privateKeyFile(_:passphrase:)) instead")
+    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with a file ``PrivateKeySet`` instead:
+    ///   `.privateKeys(.init(file, passphrase: password))`.
+    @available(*, deprecated, message: "Use .privateKeys(.init(_:passphrase:)) with the key file URL instead")
     case privateKeyFile(file: URL, password: String?)
 
     /// One or more private keys; SwiftSFTP filters, orders, and tries them until one is accepted.
@@ -140,13 +144,18 @@ public enum UserAuthenticationMode: Codable, Equatable, Sendable {
 /// This is closer to OpenSSH multi-identity behaviour than a blind “try files in user list order” loop. It still cannot
 /// know which public key is in `authorized_keys` without probing the server.
 ///
-/// ## Example
+/// ## Examples
 ///
 /// ```swift
+/// // Single file or PEM (type-context `.init` form)
+/// .privateKeys(.init(idEd25519URL))
+/// .privateKeys(.init(pemText, passphrase: "optional"))
+///
+/// // Several files
 /// let keys = PrivateKeySet(files: [
-///     PrivateKeyFile(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_ed25519")),
-///     PrivateKeyFile(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_rsa")),
-///     PrivateKeyFile(
+///     .init(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_ed25519")),
+///     .init(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_rsa")),
+///     .init(
 ///         file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_ecdsa"),
 ///         passphrase: "optional"
 ///     ),
@@ -163,7 +172,7 @@ public struct PrivateKeySet: Codable, Sendable, Equatable {
     /// On-disk private keys (see ``PrivateKeyFile``).
     public var files: [PrivateKeyFile]
 
-    /// Creates a set from optional in-memory and file-backed keys.
+    /// Creates a set from in-memory and file-backed keys.
     ///
     /// - Parameters:
     ///   - strings: Keys already loaded as text.
@@ -174,31 +183,41 @@ public struct PrivateKeySet: Codable, Sendable, Equatable {
     }
 
     /// Creates a set that contains only file-backed keys.
+    ///
+    /// - Parameter files: On-disk private keys to try.
     public init(files: [PrivateKeyFile]) {
         self.init(strings: [], files: files)
     }
 
     /// Creates a set that contains only in-memory keys.
+    ///
+    /// - Parameter strings: In-memory private keys to try.
     public init(strings: [PrivateKeyString]) {
         self.init(strings: strings, files: [])
     }
 
-    /// Convenience for a single in-memory key.
+    /// Creates a set with a single in-memory private key.
+    ///
+    /// Prefer this (or `.privateKeys(.init(pem, passphrase: …))`) for one PEM/OpenSSH key already loaded as text.
     ///
     /// - Parameters:
-    ///   - string: Private key text.
-    ///   - passphrase: Optional decryption passphrase.
-    public static func privateKeyString(_ string: String, passphrase: String? = nil) -> PrivateKeySet {
-        PrivateKeySet(strings: [PrivateKeyString(representation: string, passphrase: passphrase)])
+    ///   - string: Private key text (PEM, PKCS#8, or OpenSSH block).
+    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
+    public init(_ string: String, passphrase: String? = nil) {
+        let key = PrivateKeyString(representation: string, passphrase: passphrase)
+        self.init(strings: [key], files: [])
     }
 
-    /// Convenience for a single file-backed key.
+    /// Creates a set with a single on-disk private key.
+    ///
+    /// Prefer this (or `.privateKeys(.init(url, passphrase: …))`) for one key file.
     ///
     /// - Parameters:
-    ///   - file: Path to the private key.
-    ///   - passphrase: Optional decryption passphrase.
-    public static func privateKeyFile(_ file: URL, passphrase: String? = nil) -> PrivateKeySet {
-        PrivateKeySet(files: [PrivateKeyFile(file: file, passphrase: passphrase)])
+    ///   - file: File URL of the private key.
+    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
+    public init(_ file: URL, passphrase: String? = nil) {
+        let key = PrivateKeyFile(file: file, passphrase: passphrase)
+        self.init(strings: [], files: [key])
     }
 
     /// `true` when both ``strings`` and ``files`` are empty.
@@ -337,9 +356,9 @@ extension SFTPClient {
         let set: PrivateKeySet
         switch mode {
         case let .privateKeyString(keyData: string, password: passphrase):
-            set = .privateKeyString(string, passphrase: passphrase)
+            set = .init(string, passphrase: passphrase)
         case let .privateKeyFile(file: file, password: passphrase):
-            set = .privateKeyFile(file, passphrase: passphrase)
+            set = .init(file, passphrase: passphrase)
         default:
             return
         }

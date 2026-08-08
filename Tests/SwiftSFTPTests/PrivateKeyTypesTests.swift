@@ -61,24 +61,33 @@ struct PrivateKeyTypesTests {
 
     // MARK: - PrivateKeySet
 
-    @Test("PrivateKeySet factories and isEmpty")
-    func privateKeySetFactories() {
-        #expect(PrivateKeySet().isEmpty)
+    @Test("PrivateKeySet single-key inits and isEmpty")
+    func privateKeySetInitsAndIsEmpty() {
         #expect(PrivateKeySet(strings: []).isEmpty)
         #expect(PrivateKeySet(files: []).isEmpty)
 
-        let fromString = PrivateKeySet.privateKeyString("body", passphrase: "x")
+        let fromString = PrivateKeySet("body", passphrase: "x")
         #expect(!fromString.isEmpty)
         #expect(fromString.strings.count == 1)
         #expect(fromString.files.isEmpty)
         #expect(fromString.strings[0].passphrase == "x")
 
         let url = URL(fileURLWithPath: "/tmp/id_ed25519")
-        let fromFile = PrivateKeySet.privateKeyFile(url, passphrase: nil)
+        let fromFile = PrivateKeySet(url)
         #expect(!fromFile.isEmpty)
         #expect(fromFile.files.count == 1)
         #expect(fromFile.strings.isEmpty)
         #expect(fromFile.files[0].file == url)
+
+        // Type-context `.init` form used at call sites.
+        let mode: UserAuthenticationMode = .privateKeys(.init(url, passphrase: "p"))
+        if case let .privateKeys(set) = mode {
+            #expect(set.files.count == 1)
+            #expect(set.files[0].passphrase == "p")
+        }
+        else {
+            Issue.record("expected privateKeys mode")
+        }
     }
 
     @Test("PrivateKeySet Equatable and Codable round-trip")
@@ -101,9 +110,9 @@ struct PrivateKeyTypesTests {
     func userAuthenticationModeCases() throws {
         let modes: [UserAuthenticationMode] = [
             .password("secret"),
-            .privateKeys(.privateKeyString("pem")),
-            .privateKeys(.privateKeyFile(URL(fileURLWithPath: "/tmp/k"), passphrase: "p")),
-            .privateKeys(PrivateKeySet.privateKeyString("pem")),
+            .privateKeys(.init("pem")),
+            .privateKeys(.init(URL(fileURLWithPath: "/tmp/k"), passphrase: "p")),
+            .privateKeys(PrivateKeySet("pem")),
         ]
         for mode in modes {
             let data = try JSONEncoder().encode(mode)

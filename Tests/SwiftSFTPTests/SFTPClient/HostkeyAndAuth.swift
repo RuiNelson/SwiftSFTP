@@ -99,7 +99,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "x",
                 auth: UserAuthentication(
                     name: "x",
-                    auth: .privateKeys(.privateKeyFile(URL(fileURLWithPath: "/nonexistent/key")))
+                    auth: .privateKeys(.init(URL(fileURLWithPath: "/nonexistent/key")))
                 ),
                 timeout: nil
             )
@@ -274,7 +274,7 @@ struct SFTPClientHostkeyAndAuth {
         try await withClient { _ in
             let client = try makeClient(
                 user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.privateKeyFile(keyPath)))
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyPath)))
             )
             try await client.login(timeOut: 10.0)
             #expect(!client.closed)
@@ -290,7 +290,7 @@ struct SFTPClientHostkeyAndAuth {
         try await withClient { _ in
             let client = try makeClient(
                 user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.privateKeyString(keyData)))
+                auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyData)))
             )
             try await client.login(timeOut: 10.0)
             #expect(!client.closed)
@@ -308,7 +308,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeys(.privateKeyFile(keyPath, passphrase: TS.keyPassphrase))
+                    auth: .privateKeys(.init(keyPath, passphrase: TS.keyPassphrase))
                 )
             )
             try await client.login(timeOut: 10.0)
@@ -327,7 +327,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeys(.privateKeyString(keyData, passphrase: TS.keyPassphrase))
+                    auth: .privateKeys(.init(keyData, passphrase: TS.keyPassphrase))
                 )
             )
             try await client.login(timeOut: 10.0)
@@ -346,7 +346,7 @@ struct SFTPClientHostkeyAndAuth {
                 user: "charmander",
                 auth: UserAuthentication(
                     name: "charmander",
-                    auth: .privateKeys(.privateKeyFile(keyPath, passphrase: "wrong-passphrase"))
+                    auth: .privateKeys(.init(keyPath, passphrase: "wrong-passphrase"))
                 )
             )
             await #expect(throws: (any Error).self) {

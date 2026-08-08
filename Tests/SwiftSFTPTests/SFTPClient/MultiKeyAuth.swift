@@ -143,7 +143,7 @@ struct SFTPClientMultiKeyAuth {
     @Test("multi-key single-element set equals single-key login")
     func multiKeySingleElement() async throws {
         guard let ed = keyURL("ed25519-private-openssh-clear") else { return }
-        let set = PrivateKeySet.privateKeyFile(ed)
+        let set = PrivateKeySet(ed)
         try await loginAndClose(user: "pidgey", set: set)
     }
 
@@ -178,7 +178,7 @@ struct SFTPClientMultiKeyAuth {
 
     @Test("multi-key fails with empty PrivateKeySet")
     func multiKeyEmptySet() async throws {
-        try await expectLoginFails(user: "charmander", set: PrivateKeySet())
+        try await expectLoginFails(user: "charmander", set: PrivateKeySet(files: []))
     }
 
     @Test("multi-key fails when only missing files are provided")

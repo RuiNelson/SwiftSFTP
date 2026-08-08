@@ -50,7 +50,7 @@ let client = try SFTPClient(
     hostKeyAcceptance: .acceptAny,
     authentication: UserAuthentication(
         name: "alice",
-        auth: .privateKeyFile(file: URL(filePath: "/Users/alice/.ssh/id_ed25519"), password: nil)
+        auth: .privateKeys(.init(URL(filePath: "/Users/alice/.ssh/id_ed25519")))
     ),
     trapOnDeInitWithoutClose: true  // triggers SIGTRAP in debug if the client is deallocated without close()
 )
@@ -134,10 +134,10 @@ UserAuthentication(name: "alice", auth: .password("s3cr3t"))
 ```swift
 UserAuthentication(
     name: "alice",
-    auth: .privateKeyFile(
-        file: URL(filePath: "/Users/alice/.ssh/id_rsa"),
-        password: nil       // pass the passphrase if the key is encrypted
-    )
+    auth: .privateKeys(.init(
+        URL(filePath: "/Users/alice/.ssh/id_rsa"),
+        passphrase: nil       // pass the passphrase if the key is encrypted
+    ))
 )
 ```
 
@@ -147,7 +147,24 @@ UserAuthentication(
 let pemKey: String = // … loaded from Keychain or elsewhere
 UserAuthentication(
     name: "alice",
-    auth: .privateKeyString(keyData: pemKey, password: nil)
+    auth: .privateKeys(.init(pemKey))
+)
+```
+
+### Several private keys
+
+SwiftSFTP classifies each key, uses the server’s `server-sig-algs` when available, and tries
+compatible candidates in preference order (OpenSSH-style multi-identity, without scanning
+`~/.ssh` or using ssh-agent).
+
+```swift
+UserAuthentication(
+    name: "alice",
+    auth: .privateKeys(.init(files: [
+        .init(file: URL(filePath: "/Users/alice/.ssh/id_ed25519")),
+        .init(file: URL(filePath: "/Users/alice/.ssh/id_rsa")),
+        .init(file: URL(filePath: "/Users/alice/.ssh/id_ecdsa"), passphrase: "optional"),
+    ]))
 )
 ```
 
