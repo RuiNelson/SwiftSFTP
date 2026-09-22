@@ -66,6 +66,64 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
+    @Test("openFile creates files with the server's default mode")
+    func openFileServerDefaultMode() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("defaultmode")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/default.bin"
+            let handle = try await client.openFile([.create, .write, .exclusive], path: filePath)
+            try await handle.close()
+
+            // The serverDefault sentinel is -1; sent as a mode it would set the setuid/setgid/sticky and execute bits.
+            let metadata = try #require(try await client.stat(path: filePath, followLink: false))
+            let modeBits = metadata.attributes.permissions.rawValue & 0o7777
+            #expect(modeBits & 0o7000 == 0, "mode \(String(modeBits, radix: 8))")
+            #expect(modeBits & 0o111 == 0, "mode \(String(modeBits, radix: 8))")
+            #expect(metadata.isRegularFile)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("openFile applies explicit create permissions")
+    func openFileExplicitMode() async throws {
+        try await withClient { client in
+            let dir = uniqueRemotePath("explicitmode")
+            try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+            let filePath = "\(dir)/explicit.bin"
+            let handle = try await client.openFile(
+                [.create, .write, .exclusive],
+                path: filePath,
+                permissions: [.ownerRead, .ownerWrite]
+            )
+            try await handle.close()
+
+            let metadata = try #require(try await client.stat(path: filePath, followLink: false))
+            #expect(metadata.attributes.permissions.rawValue & 0o7777 == 0o600)
+
+            try await client.delete(path: dir)
+        }
+    }
+
+    @Test("closing a file after its client marks it closed")
+    func fileHandleCloseAfterClientClose() async throws {
+        let client = try await makeLoggedInClient(
+            user: TS.testUser,
+            auth: UserAuthentication(name: TS.testUser, auth: .password(TS.password))
+        )
+        let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+        try await client.close()
+
+        await #expect(throws: AlreadyClosed.self) {
+            try await handle.close()
+        }
+        // Marked closed, so a trapping handle would not raise SIGTRAP on deinit.
+        #expect(handle.closed)
+    }
+
     @Test("openFile throws after client closed")
     func openFileThrowsAfterClientClosed() async throws {
         try await withClient { client in
@@ -556,7 +614,7 @@ struct SFTPClientFileHandleTransfer {
             #expect(h.offset == 80)
 
             try await h.truncate(toSize: 50)
-            #expect(h.offset == 49)
+            #expect(h.offset == 50)
             try await h.close()
 
             try await client.delete(path: dir)

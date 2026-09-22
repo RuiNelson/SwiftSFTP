@@ -200,6 +200,25 @@ struct SFTPClientHostkeyAndAuth {
         try await client.close()
     }
 
+    @Test("loadFromFileString splits CRLF line endings")
+    func loadFromFileStringSplitsCRLF() async throws {
+        let knownHostsLine = try await retryingTransientConnectionFailure {
+            try await SFTPClient.getServerHostKey(
+                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0,
+                shortHandForm: false
+            )
+        }
+
+        // The matching entry sits on the second line, so it is only found when CRLF splits into lines.
+        let content = "# accepted hosts\r\n\(knownHostsLine)\r\n"
+        let client = try await loginWithRetry(timeOut: 10.0) {
+            try makeClient(hostKeyAcceptance: .loadFromFileString(file: content))
+        }
+        #expect(!client.closed)
+        try await client.close()
+    }
+
     @Test("loadFromFile accepts known_hosts file")
     func loadFromFileAccepts() async throws {
         let knownHostsLine = try await retryingTransientConnectionFailure {

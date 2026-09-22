@@ -125,7 +125,7 @@ public enum LibSSH2Error: Error, Sendable, Equatable, CustomStringConvertible {
         case let .invalidKnownHostsLine(line): Self.describe("Invalid Known Hosts Line", line)
         case let .couldNotResolveHostname(hostname: hostname, message: message): Self.describe(
                 "Could not resolve hostname",
-                "\(hostname ?? "") - \(message ?? ""))"
+                "\(hostname ?? "") - \(message ?? "")"
             )
         }
     }

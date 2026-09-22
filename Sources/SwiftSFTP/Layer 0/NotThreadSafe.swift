@@ -8,9 +8,8 @@ private nonisolated(unsafe) var libSSH2InitReferenceCount = 0
 
 /// Serializes libssh2 calls that are not thread-safe at the C API level.
 ///
-/// libssh2 documents several entry points — including ``Init(noCrypto:)``,
-/// ``Exit()``, ``SessionInit()``, ``SessionFree(session:)``, ``SFTPInit(session:)``,
-/// and ``SFTPShutdown(sftp:)`` — as unsafe to invoke concurrently. The Swift wrapper routes those calls through this
+/// libssh2 documents several entry points — including ``SSHInit(noCrypto:)``, ``SSHExit()``, ``SessionInit()``, and
+/// ``SessionFree(session:)`` — as unsafe to invoke concurrently. The Swift wrapper routes those calls through this
 /// queue so they can be used safely from multiple threads or Swift tasks.
 func SynchronousExecution<R>(_ body: @escaping () throws -> R) rethrows -> R {
     try queueForNotThreadSafeLibSSH2Methods.sync {

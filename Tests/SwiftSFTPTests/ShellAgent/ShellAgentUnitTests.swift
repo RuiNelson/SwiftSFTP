@@ -24,8 +24,18 @@ struct ShellAgentUnitTests {
         #expect(ShellAgentSupport.cmdQuote(#"C:\path\file.txt"#) == #""C:\path\file.txt""#)
         // Embedded quotes are doubled, not backslash-escaped (cmd rule).
         #expect(ShellAgentSupport.cmdQuote(#"say "hi""#) == #""say ""hi""""#)
-        // Percent expands env vars inside quotes; double so paths stay literal.
-        #expect(ShellAgentSupport.cmdQuote(#"C:\Users\%USERNAME%\x"#) == #""C:\Users\%%USERNAME%%\x""#)
+        // Percent expands env vars inside quotes, and `%%` is no escape in interactive cmd: each `%` references the
+        // variable the framing sets to a literal `%`.
+        #expect(
+            ShellAgentSupport.cmdQuote(#"C:\Users\%USERNAME%\x"#)
+                == #""C:\Users\%__SWIFTSFTP_PCT%USERNAME%__SWIFTSFTP_PCT%\x""#
+        )
+    }
+
+    @Test("PowerShell scripts hosted by cmd escape percent signs")
+    func powerShellRemoteCommandEscapesPercent() {
+        let cmd = ShellAgentSupport.powerShellRemoteCommand("Get-FileHash -LiteralPath 'C:\\%PATH%.txt'")
+        #expect(cmd.contains(#"'C:\%__SWIFTSFTP_PCT%PATH%__SWIFTSFTP_PCT%.txt'"#))
     }
 
     @Test("cmdQuote keeps injection metacharacters inside the quoted span")
@@ -657,6 +667,15 @@ struct ShellAgentUnitTests {
         )
     }
 
+    @Test("pathForRemoteShell keeps relative dash-led names from reading as options")
+    func pathForRemoteShellDashLedName() throws {
+        #expect(ShellAgentSupport.pathForRemoteShell("-rf", shellType: .linux) == "./-rf")
+        #expect(ShellAgentSupport.pathForRemoteShell("/tmp/-rf", shellType: .linux) == "/tmp/-rf")
+
+        let command = try ShellAgentSupport.copyCommand(shellType: .linux, from: "-src", to: "-dir/-dst")
+        #expect(command == "mkdir -p './-dir' && cp -f './-src' './-dir/-dst'")
+    }
+
     @Test("pathForRemoteShell rewrites SFTP drive paths on Windows")
     func pathForRemoteShellWindows() {
         #expect(
@@ -749,6 +768,13 @@ struct ShellAgentUnitTests {
             algorithm: .md5
         )
         #expect(bare.hexString == "93b885adfe0da089cdf634904fd59f71")
+
+        // A file name with a newline is escaped, and the line opens with a backslash.
+        let escaped = try ShellAgentSupport.parseUnixChecksumOutput(
+            "\\93b885adfe0da089cdf634904fd59f71  Fixtures/two\\nlines.bin\n",
+            algorithm: .md5
+        )
+        #expect(escaped.hexString == "93b885adfe0da089cdf634904fd59f71")
     }
 
     @Test("parseUnixChecksumOutput rejects empty or malformed output")
@@ -832,6 +858,10 @@ struct ShellAgentUnitTests {
             #expect(lines[statusIndex - 1] == "echo.")
             // The status is captured before the blank line so `%ERRORLEVEL%` cannot be clobbered in between.
             #expect(lines.contains(#"set "__SWIFTSFTP_STATUS=%ERRORLEVEL%""#))
+            // The literal-percent variable is set on an earlier line than the command that references it.
+            let percentLine = lines.firstIndex(of: #"set "__SWIFTSFTP_PCT=%""#)
+            let commandLine = lines.firstIndex { $0.contains("whoami") }
+            #expect(percentLine != nil && commandLine != nil && percentLine! < commandLine!)
             #expect(lines.contains("echo \(begin)"))
             #expect(lines.contains("echo \(done)"))
         }
@@ -844,6 +874,19 @@ struct ShellAgentUnitTests {
         )
         #expect(ps.contains("$ErrorActionPreference='Stop'"))
         #expect(ps.contains("$LASTEXITCODE"))
+    }
+
+    @Test("cmd tar zip probe never exits the persistent shell")
+    func cmdTarZipProbeKeepsShell() throws {
+        for probe in try [
+            ShellAgentSupport.zipToolProbeCommand(tool: .tar, shellType: .windowsCommandPrompt),
+            ShellAgentSupport.unzipToolProbeCommand(tool: .tar, shellType: .windowsCommandPrompt),
+        ] {
+            // `exit` in interactive cmd ends the shell; `set` + `%var%` on one line expands before the `set` runs.
+            #expect(!probe.lowercased().contains("exit"))
+            #expect(!probe.lowercased().contains("set "))
+            #expect(probe.contains("--format=zip"))
+        }
     }
 
     @Test("command nonces are hex and unique enough for framing")

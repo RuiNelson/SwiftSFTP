@@ -30,11 +30,22 @@ public struct LibSSH2SFTPStatVFS: Sendable, Codable, Equatable {
 }
 
 public extension LibSSH2SFTPStatVFS {
+    /// Free bytes on the filesystem, including those reserved for the superuser, clamped to `UInt64.max`.
     var freeSize: UInt64 {
-        blockSize * freeBlocks
+        byteCount(ofBlocks: freeBlocks)
     }
 
+    /// Free bytes available to unprivileged users, clamped to `UInt64.max`.
     var availableSize: UInt64 {
-        blockSize * availableBlocks
+        byteCount(ofBlocks: availableBlocks)
+    }
+
+    /// `statvfs` counts blocks in units of the fragment size; `blockSize` is only the preferred I/O size and differs
+    /// on some systems (macOS reports a 1 MiB `f_bsize` over 4 KiB fragments). Servers that leave the fragment size
+    /// unset fall back to the block size.
+    private func byteCount(ofBlocks count: UInt64) -> UInt64 {
+        let unit = fragmentSize != 0 ? fragmentSize : blockSize
+        let (bytes, overflow) = unit.multipliedReportingOverflow(by: count)
+        return overflow ? .max : bytes
     }
 }

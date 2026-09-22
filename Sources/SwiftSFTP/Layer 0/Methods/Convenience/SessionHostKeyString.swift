@@ -35,12 +35,15 @@ public func SessionHostKeyString(session: LibSSH2Session, host _host: String? = 
     let line = try KnownHostWriteLine(hosts: hosts, rawKnownHost: entry.rawPointer)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     
-    var lineFields = line.split(separator: " ").map(String.init)
-    
-    let hostField = lineFields.removeFirst()
-    let algoField = lineFields.removeFirst()
-    let b64Field = lineFields.removeFirst()
-        
+    let lineFields = line.split(separator: " ").map(String.init)
+    guard lineFields.count >= 3 else {
+        throw LibSSH2Error.knownHosts("Unexpected known-hosts line: \(line)")
+    }
+
+    let hostField = lineFields[0]
+    let algoField = lineFields[1]
+    let b64Field = lineFields[2]
+
     if _host == nil {
         return [algoField, b64Field].joined(separator: " ")
     }

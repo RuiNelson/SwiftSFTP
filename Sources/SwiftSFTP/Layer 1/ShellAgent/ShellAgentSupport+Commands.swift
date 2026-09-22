@@ -369,7 +369,7 @@ extension ShellAgentSupport {
 
         case .tar:
             // Empty archive with ZIP format: succeeds on bsdtar/libarchive, fails on stock GNU tar. Never `exit` the
-            // persistent shell — use a subshell status (`(exit N)`) or `cmd /b`.
+            // persistent shell: Unix uses a subshell status (`(exit N)`), Windows lets the framing read the status.
             switch shellType {
             case .darwin, .linux, .posixCompatible:
                 // The `X`s must trail the template: BSD `mktemp` (macOS) does not substitute them before a suffix, so
@@ -381,8 +381,10 @@ extension ShellAgentSupport {
                 return
                     "$tmp = Join-Path $env:TEMP (\"swiftsftp-zip-probe-\" + [guid]::NewGuid().ToString() + \".zip\"); tar --format=zip -cf $tmp --files-from NUL 2>$null; $ec = $LASTEXITCODE; Remove-Item -Force -ErrorAction SilentlyContinue $tmp; if ($null -eq $ec) { exit 1 } else { exit $ec }"
             case .windowsCommandPrompt:
-                return
-                    "set \"tmp=%TEMP%\\swiftsftp-zip-probe-%RANDOM%.zip\" & tar --format=zip -cf \"%tmp%\" --files-from NUL >nul 2>nul & set \"ec=%ERRORLEVEL%\" & del /f /q \"%tmp%\" >nul 2>nul & exit /b %ec%"
+                // The archive goes to stdout, so there is no temporary file to name and delete. A name held in a
+                // variable could not work anyway: interactive cmd expands the whole line before any `set` on it runs,
+                // and `exit /b` outside a batch file would end the persistent shell. The framing reads the status.
+                return "tar --format=zip -cf - --files-from NUL >nul 2>nul"
             }
 
         case .microsoft:
@@ -969,7 +971,8 @@ extension ShellAgentSupport {
         let wrapped =
             "$ErrorActionPreference='Stop'; try { \(script); if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } catch { exit 1 }"
         let escaped = wrapped.replacingOccurrences(of: "\"", with: "\\\"")
-        return "powershell -NoProfile -NonInteractive -Command \"\(escaped)\""
+        // The whole command line is read by the cmd.exe host first, which would expand `%NAME%` in paths.
+        return "powershell -NoProfile -NonInteractive -Command \"\(cmdEscapePercent(escaped))\""
     }
 
     // MARK: Persistent shell framing
@@ -1030,6 +1033,9 @@ extension ShellAgentSupport {
     ) -> String {
         let status = "__SWIFTSFTP_STATUS"
         return [
+            // On a line of its own, so it is set before cmd expands the command's references to it. A `%` with no
+            // closing partner is left literal.
+            "set \"\(cmdPercentVariable)=%\"",
             "echo \(begin)",
             command,
             "set \"\(status)=%ERRORLEVEL%\"",

@@ -29,17 +29,15 @@ extension SFTPFileProtocol {
     
     /// Truncates or extends the remote file to the given size.
     ///
-    /// When the current file position is at or beyond `newSize`, the position is clamped to the last valid offset
-    /// (`newSize - 1`) before the truncate request is sent. When `newSize` is zero, the position is set to `0`.
+    /// When the current file position is beyond `newSize`, the position is clamped to the new end of the file
+    /// (`newSize`) before the truncate request is sent, so a following write appends rather than overwriting the last
+    /// byte.
     ///
     /// - Parameter newSize: Desired file size in bytes.
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
     func truncate(toSize newSize: UInt64) async throws {
-        if newSize == 0 {
-            offset = 0
-        }
-        else if offset >= newSize {
-            offset = newSize - 1
+        if offset > newSize {
+            offset = newSize
         }
 
         var new = FileAttributes()
@@ -58,14 +56,8 @@ extension SFTPFileProtocol {
             return
         }
 
-        if let size, size >= 0 {
-            let fileSize = UInt64(size)
-            if fileSize == 0 {
-                offset = 0
-            }
-            else if offset >= fileSize {
-                offset = fileSize - 1
-            }
+        if let size, size >= 0, offset > UInt64(size) {
+            offset = UInt64(size)
         }
 
         var attrs = FileAttributes()
