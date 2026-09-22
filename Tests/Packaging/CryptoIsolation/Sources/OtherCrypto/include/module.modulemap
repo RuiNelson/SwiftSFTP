@@ -1,0 +1,4 @@
+module OtherCrypto {
+    header "OtherCrypto.h"
+    export *
+}

@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     'Artifacts/OpenSSL/OpenSSLSSL.xcframework/macos-arm64/OpenSSLSSL.framework/Versions/A/OpenSSLSSL'
+relocations:     []
+...

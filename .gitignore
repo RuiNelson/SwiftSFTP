@@ -12,6 +12,8 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+# These debug symbols are part of the published binary artifacts.
+!Artifacts/OpenSSL/**/*.dSYM/
 
 ## Playgrounds
 timeline.xctimeline

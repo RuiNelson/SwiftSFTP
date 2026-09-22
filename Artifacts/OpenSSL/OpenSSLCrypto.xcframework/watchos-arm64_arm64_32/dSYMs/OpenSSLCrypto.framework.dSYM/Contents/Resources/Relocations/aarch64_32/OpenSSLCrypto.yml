@@ -1,0 +1,5 @@
+---
+triple:          'arm64_32-apple-darwin'
+binary-path:     'Artifacts/OpenSSL/OpenSSLCrypto.xcframework/watchos-arm64_arm64_32/OpenSSLCrypto.framework/OpenSSLCrypto'
+relocations:     []
+...
