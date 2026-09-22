@@ -187,15 +187,15 @@ extension OpenSSLKey {
     /// without its SP 800-56B public key policy, which rejects valid keys with small public exponents. Keys with more
     /// than two primes fall back to OpenSSL's pairwise check.
     func checkRSAKeyPair() throws {
-        if (try? bigNumber(OSSL_PKEY_PARAM_RSA_FACTOR3)) != nil {
+        if (try? bigNumber(RSAParameterName.factor3)) != nil {
             return try runCheck(EVP_PKEY_pairwise_check)
         }
         do {
             let n = try bigNumber(OSSL_PKEY_PARAM_RSA_N)
             let e = try bigNumber(OSSL_PKEY_PARAM_RSA_E)
             let d = try bigNumber(OSSL_PKEY_PARAM_RSA_D)
-            let p = try bigNumber(OSSL_PKEY_PARAM_RSA_FACTOR1)
-            let q = try bigNumber(OSSL_PKEY_PARAM_RSA_FACTOR2)
+            let p = try bigNumber(RSAParameterName.factor1)
+            let q = try bigNumber(RSAParameterName.factor2)
             guard try p.multiplied(by: q) == n else { throw AsymmetricCryptographyError.invalidKeyData }
             let ed = try e.multiplied(by: d)
             for prime in [p, q] {

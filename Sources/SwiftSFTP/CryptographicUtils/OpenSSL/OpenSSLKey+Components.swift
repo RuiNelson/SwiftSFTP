@@ -151,11 +151,11 @@ extension OpenSSLKey {
         parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_N, bigEndian: components.modulus)
         parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_E, bigEndian: components.publicExponent)
         parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_D, bigEndian: components.privateExponent)
-        parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_FACTOR1, bigEndian: components.p)
-        parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_FACTOR2, bigEndian: components.q)
-        parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_EXPONENT1, bigEndian: exponent1)
-        parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_EXPONENT2, bigEndian: exponent2)
-        parameters.addBigNumber(OSSL_PKEY_PARAM_RSA_COEFFICIENT1, bigEndian: components.coefficient)
+        parameters.addBigNumber(RSAParameterName.factor1, bigEndian: components.p)
+        parameters.addBigNumber(RSAParameterName.factor2, bigEndian: components.q)
+        parameters.addBigNumber(RSAParameterName.exponent1, bigEndian: exponent1)
+        parameters.addBigNumber(RSAParameterName.exponent2, bigEndian: exponent2)
+        parameters.addBigNumber(RSAParameterName.coefficient1, bigEndian: components.coefficient)
         try self.init(algorithm: "RSA", parameters: parameters, includesPrivateKey: true)
     }
 
@@ -173,9 +173,9 @@ extension OpenSSLKey {
             modulus: bigNumber(OSSL_PKEY_PARAM_RSA_N).bigEndianBytes,
             publicExponent: bigNumber(OSSL_PKEY_PARAM_RSA_E).bigEndianBytes,
             privateExponent: bigNumber(OSSL_PKEY_PARAM_RSA_D).bigEndianBytes,
-            p: bigNumber(OSSL_PKEY_PARAM_RSA_FACTOR1).bigEndianBytes,
-            q: bigNumber(OSSL_PKEY_PARAM_RSA_FACTOR2).bigEndianBytes,
-            coefficient: bigNumber(OSSL_PKEY_PARAM_RSA_COEFFICIENT1).bigEndianBytes
+            p: bigNumber(RSAParameterName.factor1).bigEndianBytes,
+            q: bigNumber(RSAParameterName.factor2).bigEndianBytes,
+            coefficient: bigNumber(RSAParameterName.coefficient1).bigEndianBytes
         )
     }
 

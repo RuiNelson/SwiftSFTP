@@ -40,6 +40,25 @@ enum OpenSSLErrorQueue {
 
 // MARK: - Parameters
 
+/// OpenSSL's `OSSL_PKEY_PARAM_RSA_*` names for the RSA factors and CRT parameters.
+///
+/// OpenSSL before 3.5 defines these macros by string concatenation (`OSSL_PKEY_PARAM_RSA_FACTOR "1"`), which Swift
+/// cannot import, so they are missing with the system OpenSSL on Linux; the names themselves are stable.
+enum RSAParameterName {
+    /// `OSSL_PKEY_PARAM_RSA_FACTOR1`, the first prime (p).
+    static let factor1 = "rsa-factor1"
+    /// `OSSL_PKEY_PARAM_RSA_FACTOR2`, the second prime (q).
+    static let factor2 = "rsa-factor2"
+    /// `OSSL_PKEY_PARAM_RSA_FACTOR3`, the third prime of a multi-prime key.
+    static let factor3 = "rsa-factor3"
+    /// `OSSL_PKEY_PARAM_RSA_EXPONENT1`, the CRT exponent d mod (p − 1).
+    static let exponent1 = "rsa-exponent1"
+    /// `OSSL_PKEY_PARAM_RSA_EXPONENT2`, the CRT exponent d mod (q − 1).
+    static let exponent2 = "rsa-exponent2"
+    /// `OSSL_PKEY_PARAM_RSA_COEFFICIENT1`, the CRT coefficient q⁻¹ mod p.
+    static let coefficient1 = "rsa-coefficient1"
+}
+
 /// An `OSSL_PARAM` array whose names and values stay allocated, and are zeroed on release, with the builder.
 final class OpenSSLParameters {
     private var allocations: [UnsafeMutableRawBufferPointer] = []
