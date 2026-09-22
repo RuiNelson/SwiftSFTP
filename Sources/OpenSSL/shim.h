@@ -1,1 +1,12 @@
 #include <openssl/ssl.h>
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/crypto.h>
+#include <openssl/ec.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/objects.h>
+#include <openssl/params.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/x509.h>

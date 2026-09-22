@@ -1,6 +1,6 @@
 # Cryptographic Utilities
 
-SwiftSFTP exposes OpenSSL-backed helpers under `Sources/SwiftSFTP/CryptographicUtils/` for offline validation of user authentication keys and OpenSSH `known_hosts` host keys, plus Ed25519 key generation in OpenSSH formats.
+SwiftSFTP exposes OpenSSL-backed helpers under `Sources/SwiftSFTP/CryptographicUtils/` for offline validation of user authentication keys and OpenSSH `known_hosts` host keys, plus asymmetric key generation, import, and export in OpenSSH, PEM, PKCS#8, and DER formats.
 
 All validation APIs return simple `Bool` values. They check format and cryptographic parseability only — they do not verify that a key is authorized on any particular server.
 
@@ -134,33 +134,70 @@ Validation decodes the base64 wire blob and verifies the public key material wit
 
 ---
 
-## Ed25519 Key Generation
+## Asymmetric Keys (`AsymmetricCryptography`)
 
-`SwiftSFTP_Curve25519` generates unencrypted Ed25519 key pairs in OpenSSH formats.
+`AsymmetricCryptography` generates, imports, and exports signature keys for every algorithm below, in every format OpenSSL and OpenSSH define for them.
+
+### Algorithms
+
+| Namespace | Key type | OpenSSH name |
+|-----------|----------|--------------|
+| `AsymmetricCryptography.EdDSA.Ed25519` | `.ed25519` | `ssh-ed25519` |
+| `AsymmetricCryptography.EdDSA.Ed448` | `.ed448` | — |
+| `AsymmetricCryptography.ECDSA.P256` / `P384` / `P521` | `.ecdsaP256` / `.ecdsaP384` / `.ecdsaP521` | `ecdsa-sha2-nistp256` / `384` / `521` |
+| `AsymmetricCryptography.RSA` | `.rsa` | `ssh-rsa` |
+| `AsymmetricCryptography.MLDSA.MLDSA44` / `MLDSA65` / `MLDSA87` | `.mlDSA44` / `.mlDSA65` / `.mlDSA87` | — |
+| `AsymmetricCryptography.SLHDSA.SHA2_128s` … `SHAKE_256f` (12 parameter sets) | `.slhDSA_SHA2_128s` … | — |
+
+ML-DSA and SLH-DSA need OpenSSL 3.5 or later. The bundled Apple XCFrameworks include it; on Linux, check `AsymmetricKeyType.isAvailable` against the system OpenSSL.
+
+RSA keys default to 3072 bits (`RSA.generateKeyPair(bits:)` accepts 2048–16384). A single RSA key serves both PKCS#1 v1.5 and PSS signatures.
+
+### Formats
+
+| Format | Private key | Public key | Key types |
+|--------|-------------|------------|-----------|
+| `.openSSH` | `BEGIN OPENSSH PRIVATE KEY`; with a passphrase, aes256-ctr + bcrypt, like `ssh-keygen` | `ssh-ed25519 AAAA…` | Ed25519, ECDSA, RSA |
+| `.pkcs8` | `BEGIN PRIVATE KEY`; with a passphrase, `BEGIN ENCRYPTED PRIVATE KEY` (PBES2, AES-256-CBC) | — | all |
+| `.pem` | `BEGIN RSA PRIVATE KEY` / `BEGIN EC PRIVATE KEY` (legacy PEM encryption) | `BEGIN PUBLIC KEY` (SubjectPublicKeyInfo) | private: RSA, ECDSA; public: all |
+| DER | `derRepresentation` (PKCS#8) | `derRepresentation` (SubjectPublicKeyInfo) | all |
+
+Parsing accepts all of the above. It also reads OpenSSH keys encrypted with aes128/192/256-ctr, aes128/192/256-cbc, and aes128/256-gcm@openssh.com. `chacha20-poly1305@openssh.com` is not supported. OpenSSH does not define Ed448, ML-DSA, or SLH-DSA keys, so those throw `unsupportedPrivateKeyFormat` / `unsupportedPublicKeyFormat` for `.openSSH`.
+
+### Generating keys
 
 ```swift
 import SwiftSFTP
 
-if let pair = SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat() {
-    // pair.privateKey — PEM ("BEGIN OPENSSH PRIVATE KEY")
-    // pair.publicKey  — "ssh-ed25519 <base64>"
+let pair = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
 
-    #expect(pair.privateKey.isValid_Curve25519_PrivateKey)
-    #expect(pair.publicKey.isValid_Curve25519_PublicKey)
-}
+let privateKey = try pair.privateKey.encode(format: .openSSH, passphrase: "passphrase")
+let publicKey = try pair.publicKey.encode(format: .openSSH) // "ssh-ed25519 AAAA…"
 ```
 
-Extract the public key from an existing unencrypted OpenSSH private key:
+### Importing and converting keys
 
 ```swift
-if let publicKey = SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(
-    openSSHFormat: pair.privateKey
-) {
-    #expect(publicKey == pair.publicKey)
-}
+let key = try PrivateKey(string: pem, passphrase: "passphrase") // OpenSSH, PKCS#8 or algorithm-specific PEM
+key.type                                                        // e.g. .ecdsaP256
+let authorizedKey = try key.publicKey.encode(format: .openSSH)
+let pkcs8 = try key.encode(format: .pkcs8)
+
+let publicKey = try PublicKey(string: "ssh-ed25519 AAAA… user@host") // or a PEM PUBLIC KEY
 ```
 
-`OpenSSHKeyPair` holds the generated `privateKey` and `publicKey` strings. Passphrase encryption is not supported by the generator.
+`AsymmetricAlgorithm.derivePublicKey(from:)` returns the pair for a private key and checks that the key is of that algorithm. `PrivateKey`, `PublicKey`, and `AsymmetricKeyPair` are `Codable` as their DER form; decoding validates the key.
+
+Errors are thrown as `AsymmetricCryptographyError`, for example `.passphraseRequired`, `.incorrectPassphrase`, `.invalidKeyData`, or `.unsupportedAlgorithm("X25519")`.
+
+### Deprecated Ed25519 API
+
+`SwiftSFTP_Curve25519` and `OpenSSHKeyPair` are deprecated and now forward to `AsymmetricCryptography`:
+
+| Deprecated | Replacement |
+|------------|-------------|
+| `SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()` | `AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()` + `encode(format: .openSSH)` |
+| `SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat:)` | `PrivateKey(string:).publicKey.encode(format: .openSSH)` |
 
 ---
 

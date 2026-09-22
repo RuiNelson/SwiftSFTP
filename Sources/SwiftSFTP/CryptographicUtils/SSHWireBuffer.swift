@@ -35,6 +35,26 @@ struct SSHWireBuffer {
         guard let data = readData() else { return nil }
         return String(data: data, encoding: .utf8)
     }
+
+    /// Reads the next non-negative `mpint` as unsigned big-endian bytes without leading zeros (empty for zero).
+    mutating func readMPInt() -> Data? {
+        guard let data = readData() else { return nil }
+        guard let first = data.first else { return Data() }
+        guard first & 0x80 == 0 else { return nil }
+        return Data(data.drop { $0 == 0 })
+    }
+
+    /// Reads `count` raw bytes without a length prefix.
+    mutating func readRaw(count: Int) -> Data? {
+        guard count >= 0, offset + count <= data.count else { return nil }
+        defer { offset += count }
+        return Data(data[offset ..< (offset + count)])
+    }
+
+    /// The bytes not yet consumed.
+    var remaining: Data {
+        Data(data[min(offset, data.count)...])
+    }
 }
 
 /// Writer for OpenSSH length-prefixed binary strings used in key wire formats.
@@ -60,14 +80,23 @@ struct SSHWireWriter {
         appendData(Data(string.utf8))
     }
 
+    /// Appends an unsigned big-endian integer as a non-negative `mpint`.
+    mutating func appendMPInt(_ unsignedBigEndian: Data) {
+        var magnitude = Data(unsignedBigEndian.drop { $0 == 0 })
+        if let first = magnitude.first, first & 0x80 != 0 {
+            magnitude.insert(0, at: 0)
+        }
+        appendData(magnitude)
+    }
+
     /// Appends raw bytes without a length prefix.
     mutating func appendRaw(_ bytes: Data) {
         data.append(bytes)
     }
 
-    /// Appends OpenSSH private-key padding bytes to the next multiple of `blockSize`.
+    /// Appends OpenSSH private-key padding bytes (`1, 2, 3, …`) up to the next multiple of `blockSize`.
     mutating func appendPadding(blockSize: Int = 8) {
-        let padLength = blockSize - (data.count % blockSize)
+        let padLength = (blockSize - data.count % blockSize) % blockSize
         guard padLength > 0 else { return }
         data.append(contentsOf: (1 ... padLength).map(UInt8.init))
     }

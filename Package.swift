@@ -62,6 +62,7 @@ let libssh2ExcludedPaths = [
 
 let libssh2Sources = [
     "Sources/libssh2/server_sign_algorithms.c",
+    "Sources/libssh2/swiftsftp_bcrypt_pbkdf.c",
     "vendor/libssh2/src/agent.c",
     "vendor/libssh2/src/bcrypt_pbkdf.c",
     "vendor/libssh2/src/chacha.c",

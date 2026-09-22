@@ -224,7 +224,7 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("shortHandAcceptedKeys rejects a non-matching key")
     func shortHandAcceptedKeysRejectsWrongKey() async throws {
-        let wrongKey = try #require(SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()?.publicKey)
+        let wrongKey = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().publicKey.encode(format: .openSSH)
 
         try await expectLoginRejects(HostKeyVerificationError.keyMismatch, timeOut: 10.0) {
             try makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey]))
@@ -452,7 +452,7 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("fork preserves host key acceptance policy")
     func forkPreservesHostKeyAcceptancePolicy() async throws {
-        let wrongKey = try #require(SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()?.publicKey)
+        let wrongKey = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().publicKey.encode(format: .openSSH)
         let client = try makeClient(
             hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey])
         )
