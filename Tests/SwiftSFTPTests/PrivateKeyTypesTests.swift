@@ -62,13 +62,15 @@ struct PrivateKeyTypesTests {
 
     @Test("PrivateKeyString is valid but not valid for SSH for key types SSH cannot authenticate with")
     func privateKeyStringNonSSHKeyTypes() throws {
-        // ML-DSA and SLH-DSA need OpenSSL 3.5, which a system OpenSSL on Linux may predate.
-        let algorithms: [any AsymmetricAlgorithm.Type] = [
-            AsymmetricCryptography.EdDSA.Ed448.self,
-            AsymmetricCryptography.MLDSA.MLDSA65.self,
-            AsymmetricCryptography.SLHDSA.SHA2_128f.self,
-        ]
-        let pairs = try algorithms.filter(\.keyType.isAvailable).map { try $0.generateKeyPair() }
+        // ML-DSA and SLH-DSA need OpenSSL 3.5, which a system OpenSSL on Linux may predate. (Generating through
+        // `any AsymmetricAlgorithm.Type` would be shorter, but crashes the Swift 6.3 compiler.)
+        var pairs = try [AsymmetricCryptography.EdDSA.Ed448.generateKeyPair()]
+        if AsymmetricKeyType.mlDSA65.isAvailable {
+            try pairs.append(AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair())
+        }
+        if AsymmetricKeyType.slhDSA_SHA2_128f.isAvailable {
+            try pairs.append(AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair())
+        }
         for pair in pairs {
             let clear = try PrivateKeyString(representation: pair.privateKey.encode(format: .pkcs8))
             #expect(clear.valid)
