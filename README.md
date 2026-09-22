@@ -30,17 +30,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus Ed25519 key generation; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
-- **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
-
-## Apple crypto coexistence
-
-The `SwiftSFTP` product is dynamically linked. On Apple platforms this keeps its
-Swift and libssh2 OpenSSL calls bound to `OpenSSLCrypto.framework` when another
-SDK statically links a crypto implementation with the same C symbol names.
-The application must embed the dynamic SwiftSFTP and OpenSSL frameworks;
-Xcode handles this for normal SwiftPM product dependencies.
-See [packaging regression tests](Tests/Packaging/README.md) for a standalone
-consumer test and the optional official MEGA artifact check.
+- **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks
 
 ## Cookbook
 
@@ -142,6 +132,16 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 2. Enter the repository URL: `https://github.com/RuiNelson/SwiftSFTP.git`
 3. Choose the version rule you prefer (e.g., "Up to Next Major Version") and click **Add Package**.
 4. Make sure the `SwiftSFTP` product is added to your app target.
+
+## Apple crypto coexistence
+
+The `SwiftSFTP` product is dynamically linked. On Apple platforms this keeps its
+Swift and libssh2 OpenSSL calls bound to `OpenSSLCrypto.framework` when another
+SDK statically links a crypto implementation with the same C symbol names.
+The application must embed the dynamic SwiftSFTP and OpenSSL frameworks;
+Xcode handles this for normal SwiftPM product dependencies.
+See [packaging regression tests](Tests/Packaging/README.md) for a standalone
+consumer test and the optional official MEGA artifact check.
 
 ## Benchmarks
 
