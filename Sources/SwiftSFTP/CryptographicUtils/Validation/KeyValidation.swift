@@ -6,42 +6,45 @@ import Foundation
 /// encrypted), or algorithm-specific PEM (`BEGIN RSA PRIVATE KEY`, `BEGIN EC PRIVATE KEY`). Public keys may be PEM
 /// SubjectPublicKeyInfo (`BEGIN PUBLIC KEY`) or OpenSSH one-line keys (`algorithm base64 [comment]`).
 ///
-/// The `isValid_` checks only ask whether the string is a well-formed key. The `isValidForSSH_` checks also require an
-/// algorithm SSH supports (RSA, ECDSA P-256 / P-384 / P-521, Ed25519); OpenSSH has no Ed448, ML-DSA, or SLH-DSA keys.
+/// The `isValid_` checks ask whether the string is a valid key: well formed, valid for its algorithm, and, for private
+/// keys, with halves that belong together (see ``PublicKey`` and ``PrivateKey``). The `isValidForSSH_` checks also
+/// apply OpenSSH's rules (see ``OpenSSHKeyPolicy``): an algorithm SSH defines (Ed25519, ECDSA P-256 / P-384 / P-521,
+/// or RSA), and an RSA modulus of 1024 to 16384 bits.
 ///
 /// Wherever a `passphrase` is taken, `nil` or an empty string accepts only unencrypted keys; otherwise encrypted keys
 /// must decrypt with it, and unencrypted keys are accepted as they are.
 public protocol KeyValidation {
-    /// The type of the unencrypted private key in the string, or `nil` when it is not a parseable private key of a
+    /// The type of the unencrypted private key in the string, or `nil` when it is not a valid private key of a
     /// supported type.
     var privateKeyType: AsymmetricKeyType? { get }
-    /// The type of the private key in the string, decrypting it with `passphrase`, or `nil` when it cannot be parsed or
-    /// decrypted.
+    /// The type of the private key in the string, decrypting it with `passphrase`, or `nil` when it is not a valid key
+    /// or cannot be decrypted.
     func privateKeyType(passphrase: String?) -> AsymmetricKeyType?
-    /// The type of the public key in the string, or `nil` when it is not a parseable public key of a supported type.
+    /// The type of the public key in the string, or `nil` when it is not a valid public key of a supported type.
     var publicKeyType: AsymmetricKeyType? { get }
 
-    /// Returns whether the string is a parseable unencrypted private key of any supported algorithm.
+    /// Returns whether the string is a valid unencrypted private key of any supported algorithm.
     var isValid_PrivateKey: Bool { get }
-    /// Returns whether the string is a parseable public key of any supported algorithm.
+    /// Returns whether the string is a valid public key of any supported algorithm.
     var isValid_PublicKey: Bool { get }
     /// Returns whether the string is a private key of any supported algorithm, decrypting it with `passphrase`.
     func isValid_PrivateKey(passphrase: String?) -> Bool
 
-    /// Returns whether the string is a private key SSH can authenticate with, decrypting it with `passphrase`.
+    /// Returns whether the string is a private key OpenSSH accepts, decrypting it with `passphrase`; true exactly when
+    /// ``SSHUserKeyAlgorithm/detect(from:passphrase:)`` finds its family.
     func isValidForSSH_PrivateKey(passphrase: String?) -> Bool
-    /// Returns whether the string is a public key of an algorithm SSH supports.
+    /// Returns whether the string is a public key OpenSSH accepts.
     var isValidForSSH_PublicKey: Bool { get }
 
-    /// Returns whether the string is a parseable unencrypted RSA private key.
+    /// Returns whether the string is a valid unencrypted RSA private key.
     var isValid_RSA_PrivateKey: Bool { get }
-    /// Returns whether the string is a parseable unencrypted P-256 private key.
+    /// Returns whether the string is a valid unencrypted P-256 private key.
     var isValid_P256_PrivateKey: Bool { get }
-    /// Returns whether the string is a parseable unencrypted P-384 private key.
+    /// Returns whether the string is a valid unencrypted P-384 private key.
     var isValid_P384_PrivateKey: Bool { get }
-    /// Returns whether the string is a parseable unencrypted P-521 private key.
+    /// Returns whether the string is a valid unencrypted P-521 private key.
     var isValid_P521_PrivateKey: Bool { get }
-    /// Returns whether the string is a parseable unencrypted Curve25519 (Ed25519) private key.
+    /// Returns whether the string is a valid unencrypted Curve25519 (Ed25519) private key.
     var isValid_Curve25519_PrivateKey: Bool { get }
 
     /// Returns whether the string is an RSA private key, decrypting it with `passphrase`.
@@ -55,15 +58,15 @@ public protocol KeyValidation {
     /// Returns whether the string is a Curve25519 (Ed25519) private key, decrypting it with `passphrase`.
     func isValid_Curve25519_PrivateKey(passphrase: String?) -> Bool
 
-    /// Returns whether the string is a parseable RSA public key.
+    /// Returns whether the string is a valid RSA public key.
     var isValid_RSA_PublicKey: Bool { get }
-    /// Returns whether the string is a parseable P-256 public key.
+    /// Returns whether the string is a valid P-256 public key.
     var isValid_P256_PublicKey: Bool { get }
-    /// Returns whether the string is a parseable P-384 public key.
+    /// Returns whether the string is a valid P-384 public key.
     var isValid_P384_PublicKey: Bool { get }
-    /// Returns whether the string is a parseable P-521 public key.
+    /// Returns whether the string is a valid P-521 public key.
     var isValid_P521_PublicKey: Bool { get }
-    /// Returns whether the string is a parseable Curve25519 (Ed25519) public key.
+    /// Returns whether the string is a valid Curve25519 (Ed25519) public key.
     var isValid_Curve25519_PublicKey: Bool { get }
 }
 
@@ -120,15 +123,7 @@ extension String: KeyValidation {
     }
 
     public var publicKeyType: AsymmetricKeyType? {
-        guard let key = try? PublicKey(string: self) else { return nil }
-        // One-line OpenSSH keys also have to meet OpenSSH's own acceptance rules (for example the RSA modulus size),
-        // as for `known_hosts` entries.
-        let fields = split(whereSeparator: \.isWhitespace).map(String.init)
-        if fields.count >= 2, let algorithm = SSHHostKeyAlgorithm(rawValue: fields[0]),
-           !algorithm.validates(base64: fields[1]) {
-            return nil
-        }
-        return key.type
+        try? PublicKey(string: self).type
     }
 
     public var isValid_PrivateKey: Bool {
@@ -144,11 +139,12 @@ extension String: KeyValidation {
     }
 
     public func isValidForSSH_PrivateKey(passphrase: String? = nil) -> Bool {
-        privateKeyType(passphrase: passphrase)?.openSSHName != nil
+        SSHUserKeyAlgorithm.detect(from: self, passphrase: passphrase) != nil
     }
 
     public var isValidForSSH_PublicKey: Bool {
-        publicKeyType?.openSSHName != nil
+        guard let key = try? PublicKey(string: self) else { return false }
+        return OpenSSHKeyPolicy.accepts(key)
     }
 
     public var isValid_RSA_PrivateKey: Bool {

@@ -7,7 +7,7 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 - **Layer 0** — thin libssh2 wrappers close to the C API, with Swift types where practical.
 - **Layer 1** — higher-level `SFTPClient` / `SFTPFile` API built on Layer 0.
 - **Extensions** — shared helpers (pointers, strings, errors) used by both layers.
-- **KeyValidation** — SSH key PEM validation helpers.
+- **CryptographicUtils** — OpenSSL-backed key generation, import, export, and validation, plus hashing.
 
 `vendor/libssh2` and `vendor/openssl` are read-only submodules; do not edit them except when explicitly upgrading vendored sources.
 
@@ -42,6 +42,20 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 - Keep libssh2 errors in `Layer 0/Types/LibSSH2Error.swift`; define Layer 1 domain errors as enums under `Layer 1/` (for example in `StructsAndEnums/`), not in `LibSSH2Error`.
 - Prefer protocols (`SFTPClientProtocol`, `SFTPFileProtocol`) for testability; keep concrete types aligned with protocol contracts.
 - Do not add a second high-level client API unless explicitly requested.
+
+## CryptographicUtils (`Sources/SwiftSFTP/CryptographicUtils`)
+
+- `Keys/` holds the public key API (`AsymmetricCryptography`, `PublicKey`, `PrivateKey`, …), one file per type.
+- `Validation/` holds the `String` validation APIs (`KeyValidation`, `known_hosts` checks) and `SSHUserKeyAlgorithm`.
+- `OpenSSH/` holds the OpenSSH formats: the SSH wire encoding, the key codec, key file ciphers, and
+  `OpenSSHKeyPolicy`. It does not import OpenSSL.
+- `OpenSSL/` is the only place that imports OpenSSL: `OpenSSLKey` wraps `EVP_PKEY`, alongside ciphers, digests, and
+  support types.
+- `Deprecated/` holds deprecated API, forwarding to its replacement.
+- Parsing (`PublicKey`, `PrivateKey`) checks that keys are valid and consistent but applies no policy; SSH acceptance
+  rules live only in `OpenSSHKeyPolicy`.
+- Check imported keys in the `init(importing:)` initializers of `PublicKey` and `PrivateKey`, so every format gets the
+  same checks.
 
 ## OpenSSL Artifacts
 

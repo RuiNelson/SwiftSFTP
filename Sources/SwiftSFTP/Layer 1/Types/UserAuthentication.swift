@@ -262,9 +262,9 @@ public struct PrivateKeyString: Codable, Sendable, Equatable, Hashable {
 
     /// Whether the key parses for ``passphrase`` and is of a family SSH user authentication supports.
     ///
-    /// True exactly when ``algorithm`` is non-`nil`: RSA, ECDSA P-256 / P-384 / P-521, or Ed25519. Keys that are
-    /// ``valid`` but that OpenSSH cannot authenticate with, such as Ed448, ML-DSA, or SLH-DSA, return `false`. Does
-    /// **not** prove the key is authorized on a server.
+    /// True exactly when ``algorithm`` is non-`nil`: RSA with a 1024 to 16384-bit modulus, ECDSA P-256 / P-384 /
+    /// P-521, or Ed25519. Keys that are ``valid`` but that OpenSSH will not use, such as Ed448, ML-DSA, SLH-DSA, or
+    /// RSA under 1024 bits, return `false`. Does **not** prove the key is authorized on a server.
     public var isValidForSSH: Bool {
         representation.isValidForSSH_PrivateKey(passphrase: passphrase)
     }

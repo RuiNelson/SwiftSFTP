@@ -42,15 +42,18 @@ public enum SSHUserKeyAlgorithm: String, Sendable, Equatable, CaseIterable, Coda
         "ssh-rsa",
     ]
 
-    /// Detects the algorithm of a PEM / PKCS#8 / OpenSSH private key string.
+    /// Detects the algorithm family of a private key SSH can authenticate with.
     ///
     /// - Parameters:
-    ///   - representation: Private key text.
-    ///   - passphrase: Passphrase for encrypted keys (PKCS#8, legacy PEM, or OpenSSH), or `nil` when unencrypted.
-    /// - Returns: The algorithm family, or `nil` when the key cannot be classified (invalid material, wrong passphrase,
-    /// or a key type SSH user authentication does not support).
+    ///   - representation: OpenSSH, PKCS#8, or algorithm-specific PEM private key text.
+    ///   - passphrase: Passphrase for encrypted keys, or `nil` when the key is unencrypted.
+    /// - Returns: The algorithm family, or `nil` when the key cannot be parsed (invalid material or wrong passphrase)
+    /// or OpenSSH would not use it (an algorithm SSH does not define, or an RSA modulus outside 1024…16384 bits; see
+    /// ``OpenSSHKeyPolicy``).
     public static func detect(from representation: String, passphrase: String? = nil) -> SSHUserKeyAlgorithm? {
-        representation.privateKeyType(passphrase: passphrase).flatMap(SSHUserKeyAlgorithm.init(keyType:))
+        guard let key = try? PrivateKey(string: representation, passphrase: passphrase),
+              OpenSSHKeyPolicy.accepts(key.publicKey) else { return nil }
+        return SSHUserKeyAlgorithm(keyType: key.type)
     }
 
     /// The SSH user key family of `keyType`, or `nil` when SSH user authentication does not support it.
