@@ -19,7 +19,9 @@ public enum AsymmetricCryptographyError: Error, Equatable, Sendable, CustomStrin
     case passphraseRequired
     /// The key could not be decrypted with the given passphrase.
     case incorrectPassphrase
-    /// The OpenSSH key is encrypted with a cipher or KDF SwiftSFTP does not support; carries its name.
+    /// The OpenSSH key is encrypted with a cipher or KDF SwiftSFTP does not support, or asks for more bcrypt rounds
+    /// than
+    /// the 1024 SwiftSFTP runs; carries a description.
     case unsupportedEncryption(String)
     /// OpenSSL failed unexpectedly; carries its error queue.
     case openSSLFailure(String)

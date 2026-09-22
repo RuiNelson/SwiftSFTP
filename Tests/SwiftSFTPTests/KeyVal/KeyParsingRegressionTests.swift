@@ -152,6 +152,58 @@ struct KeyParsingRegressionTests {
         }
     }
 
+    @Test("OpenSSH keys asking for more bcrypt rounds than the limit are rejected before deriving the key")
+    func bcryptRoundsLimit() throws {
+        let key = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().privateKey
+        let passphrase = KeyValidationTestData.testPassword
+        let limit = OpenSSHKeyCodec.maximumBcryptRounds
+
+        // Changing the rounds changes the derived key, so a file within the limit reaches decryption and fails there.
+        let withinLimit = try Self.openSSHKey(key, passphrase: passphrase, bcryptRounds: 17)
+        #expect(throws: AsymmetricCryptographyError.incorrectPassphrase) {
+            try PrivateKey(string: withinLimit, passphrase: passphrase)
+        }
+
+        // One round over the limit: were the limit gone, this would fail cleanly after ~9 s rather than hang.
+        let overLimit = try Self.openSSHKey(key, passphrase: passphrase, bcryptRounds: limit + 1)
+        #expect(throws: AsymmetricCryptographyError.unsupportedEncryption(
+            "bcrypt with \(limit + 1) rounds (at most \(limit) supported)"
+        )) {
+            try PrivateKey(string: overLimit, passphrase: passphrase)
+        }
+        #expect(!overLimit.isValid_PrivateKey(passphrase: passphrase))
+        #expect(SSHUserKeyAlgorithm.detect(from: overLimit, passphrase: passphrase) == nil)
+        // Without a passphrase nothing is derived, so the missing passphrase is what gets reported.
+        #expect(throws: AsymmetricCryptographyError.passphraseRequired) { try PrivateKey(string: overLimit) }
+    }
+
+    /// `key` as an encrypted OpenSSH private key whose KDF options ask for `rounds` bcrypt rounds.
+    private static func openSSHKey(
+        _ key: PrivateKey,
+        passphrase: String,
+        bcryptRounds rounds: UInt32
+    ) throws -> String {
+        let armored = try key.encode(format: .openSSH, passphrase: passphrase)
+        var blob = try #require(Data(base64Encoded: armored.split(separator: "\n").dropFirst().dropLast().joined()))
+
+        // magic, cipher name, KDF name, KDF options length, salt length, salt, then the rounds.
+        let magicLength = "openssh-key-v1\0".utf8.count
+        var reader = SSHWireReader(blob, offset: magicLength)
+        let names = (reader.readString(), reader.readString())
+        let kdfOptions = reader.readData()
+        let cipherName = try #require(names.0)
+        let kdfName = try #require(names.1)
+        var options = try SSHWireReader(#require(kdfOptions))
+        let salt = options.readData()
+        let roundsOffset = try magicLength + 4 + cipherName.utf8.count + 4 + kdfName.utf8.count + 4 + 4
+            + #require(salt).count
+
+        var field = SSHWireWriter()
+        field.appendUInt32(rounds)
+        blob.replaceSubrange(roundsOffset ..< roundsOffset + 4, with: field.data)
+        return "\(OpenSSHKeyCodec.privateKeyHeader)\n\(blob.base64EncodedString())\n\(OpenSSHKeyCodec.privateKeyFooter)\n"
+    }
+
     // MARK: - DSA host keys
 
     /// A 1024-bit `ssh-dss` key generated with OpenSSL, since current OpenSSH no longer generates DSA keys.

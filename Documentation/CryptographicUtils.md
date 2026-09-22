@@ -201,7 +201,7 @@ RSA keys default to 3072 bits (`RSA.generateKeyPair(bits:)` accepts 2048–16384
 | `.pem` | `BEGIN RSA PRIVATE KEY` / `BEGIN EC PRIVATE KEY` (legacy PEM encryption) | `BEGIN PUBLIC KEY` (SubjectPublicKeyInfo) | private: RSA, ECDSA; public: all |
 | DER | `derRepresentation` (PKCS#8) | `derRepresentation` (SubjectPublicKeyInfo) | all |
 
-Parsing accepts all of the above, ignoring text around a key's `BEGIN` and `END` lines. It also reads OpenSSH keys encrypted with aes128/192/256-ctr, aes128/192/256-cbc, and aes128/256-gcm@openssh.com. `chacha20-poly1305@openssh.com` is not supported. OpenSSH does not define Ed448, ML-DSA, or SLH-DSA keys, so those throw `unsupportedPrivateKeyFormat` / `unsupportedPublicKeyFormat` for `.openSSH`.
+Parsing accepts all of the above, ignoring text around a key's `BEGIN` and `END` lines. It also reads OpenSSH keys encrypted with aes128/192/256-ctr, aes128/192/256-cbc, and aes128/256-gcm@openssh.com. `chacha20-poly1305@openssh.com` is not supported. Keys whose bcrypt KDF asks for more than 1024 rounds are rejected with `unsupportedEncryption`: each round costs about 9 ms on Apple silicon, so the limit bounds decryption at about 10 seconds, where a crafted file could otherwise stall it indefinitely (`ssh-keygen` uses 16 rounds by default). Such keys also fail `isValid_PrivateKey(passphrase:)` and `SSHUserKeyAlgorithm.detect`, but `SFTPClient` still tries them last during authentication, when libssh2 decrypts them itself. OpenSSH does not define Ed448, ML-DSA, or SLH-DSA keys, so those throw `unsupportedPrivateKeyFormat` / `unsupportedPublicKeyFormat` for `.openSSH`.
 
 ### Generating keys
 

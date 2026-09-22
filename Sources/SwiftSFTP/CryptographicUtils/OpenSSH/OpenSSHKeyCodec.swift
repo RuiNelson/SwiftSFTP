@@ -20,6 +20,13 @@ enum OpenSSHKeyCodec {
     private static let bcryptSaltLength = 16
     /// bcrypt rounds `ssh-keygen` uses by default.
     private static let bcryptRounds: UInt32 = 16
+    /// Most bcrypt rounds a key file may ask for when it is decrypted.
+    ///
+    /// Each round costs about 9 ms on Apple silicon, so this bounds decryption at about 10 seconds, where a crafted
+    /// file
+    /// asking for up to 2³² − 1 rounds would otherwise stall the caller for over a year. It is 64 times `ssh-keygen`'s
+    /// default, and ten times the `-a 100` that hardening guides usually recommend.
+    static let maximumBcryptRounds: UInt32 = 1024
     /// Cipher `ssh-keygen` uses for new passphrase-protected keys.
     private static let encryptionCipher = OpenSSHCipher.aes256CTR
     /// Byte count of an Ed25519 public or private key.
@@ -139,6 +146,11 @@ enum OpenSSHKeyCodec {
                   let tag = reader.readRaw(count: cipher.tagLength),
                   reader.isAtEnd,
                   payload.count % cipher.blockSize == 0 else { throw AsymmetricCryptographyError.invalidKeyData }
+            guard rounds <= maximumBcryptRounds else {
+                throw AsymmetricCryptographyError.unsupportedEncryption(
+                    "bcrypt with \(rounds) rounds (at most \(maximumBcryptRounds) supported)"
+                )
+            }
 
             let derived = try deriveKey(cipher: cipher, passphrase: passphrase, salt: salt, rounds: rounds)
             do {

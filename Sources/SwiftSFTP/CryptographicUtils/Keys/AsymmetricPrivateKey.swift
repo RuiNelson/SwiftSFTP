@@ -22,7 +22,10 @@ public struct PrivateKey: Sendable, Hashable, Codable {
     /// Parses an OpenSSH, PKCS#8, or algorithm-specific PEM private key, decrypting it with `passphrase` when it is
     /// encrypted. A `nil` or empty passphrase only accepts unencrypted keys.
     ///
-    /// Text before and after the key's `BEGIN` and `END` lines, such as a file name or comment, is ignored.
+    /// Text before and after the key's `BEGIN` and `END` lines, such as a file name or comment, is ignored. OpenSSH
+    /// keys
+    /// whose bcrypt KDF asks for more than 1024 rounds are rejected with
+    /// ``AsymmetricCryptographyError/unsupportedEncryption(_:)``, so a crafted file cannot stall decryption.
     public init(string: String, passphrase: String? = nil) throws {
         let passphrase = passphrase.flatMap { $0.isEmpty ? nil : $0 }
         let key: OpenSSLKey = if string.contains(OpenSSHKeyCodec.privateKeyHeader) {
