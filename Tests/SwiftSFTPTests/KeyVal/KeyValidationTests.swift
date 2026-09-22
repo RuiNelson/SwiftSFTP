@@ -224,6 +224,108 @@ struct KeyValidationTests {
         #expect(!key.isValid_Curve25519_PrivateKey)
     }
 
+    // MARK: - All key types
+
+    @Test("every key type validates in each of its formats", arguments: AsymmetricKeyType.allCases)
+    func allKeyTypes(type: AsymmetricKeyType) throws {
+        let password = KeyValidationTestData.testPassword
+        let pair = try Self.generate(type)
+
+        var privateKeys = try [pair.privateKey.encode(format: .pkcs8)]
+        var encryptedKeys = try [pair.privateKey.encode(format: .pkcs8, passphrase: password)]
+        var publicKeys = try [pair.publicKey.encode(format: .pem)]
+        if type.openSSHName != nil {
+            try privateKeys.append(pair.privateKey.encode(format: .openSSH))
+            try encryptedKeys.append(pair.privateKey.encode(format: .openSSH, passphrase: password))
+            try publicKeys.append(pair.publicKey.encode(format: .openSSH))
+        }
+
+        for key in privateKeys {
+            #expect(key.privateKeyType == type)
+            #expect(key.isValid_PrivateKey)
+            #expect(key.privateKeyType(password: password) == type)
+            #expect(key.publicKeyType == nil)
+        }
+        for key in encryptedKeys {
+            #expect(key.privateKeyType == nil)
+            #expect(!key.isValid_PrivateKey)
+            #expect(key.privateKeyType(password: password) == type)
+            #expect(key.isValid_PrivateKey(password: password))
+            #expect(!key.isValid_PrivateKey(password: "wrongpassword"))
+        }
+        for key in publicKeys {
+            #expect(key.publicKeyType == type)
+            #expect(key.isValid_PublicKey)
+            #expect(key.privateKeyType == nil)
+        }
+    }
+
+    @Test("passphrase-protected ssh-keygen keys validate with their passphrase", arguments: [
+        (OpenSSHEncryptedTestData.Ed25519AES256CTR.privateKey, AsymmetricKeyType.ed25519),
+        (OpenSSHEncryptedTestData.P384AES256CBC.privateKey, .ecdsaP384),
+        (OpenSSHEncryptedTestData.RsaAES256GCM.privateKey, .rsa),
+        (OpenSSHEncryptedTestData.P256AES128CTR.privateKey, .ecdsaP256),
+    ])
+    func encryptedOpenSSH(key: String, type: AsymmetricKeyType) {
+        let password = KeyValidationTestData.testPassword
+        #expect(!key.isValid_PrivateKey)
+        #expect(key.isValid_PrivateKey(password: password))
+        #expect(!key.isValid_PrivateKey(password: "wrongpassword"))
+        #expect(key.privateKeyType(password: password) == type)
+        #expect(SSHUserKeyAlgorithm.detect(from: key, passphrase: password) == SSHUserKeyAlgorithm(keyType: type))
+        #expect(SSHUserKeyAlgorithm.detect(from: key) == nil)
+    }
+
+    @Test("OpenSSH public keys may carry a comment, as in authorized_keys")
+    func openSSHPublicKeyComment() {
+        let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
+        #expect((key + " user@example.com").isValid_Curve25519_PublicKey)
+        #expect((key + " user@example.com").publicKeyType == .ed25519)
+    }
+
+    @Test("SSH user key detection ignores algorithms SSH cannot authenticate with")
+    func detectNonSSHKeyTypes() throws {
+        for type in [AsymmetricKeyType.ed448, .mlDSA65, .slhDSA_SHA2_128f] {
+            let key = try Self.generate(type).privateKey.encode(format: .pkcs8)
+            #expect(key.isValid_PrivateKey)
+            #expect(SSHUserKeyAlgorithm.detect(from: key) == nil)
+        }
+    }
+
+    @Test("keys of algorithms outside AsymmetricKeyType are rejected")
+    func unsupportedAlgorithm() {
+        let x25519 = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VuBCIEIJBnXO0IVpixz1NANiecSZqO33LPr1TZsbEeUas+ctRD\n-----END PRIVATE KEY-----"
+        #expect(!x25519.isValid_PrivateKey)
+        #expect(x25519.privateKeyType == nil)
+    }
+
+    /// Generates a key pair of `type`, with a small RSA modulus to keep the suite fast.
+    private static func generate(_ type: AsymmetricKeyType) throws -> AsymmetricKeyPair {
+        switch type {
+        case .rsa: try AsymmetricCryptography.RSA.generateKeyPair(bits: AsymmetricCryptography.RSA.minimumBits)
+        case .ed25519: try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
+        case .ed448: try AsymmetricCryptography.EdDSA.Ed448.generateKeyPair()
+        case .ecdsaP256: try AsymmetricCryptography.ECDSA.P256.generateKeyPair()
+        case .ecdsaP384: try AsymmetricCryptography.ECDSA.P384.generateKeyPair()
+        case .ecdsaP521: try AsymmetricCryptography.ECDSA.P521.generateKeyPair()
+        case .mlDSA44: try AsymmetricCryptography.MLDSA.MLDSA44.generateKeyPair()
+        case .mlDSA65: try AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair()
+        case .mlDSA87: try AsymmetricCryptography.MLDSA.MLDSA87.generateKeyPair()
+        case .slhDSA_SHA2_128s: try AsymmetricCryptography.SLHDSA.SHA2_128s.generateKeyPair()
+        case .slhDSA_SHA2_128f: try AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair()
+        case .slhDSA_SHA2_192s: try AsymmetricCryptography.SLHDSA.SHA2_192s.generateKeyPair()
+        case .slhDSA_SHA2_192f: try AsymmetricCryptography.SLHDSA.SHA2_192f.generateKeyPair()
+        case .slhDSA_SHA2_256s: try AsymmetricCryptography.SLHDSA.SHA2_256s.generateKeyPair()
+        case .slhDSA_SHA2_256f: try AsymmetricCryptography.SLHDSA.SHA2_256f.generateKeyPair()
+        case .slhDSA_SHAKE_128s: try AsymmetricCryptography.SLHDSA.SHAKE_128s.generateKeyPair()
+        case .slhDSA_SHAKE_128f: try AsymmetricCryptography.SLHDSA.SHAKE_128f.generateKeyPair()
+        case .slhDSA_SHAKE_192s: try AsymmetricCryptography.SLHDSA.SHAKE_192s.generateKeyPair()
+        case .slhDSA_SHAKE_192f: try AsymmetricCryptography.SLHDSA.SHAKE_192f.generateKeyPair()
+        case .slhDSA_SHAKE_256s: try AsymmetricCryptography.SLHDSA.SHAKE_256s.generateKeyPair()
+        case .slhDSA_SHAKE_256f: try AsymmetricCryptography.SLHDSA.SHAKE_256f.generateKeyPair()
+        }
+    }
+
     // MARK: - Invalid inputs
 
     @Test("Invalid strings are rejected")

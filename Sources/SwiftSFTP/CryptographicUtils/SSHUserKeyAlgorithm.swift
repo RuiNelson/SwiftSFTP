@@ -46,45 +46,24 @@ public enum SSHUserKeyAlgorithm: String, Sendable, Equatable, CaseIterable, Coda
     ///
     /// - Parameters:
     ///   - representation: Private key text.
-    ///   - passphrase: Passphrase for encrypted keys, or `nil` when unencrypted.
+    ///   - passphrase: Passphrase for encrypted keys (PKCS#8, legacy PEM, or OpenSSH), or `nil` when unencrypted.
     /// - Returns: The algorithm family, or `nil` when the key cannot be classified (invalid material, wrong passphrase,
-    /// or unsupported type).
+    /// or a key type SSH user authentication does not support).
     public static func detect(from representation: String, passphrase: String? = nil) -> SSHUserKeyAlgorithm? {
-        if let passphrase {
-            if representation.isValid_Curve25519_PrivateKey(password: passphrase) {
-                return .ed25519
-            }
-            if representation.isValid_P256_PrivateKey(password: passphrase) {
-                return .ecdsaP256
-            }
-            if representation.isValid_P384_PrivateKey(password: passphrase) {
-                return .ecdsaP384
-            }
-            if representation.isValid_P521_PrivateKey(password: passphrase) {
-                return .ecdsaP521
-            }
-            if representation.isValid_RSA_PrivateKey(password: passphrase) {
-                return .rsa
-            }
-            return nil
-        }
+        let keyType = passphrase.map { representation.privateKeyType(password: $0) } ?? representation.privateKeyType
+        return keyType.flatMap(SSHUserKeyAlgorithm.init(keyType:))
+    }
 
-        if representation.isValid_Curve25519_PrivateKey {
-            return .ed25519
+    /// The SSH user key family of `keyType`, or `nil` when SSH user authentication does not support it.
+    init?(keyType: AsymmetricKeyType) {
+        switch keyType {
+        case .rsa: self = .rsa
+        case .ecdsaP256: self = .ecdsaP256
+        case .ecdsaP384: self = .ecdsaP384
+        case .ecdsaP521: self = .ecdsaP521
+        case .ed25519: self = .ed25519
+        default: return nil
         }
-        if representation.isValid_P256_PrivateKey {
-            return .ecdsaP256
-        }
-        if representation.isValid_P384_PrivateKey {
-            return .ecdsaP384
-        }
-        if representation.isValid_P521_PrivateKey {
-            return .ecdsaP521
-        }
-        if representation.isValid_RSA_PrivateKey {
-            return .rsa
-        }
-        return nil
     }
 
     /// Best (lowest) index in `preference` that this algorithm can satisfy, or `nil` if none.

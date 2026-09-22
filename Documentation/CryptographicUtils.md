@@ -15,15 +15,25 @@ All validation APIs return simple `Bool` values. They check format and cryptogra
 | Format | Private key | Public key |
 |--------|-------------|------------|
 | PEM / PKCS#8 (`BEGIN PRIVATE KEY`, `BEGIN EC PRIVATE KEY`, etc.) | ✓ | ✓ (`BEGIN PUBLIC KEY`) |
-| Encrypted PEM (`BEGIN ENCRYPTED PRIVATE KEY`) | ✓ (with password) | — |
-| OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`) | ✓ (unencrypted) | — |
-| OpenSSH one-line public key (`ssh-ed25519 AAAA…`, etc.) | — | ✓ |
+| Encrypted PKCS#8 / legacy encrypted PEM | ✓ (with password) | — |
+| OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`) | ✓ (clear, or passphrase-protected with password) | — |
+| OpenSSH one-line public key (`ssh-ed25519 AAAA… [comment]`, etc.) | — | ✓ |
 
 ### Supported algorithms
 
-- RSA
-- ECDSA P-256, P-384, P-521
-- Ed25519 (Curve25519)
+Every `AsymmetricKeyType`: Ed25519, Ed448, ECDSA P-256/P-384/P-521, RSA, ML-DSA-44/65/87 and all SLH-DSA parameter sets (see [Asymmetric Keys](#asymmetric-keys-asymmetriccryptography)). Keys of other OpenSSL algorithms (DSA, X25519, Brainpool curves, …) are rejected.
+
+A valid key is not necessarily usable for SSH. OpenSSH defines no Ed448, ML-DSA, or SLH-DSA keys, so `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for them. Check `AsymmetricKeyType.openSSHName` when that matters.
+
+### Key type
+
+`privateKeyType`, `privateKeyType(password:)` and `publicKeyType` return the key's `AsymmetricKeyType`, or `nil` when the string is not a valid key:
+
+```swift
+if pem.privateKeyType(password: "passphrase") == .ed448 {
+    // decryptable Ed448 private key
+}
+```
 
 ### Generic checks
 
@@ -56,7 +66,7 @@ pem.isValid_RSA_PrivateKey
 pem.isValid_P256_PrivateKey
 pem.isValid_P384_PrivateKey
 pem.isValid_P521_PrivateKey
-pem.isValid_Curve25519_PrivateKey   // Ed25519 / OpenSSH private key format
+pem.isValid_Curve25519_PrivateKey   // Ed25519
 ```
 
 Public keys:
@@ -69,7 +79,7 @@ pem.isValid_P521_PublicKey
 pem.isValid_Curve25519_PublicKey
 ```
 
-Encrypted private keys also expose password variants, for example `isValid_RSA_PrivateKey(password:)`.
+Encrypted private keys also expose password variants, for example `isValid_RSA_PrivateKey(password:)`. For other key types, compare `privateKeyType` / `publicKeyType` with the `AsymmetricKeyType` you expect.
 
 OpenSSH one-line public keys (as used in `authorized_keys`) are accepted by the `_PublicKey` checks:
 
