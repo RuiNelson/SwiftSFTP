@@ -226,7 +226,10 @@ struct KeyValidationTests {
 
     // MARK: - All key types
 
-    @Test("every key type validates in each of its formats", arguments: AsymmetricKeyType.allCases)
+    /// Key types the linked OpenSSL provides; a system OpenSSL on Linux older than 3.5 lacks ML-DSA and SLH-DSA.
+    private static let availableTypes = AsymmetricKeyType.allCases.filter(\.isAvailable)
+
+    @Test("every key type validates in each of its formats", arguments: availableTypes)
     func allKeyTypes(type: AsymmetricKeyType) throws {
         let password = KeyValidationTestData.testPassword
         let pair = try Self.generate(type)
@@ -260,7 +263,7 @@ struct KeyValidationTests {
         }
     }
 
-    @Test("isValidForSSH accepts exactly the key types OpenSSH defines", arguments: AsymmetricKeyType.allCases)
+    @Test("isValidForSSH accepts exactly the key types OpenSSH defines", arguments: availableTypes)
     func validForSSH(type: AsymmetricKeyType) throws {
         let pair = try Self.generate(type)
         let isSSHType = type.openSSHName != nil
@@ -331,7 +334,7 @@ struct KeyValidationTests {
 
     @Test("SSH user key detection ignores algorithms SSH cannot authenticate with")
     func detectNonSSHKeyTypes() throws {
-        for type in [AsymmetricKeyType.ed448, .mlDSA65, .slhDSA_SHA2_128f] {
+        for type in [AsymmetricKeyType.ed448, .mlDSA65, .slhDSA_SHA2_128f] where type.isAvailable {
             let key = try Self.generate(type).privateKey.encode(format: .pkcs8)
             #expect(key.isValid_PrivateKey)
             #expect(SSHUserKeyAlgorithm.detect(from: key) == nil)

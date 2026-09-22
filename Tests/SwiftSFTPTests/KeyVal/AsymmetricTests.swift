@@ -7,6 +7,23 @@ struct AsymmetricTests {
     private static let passphrase = KeyValidationTestData.testPassword
 
     private static let openSSHTypes: [AsymmetricKeyType] = [.ed25519, .ecdsaP256, .ecdsaP384, .ecdsaP521, .rsa]
+
+    /// Key types every supported OpenSSL (3.0 or later) provides.
+    private static let classicTypes: [AsymmetricKeyType] = [.ed25519, .ed448, .ecdsaP256, .ecdsaP384, .ecdsaP521, .rsa]
+
+    /// Key types the linked OpenSSL provides: all of them with the bundled OpenSSL, but not ML-DSA or SLH-DSA with a
+    /// system OpenSSL on Linux older than 3.5.
+    private static let availableTypes = AsymmetricKeyType.allCases.filter(\.isAvailable)
+
+    /// Whether the tests link the OpenSSL bundled with SwiftSFTP rather than the system's, as on Linux.
+    private static let usesBundledOpenSSL: Bool = {
+        #if os(Linux)
+            return false
+        #else
+            return true
+        #endif
+    }()
+
     private static let traditionalPEMTypes: [AsymmetricKeyType] = [.ecdsaP256, .ecdsaP384, .ecdsaP521, .rsa]
 
     /// Generates a key pair of `type` through its algorithm namespace type.
@@ -39,12 +56,21 @@ struct AsymmetricTests {
 
     // MARK: - Generation and round trips
 
-    @Test("every key type is available in the bundled OpenSSL", arguments: AsymmetricKeyType.allCases)
+    @Test(
+        "every key type is available in the bundled OpenSSL",
+        .enabled(if: usesBundledOpenSSL),
+        arguments: AsymmetricKeyType.allCases
+    )
     func available(type: AsymmetricKeyType) {
         #expect(type.isAvailable)
     }
 
-    @Test("generates key pairs of the requested type", arguments: AsymmetricKeyType.allCases)
+    @Test("classic key types are available with any supported OpenSSL", arguments: classicTypes)
+    func classicTypesAvailable(type: AsymmetricKeyType) {
+        #expect(type.isAvailable)
+    }
+
+    @Test("generates key pairs of the requested type", arguments: availableTypes)
     func generate(type: AsymmetricKeyType) throws {
         let pair = try Self.generate(type)
         #expect(pair.type == type)
@@ -53,14 +79,14 @@ struct AsymmetricTests {
         #expect(try Self.generate(type).privateKey != pair.privateKey)
     }
 
-    @Test("DER round trip", arguments: AsymmetricKeyType.allCases)
+    @Test("DER round trip", arguments: availableTypes)
     func derRoundTrip(type: AsymmetricKeyType) throws {
         let pair = try Self.generate(type)
         #expect(try PrivateKey(derRepresentation: pair.privateKey.derRepresentation) == pair.privateKey)
         #expect(try PublicKey(derRepresentation: pair.publicKey.derRepresentation) == pair.publicKey)
     }
 
-    @Test("PKCS#8 round trip, plain and encrypted", arguments: AsymmetricKeyType.allCases)
+    @Test("PKCS#8 round trip, plain and encrypted", arguments: availableTypes)
     func pkcs8RoundTrip(type: AsymmetricKeyType) throws {
         let key = try Self.generate(type).privateKey
 
@@ -77,7 +103,7 @@ struct AsymmetricTests {
         }
     }
 
-    @Test("public PEM round trip", arguments: AsymmetricKeyType.allCases)
+    @Test("public PEM round trip", arguments: availableTypes)
     func publicPEMRoundTrip(type: AsymmetricKeyType) throws {
         let publicKey = try Self.generate(type).publicKey
         let pem = try publicKey.encode(format: .pem)
@@ -136,7 +162,7 @@ struct AsymmetricTests {
 
     // MARK: - Unsupported combinations
 
-    @Test("formats the key type does not define are rejected", arguments: AsymmetricKeyType.allCases)
+    @Test("formats the key type does not define are rejected", arguments: availableTypes)
     func unsupportedFormats(type: AsymmetricKeyType) throws {
         let pair = try Self.generate(type)
         if !Self.openSSHTypes.contains(type) {

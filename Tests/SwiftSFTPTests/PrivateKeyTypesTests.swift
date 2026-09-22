@@ -62,11 +62,13 @@ struct PrivateKeyTypesTests {
 
     @Test("PrivateKeyString is valid but not valid for SSH for key types SSH cannot authenticate with")
     func privateKeyStringNonSSHKeyTypes() throws {
-        let pairs = try [
-            AsymmetricCryptography.EdDSA.Ed448.generateKeyPair(),
-            AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair(),
-            AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair(),
+        // ML-DSA and SLH-DSA need OpenSSL 3.5, which a system OpenSSL on Linux may predate.
+        let algorithms: [any AsymmetricAlgorithm.Type] = [
+            AsymmetricCryptography.EdDSA.Ed448.self,
+            AsymmetricCryptography.MLDSA.MLDSA65.self,
+            AsymmetricCryptography.SLHDSA.SHA2_128f.self,
         ]
+        let pairs = try algorithms.filter(\.keyType.isAvailable).map { try $0.generateKeyPair() }
         for pair in pairs {
             let clear = try PrivateKeyString(representation: pair.privateKey.encode(format: .pkcs8))
             #expect(clear.valid)
@@ -82,9 +84,9 @@ struct PrivateKeyTypesTests {
 
     @Test("PrivateKeyFile is valid but not valid for SSH for key types SSH cannot authenticate with")
     func privateKeyFileNonSSHKeyType() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-mldsa-\(UUID().uuidString)")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-ed448-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: url) }
-        try AsymmetricCryptography.MLDSA.MLDSA44.generateKeyPair().privateKey.encode(format: .pkcs8)
+        try AsymmetricCryptography.EdDSA.Ed448.generateKeyPair().privateKey.encode(format: .pkcs8)
             .write(to: url, atomically: true, encoding: .utf8)
 
         let key = PrivateKeyFile(file: url)
