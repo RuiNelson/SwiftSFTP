@@ -32,6 +32,13 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      # Check the committed artifacts before a cache or rebuild can hide omissions.
+      - name: Verify published OpenSSL debug symbols
+        run: python3 Scripts/verify-openssl-debug-symbols.py
+
+      - name: Verify qualified libssh2 backend
+        run: python3 Scripts/generate-libssh2-apple-backend.py --check
+
       - name: Cache OpenSSL XCFrameworks
         id: openssl-cache
         uses: actions/cache@v5
@@ -44,6 +51,9 @@ jobs:
       - name: Build OpenSSL XCFrameworks
         if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: ./Scripts/build-openssl-xcframeworks.sh
+
+      - name: Test foreign OpenSSL header precedence
+        run: bash Tests/Packaging/CryptoIsolation/check-header-isolation.sh
 
       - name: Build
         run: swift build --scratch-path /tmp/swift-build -v
@@ -58,3 +68,6 @@ jobs:
           fi
         env:
           OFFLINE_TEST_FILTER: "KeyValidationTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+
+      - name: Test consumer crypto symbol isolation
+        run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation

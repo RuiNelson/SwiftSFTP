@@ -99,6 +99,10 @@ let libssh2CSettings: [CSetting] = [
     .headerSearchPath("vendor/libssh2/include"),
     .headerSearchPath("vendor/libssh2/src"),
     .headerSearchPath("Artifacts/OpenSSL/Android/include", .when(platforms: [.android])),
+    // Select the qualified backend before crypto.h, independent of Xcode's
+    // shared include/ directory and other packages' canonical openssl/ headers.
+    .headerSearchPath("Sources/libssh2/apple", .when(platforms: applePlatforms)),
+    .define("HAVE_CONFIG_H", .when(platforms: applePlatforms)),
     .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
     .define("HAVE_O_NONBLOCK"),
@@ -154,6 +158,10 @@ let package = Package(
     products: [
         .library(
             name: "SwiftSFTP",
+            // Keep Swift/libssh2 call sites in their own Mach-O image. With static
+            // linkage, another SDK's crypto symbols can capture these calls even
+            // though OpenSSLCrypto itself is a separate dynamic framework.
+            type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
     ],

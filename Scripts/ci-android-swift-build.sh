@@ -18,4 +18,14 @@ export CFLAGS="${CPPFLAGS} ${CFLAGS:-}"
 export C_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
 export CPLUS_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
 
-exec swift "$@"
+# SwiftPM ignores LDFLAGS; the OpenSSL search path has to reach the linker
+# explicitly, otherwise linking libSwiftSFTP.so fails to find -lssl/-lcrypto.
+#
+# --exclude-libs hides the OpenSSL symbols inside libSwiftSFTP.so. Without it the
+# static archives' internal symbols stay preemptible in a shared object and the
+# aarch64 asm modules fail with "relocation ... cannot be used against symbol".
+exec swift "$@" \
+  -Xswiftc -L"$OPENSSL_LIB_DIR" \
+  -Xlinker -L"$OPENSSL_LIB_DIR" \
+  -Xlinker --exclude-libs=libcrypto.a \
+  -Xlinker --exclude-libs=libssl.a

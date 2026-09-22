@@ -25,7 +25,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 **Features:**
 
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
-- **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored and statically linked via XCFrameworks for convenience).
+- **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored; dynamic frameworks on Apple platforms).
 - **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
@@ -133,6 +133,16 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 3. Choose the version rule you prefer (e.g., "Up to Next Major Version") and click **Add Package**.
 4. Make sure the `SwiftSFTP` product is added to your app target.
 
+## Apple crypto coexistence
+
+The `SwiftSFTP` product is dynamically linked. On Apple platforms this keeps its
+Swift and libssh2 OpenSSL calls bound to `OpenSSLCrypto.framework` when another
+SDK statically links a crypto implementation with the same C symbol names.
+The application must embed the dynamic SwiftSFTP and OpenSSL frameworks;
+Xcode handles this for normal SwiftPM product dependencies.
+See [packaging regression tests](Tests/Packaging/README.md) for a standalone
+consumer test and the optional official MEGA artifact check.
+
 ## Benchmarks
 
 Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server and client (Client ↔ Wi-Fi AP ↔ Server), comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
@@ -165,7 +175,7 @@ SwiftSFTP is available under the [Apache License 2.0](LICENSE).
 
 ### Third-party licenses
 
-SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including via static linking of vendored binaries such as OpenSSL XCFrameworks).
+SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including redistribution of the vendored OpenSSL XCFrameworks).
 
 | Component | Role | License | Source |
 | --- | --- | --- | --- |
