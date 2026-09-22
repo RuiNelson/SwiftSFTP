@@ -35,7 +35,7 @@ public enum AsymmetricCryptographyError: Error, Equatable, Sendable, CustomStrin
         case let .unsupportedPublicKeyFormat(format, type):
             "\(type) public keys cannot be encoded as \(format)"
         case let .keyTypeMismatch(expected, actual):
-            "Expected a \(expected) key, got \(actual)"
+            "Expected key type \(expected), got \(actual)"
         case let .invalidKeySize(bits):
             "Invalid key size: \(bits) bits"
         case .invalidKeyData:

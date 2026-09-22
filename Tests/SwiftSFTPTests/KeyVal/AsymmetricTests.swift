@@ -171,6 +171,10 @@ struct AsymmetricTests {
         #expect(throws: AsymmetricCryptographyError.keyTypeMismatch(expected: .ecdsaP256, actual: .ed25519)) {
             try AsymmetricCryptography.ECDSA.P256.derivePublicKey(from: pair.privateKey)
         }
+        #expect(
+            AsymmetricCryptographyError.keyTypeMismatch(expected: .ecdsaP256, actual: .ed25519).description
+                == "Expected key type ecdsaP256, got ed25519"
+        )
     }
 
     @Test("malformed input is rejected")
