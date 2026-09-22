@@ -42,49 +42,30 @@ public enum SSHUserKeyAlgorithm: String, Sendable, Equatable, CaseIterable, Coda
         "ssh-rsa",
     ]
 
-    /// Detects the algorithm of a PEM / PKCS#8 / OpenSSH private key string.
+    /// Detects the algorithm family of a private key SSH can authenticate with.
     ///
     /// - Parameters:
-    ///   - representation: Private key text.
-    ///   - passphrase: Passphrase for encrypted keys, or `nil` when unencrypted.
-    /// - Returns: The algorithm family, or `nil` when the key cannot be classified (invalid material, wrong passphrase,
-    /// or unsupported type).
+    ///   - representation: OpenSSH, PKCS#8, or algorithm-specific PEM private key text.
+    ///   - passphrase: Passphrase for encrypted keys, or `nil` when the key is unencrypted.
+    /// - Returns: The algorithm family, or `nil` when the key cannot be parsed (invalid material or wrong passphrase)
+    /// or OpenSSH would not use it (an algorithm SSH does not define, or an RSA modulus outside 1024…16384 bits; see
+    /// ``OpenSSHKeyPolicy``).
     public static func detect(from representation: String, passphrase: String? = nil) -> SSHUserKeyAlgorithm? {
-        if let passphrase {
-            if representation.isValid_Curve25519_PrivateKey(password: passphrase) {
-                return .ed25519
-            }
-            if representation.isValid_P256_PrivateKey(password: passphrase) {
-                return .ecdsaP256
-            }
-            if representation.isValid_P384_PrivateKey(password: passphrase) {
-                return .ecdsaP384
-            }
-            if representation.isValid_P521_PrivateKey(password: passphrase) {
-                return .ecdsaP521
-            }
-            if representation.isValid_RSA_PrivateKey(password: passphrase) {
-                return .rsa
-            }
-            return nil
-        }
+        guard let key = try? PrivateKey(string: representation, passphrase: passphrase),
+              OpenSSHKeyPolicy.accepts(key.publicKey) else { return nil }
+        return SSHUserKeyAlgorithm(keyType: key.type)
+    }
 
-        if representation.isValid_Curve25519_PrivateKey {
-            return .ed25519
+    /// The SSH user key family of `keyType`, or `nil` when SSH user authentication does not support it.
+    init?(keyType: AsymmetricKeyType) {
+        switch keyType {
+        case .rsa: self = .rsa
+        case .ecdsaP256: self = .ecdsaP256
+        case .ecdsaP384: self = .ecdsaP384
+        case .ecdsaP521: self = .ecdsaP521
+        case .ed25519: self = .ed25519
+        default: return nil
         }
-        if representation.isValid_P256_PrivateKey {
-            return .ecdsaP256
-        }
-        if representation.isValid_P384_PrivateKey {
-            return .ecdsaP384
-        }
-        if representation.isValid_P521_PrivateKey {
-            return .ecdsaP521
-        }
-        if representation.isValid_RSA_PrivateKey {
-            return .rsa
-        }
-        return nil
     }
 
     /// Best (lowest) index in `preference` that this algorithm can satisfy, or `nil` if none.

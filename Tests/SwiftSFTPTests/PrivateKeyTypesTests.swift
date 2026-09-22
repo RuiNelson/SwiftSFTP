@@ -56,7 +56,65 @@ struct PrivateKeyTypesTests {
     func privateKeyFileMissing() {
         let key = PrivateKeyFile(file: URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)"))
         #expect(!key.valid)
+        #expect(!key.isValidForSSH)
         #expect(key.algorithm == nil)
+    }
+
+    @Test("PrivateKeyString is valid but not valid for SSH for key types SSH cannot authenticate with")
+    func privateKeyStringNonSSHKeyTypes() throws {
+        // ML-DSA and SLH-DSA need OpenSSL 3.5, which a system OpenSSL on Linux may predate. (Generating through
+        // `any AsymmetricAlgorithm.Type` would be shorter, but crashes the Swift 6.3 compiler.)
+        var pairs = try [AsymmetricCryptography.EdDSA.Ed448.generateKeyPair()]
+        if AsymmetricKeyType.mlDSA65.isAvailable {
+            try pairs.append(AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair())
+        }
+        if AsymmetricKeyType.slhDSA_SHA2_128f.isAvailable {
+            try pairs.append(AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair())
+        }
+        for pair in pairs {
+            let clear = try PrivateKeyString(representation: pair.privateKey.encode(format: .pkcs8))
+            #expect(clear.valid)
+            #expect(!clear.isValidForSSH)
+            #expect(clear.algorithm == nil)
+
+            let encrypted = try pair.privateKey.encode(format: .pkcs8, passphrase: TS.keyPassphrase)
+            #expect(PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).valid)
+            #expect(!PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).isValidForSSH)
+            #expect(!PrivateKeyString(representation: encrypted).valid)
+        }
+    }
+
+    @Test("PrivateKeyFile is valid but not valid for SSH for key types SSH cannot authenticate with")
+    func privateKeyFileNonSSHKeyType() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-ed448-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try AsymmetricCryptography.EdDSA.Ed448.generateKeyPair().privateKey.encode(format: .pkcs8)
+            .write(to: url, atomically: true, encoding: .utf8)
+
+        let key = PrivateKeyFile(file: url)
+        #expect(key.valid)
+        #expect(!key.isValidForSSH)
+        #expect(key.algorithm == nil)
+    }
+
+    @Test("PrivateKeyString is valid for every SSH key family, including encrypted OpenSSH")
+    func privateKeyStringSSHKeyTypes() throws {
+        let pairs = try [
+            AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P256.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P384.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P521.generateKeyPair(),
+            AsymmetricCryptography.RSA.generateKeyPair(bits: AsymmetricCryptography.RSA.minimumBits),
+        ]
+        for pair in pairs {
+            let encrypted = try pair.privateKey.encode(format: .openSSH, passphrase: TS.keyPassphrase)
+            let key = PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase)
+            #expect(key.valid)
+            #expect(key.isValidForSSH)
+            #expect(key.algorithm == SSHUserKeyAlgorithm(keyType: pair.type))
+            #expect(!PrivateKeyString(representation: encrypted).valid)
+            #expect(!PrivateKeyString(representation: encrypted).isValidForSSH)
+        }
     }
 
     // MARK: - PrivateKeySet

@@ -29,8 +29,8 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
-- **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus Ed25519 key generation; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
-- **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks
+- **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
+- **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
 
 ## Cookbook
 
@@ -97,7 +97,7 @@ try await myClient.close()
 
 **A complete user guide can be found [here](Documentation/UserGuide.md).**
 
-For offline key validation, host key checks, and Ed25519 key generation, see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
+For offline key validation, host key checks, and asymmetric key generation and conversion, see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 
 ## Adding SwiftSFTP to your Project
 

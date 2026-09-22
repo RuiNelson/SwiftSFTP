@@ -235,7 +235,8 @@ the username. An empty `PrivateKeySet` fails with `.invalidPrivateKey`.
 
 Offline checks: `PrivateKeyString` / `PrivateKeyFile` (`.valid`, `.algorithm`) or
 `String` + `KeyValidation` — see [Validating SSH Keys (Offline)](#validating-ssh-keys-offline).
-Those only prove parseability, not server authorization.
+`.valid` accepts any well-formed key; `.isValidForSSH` also requires one of the algorithms above, rejecting keys SSH
+cannot authenticate with (Ed448, ML-DSA, SLH-DSA). Those checks only prove parseability, not server authorization.
 
 ### Deprecated modes
 
@@ -1203,12 +1204,12 @@ let pem: String = """
 
 // Generic check — works for any supported algorithm
 if pem.isValid_PrivateKey {
-    // safe to use
+    // well-formed unencrypted private key
 }
 
-// Encrypted key — validate with passphrase
-if pem.isValid_PrivateKey(password: "passphrase") {
-    // decryptable private key
+// SSH check, decrypting with a passphrase — RSA, ECDSA or Ed25519 only
+if pem.isValidForSSH_PrivateKey(passphrase: "passphrase") {
+    // safe to use for SSH user authentication
 }
 
 // Algorithm-specific checks
@@ -1216,13 +1217,21 @@ pem.isValid_RSA_PrivateKey
 pem.isValid_P256_PrivateKey
 pem.isValid_P384_PrivateKey
 pem.isValid_P521_PrivateKey
-pem.isValid_Curve25519_PrivateKey   // Ed25519 / OpenSSH "BEGIN OPENSSH PRIVATE KEY" format
+pem.isValid_Curve25519_PrivateKey   // Ed25519
 
 // Convenience wrappers used with PrivateKeySet
 let key = PrivateKeyString(representation: pem, passphrase: nil)
-key.valid
-key.algorithm   // e.g. .ecdsaP256 — used when ordering multi-key auth
+key.valid           // well-formed key of any supported algorithm
+key.isValidForSSH   // also usable for SSH user authentication
+key.algorithm       // e.g. .ecdsaP256 — used when ordering multi-key auth
 ```
+
+`.valid` and the `isValid_` checks answer "is this a well-formed key?" and accept every `AsymmetricKeyType`, including
+Ed448, ML-DSA and SLH-DSA. `.isValidForSSH` and the `isValidForSSH_` checks answer "can SSH user authentication use this
+key?", so they are `true` only for RSA, ECDSA P-256 / P-384 / P-521 or Ed25519 (exactly when `.algorithm` is non-`nil`).
+
+The `password:` variants such as `isValid_RSA_PrivateKey(password:)` are deprecated; use
+`isValid_RSA_PrivateKey(passphrase:)`, whose `passphrase` defaults to `nil`.
 
 Equivalent `_PublicKey` variants are available for all algorithms (including `isValid_Curve25519_PublicKey`).
 
