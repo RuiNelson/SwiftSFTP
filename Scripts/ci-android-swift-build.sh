@@ -18,4 +18,6 @@ export CFLAGS="${CPPFLAGS} ${CFLAGS:-}"
 export C_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
 export CPLUS_INCLUDE_PATH="$OPENSSL_INCLUDE_DIR${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
 
-exec swift "$@"
+# SwiftPM ignores LDFLAGS; the OpenSSL search path has to reach the linker
+# explicitly, otherwise linking libSwiftSFTP.so fails to find -lssl/-lcrypto.
+exec swift "$@" -Xswiftc -L"$OPENSSL_LIB_DIR" -Xlinker -L"$OPENSSL_LIB_DIR"
