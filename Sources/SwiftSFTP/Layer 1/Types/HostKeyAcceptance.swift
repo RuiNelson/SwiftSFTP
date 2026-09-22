@@ -46,7 +46,9 @@ extension SFTPClient {
                 _ = try KnownHostReadFile(hosts: kH, filename: file.path)
 
             case let .loadFromFileString(str):
-                for line in str.split(separator: "\n") {
+                // Not `split(separator: "\n")`: a CRLF pair is one `Character`, so Windows line endings would never
+                // split and the whole content would reach libssh2 as a single line.
+                for line in str.split(whereSeparator: \.isNewline) {
                     try KnownHostReadLine(hosts: kH, line: String(line))
                 }
 

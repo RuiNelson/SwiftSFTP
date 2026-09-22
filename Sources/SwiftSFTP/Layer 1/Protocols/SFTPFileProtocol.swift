@@ -78,7 +78,11 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///
     /// A client that is never closed keeps those allocations, as it keeps every other libssh2 resource it owns.
     ///
-    /// - Throws: libssh2/SFTP errors encountered while closing.
+    /// Closing a handle whose client is already closed marks the handle closed (the session teardown already released
+    /// it) and throws ``AlreadyClosed``.
+    ///
+    /// - Throws: ``AlreadyClosed`` when the client was closed first; otherwise libssh2/SFTP errors encountered while
+    /// closing.
     func close() async throws
 
     /// Whether the file handle has been closed.
@@ -96,8 +100,8 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Updates selected attributes on the open file handle, applying only the non-nil parameters.
     ///
-    /// When `size` is provided and the current position is at or beyond the new size, the position is moved to
-    /// `size - 1` before the request is sent. Calling with all parameters `nil` is a no-op.
+    /// When `size` is provided and the current position is beyond the new size, the position is moved to the new end
+    /// of the file (`size`) before the request is sent. Calling with all parameters `nil` is a no-op.
     ///
     /// - Parameters:
     ///   - size: New file size in bytes.

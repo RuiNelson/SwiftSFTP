@@ -6,7 +6,7 @@ import libssh2
 /// SFTP uses the same kind of channel as the rest of the Channel API, but it speaks its own binary packet protocol
 /// which must be driven through the
 /// `SFTP*` family of functions. When finished, release the session with
-/// ``SFTPShutdown(sftp:)``. The call is serialized through ``SynchronousExecution``.
+/// ``SFTPShutdown(sftp:)``.
 ///
 /// - Parameter session: The SSH session that will own the SFTP session.
 /// - Returns: A new ``LibSSH2SFTP`` instance.
@@ -21,8 +21,6 @@ public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
 }
 
 /// Destroys a previously initialized SFTP session and frees its resources.
-///
-/// The call is serialized through ``SynchronousExecution``.
 ///
 /// - Parameter sftp: The SFTP instance to shut down.
 /// - Throws: ``LibSSH2Error`` on failure, including `EAGAIN` for non-blocking sessions.
@@ -55,8 +53,9 @@ public func SFTPGetChannel(sftp: LibSSH2SFTP) -> LibSSH2Channel? {
 ///   - sftp: The SFTP instance that will own the handle.
 ///   - filename: Remote path of the file or directory to open.
 ///   - flags: SFTP open flags such as ``LibSSH2SFTPFileOpenFlags/read`` and ``LibSSH2SFTPFileOpenFlags/write``.
-///   - mode: POSIX mode passed when creating a file, for example `[.regularFile, .ownerRead, .ownerWrite]`. Ignored
-/// unless `flags` contains ``LibSSH2SFTPFileOpenFlags/create``; use `[]` when not creating.
+///   - mode: POSIX mode passed when creating a file, for example `[.regularFile, .ownerRead, .ownerWrite]`, or
+/// ``LibSSH2SFTPPOSIXPermissions/serverDefault`` to let the server pick it. Ignored unless `flags` contains
+/// ``LibSSH2SFTPFileOpenFlags/create``; use `[]` when not creating.
 ///   - openType: ``LibSSH2SFTPOpenType/file`` or ``LibSSH2SFTPOpenType/directory``.
 /// - Returns: A new ``LibSSH2SFTPHandle`` for the opened resource.
 /// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
@@ -68,17 +67,21 @@ public func SFTPOpen(
     mode: LibSSH2SFTPPOSIXPermissions,
     openType: LibSSH2SFTPOpenType
 ) throws -> LibSSH2SFTPHandle {
-    // Creation permissions are irrelevant to existing files. In particular, the mkdir-only
-    // serverDefault sentinel would otherwise be serialized by libssh2 as 0xffffffff.
-    let permissions: LibSSH2SFTPPOSIXPermissions = flags.contains(.create) ? mode : []
+    // Only a create sends permissions. The serverDefault sentinel (-1) must not reach the wire: libssh2 would
+    // serialize it as 0xffffffff, and the server would create the file with every mode bit set. Omitting the
+    // permissions attribute is how SFTP asks for the server's default mode instead.
+    let sendsPermissions = flags.contains(.create) && mode != .serverDefault
+    var attributes = LIBSSH2_SFTP_ATTRIBUTES()
+    attributes.flags = sendsPermissions ? CUnsignedLong(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS) : 0
     let handle = filename.withCString {
-        libssh2.libssh2_sftp_open_ex(
+        libssh2.libssh2_sftp_open_ex_r(
             sftp.rawValue,
             $0,
-            filename.uint32Length,
+            filename.utf8.count,
             CUnsignedLong(flags.rawValue),
-            permissions.rawValue,
-            openType.libssh2Value
+            sendsPermissions ? mode.rawValue : 0,
+            openType.libssh2Value,
+            &attributes
         )
     }
     guard let handle else { throw LibSSH2Error.sftp(status: SFTPLastError(sftp: sftp)) }

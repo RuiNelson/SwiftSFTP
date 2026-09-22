@@ -9,14 +9,16 @@ extension ShellAgentSupport {
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             // Accept accidental backslashes; never invent drive-letter SFTP forms on Unix hosts.
-            path
+            let sanitized = path
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "\\", with: "/")
                 .sanitizePath
+            // Quoting does not stop `cp`, `tar`, `md5sum`, … from reading a relative `-name` as an option.
+            return sanitized.hasPrefix("-") ? "./" + sanitized : sanitized
 
         case .windowsCommandPrompt, .windowsPowerShell:
             // Any Windows or SFTP spelling → canonical SFTP → native Windows for the shell.
-            path.sftpPathFromWindows.windowsPathFromSFTP
+            return path.sftpPathFromWindows.windowsPathFromSFTP
         }
     }
 

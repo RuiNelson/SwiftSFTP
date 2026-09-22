@@ -58,11 +58,13 @@ public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int
                     return descriptor
                 }
                 catch {
-                    try CloseSocket(descriptor)
+                    // A failing close must neither mask the handshake error nor leave the descriptor to the caller.
+                    try? CloseSocket(descriptor)
                     throw error
                 }
             }
-            try CloseSocket(descriptor)
+            // Keep trying the remaining addresses even if this descriptor fails to close.
+            try? CloseSocket(descriptor)
         }
         current = info.pointee.ai_next
     }

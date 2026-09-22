@@ -11,7 +11,8 @@ public struct LibSSH2SFTPPOSIXPermissions: OptionSet, Sendable, Codable, Hashabl
         self.rawValue = rawValue
     }
 
-    /// Let the server choose the mode (``SFTPMkdir(sftp:path:mode:)`` only).
+    /// Let the server choose the mode (``SFTPMkdir(sftp:path:mode:)`` and file creation with
+    /// ``SFTPOpen(sftp:filename:flags:mode:openType:)``). Not a mode bit: do not combine it with other members.
     public static let serverDefault = Self(rawValue: CLong(libssh2.LIBSSH2_SFTP_DEFAULT_MODE))
 
     /// File type mask.

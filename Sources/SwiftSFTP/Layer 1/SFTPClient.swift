@@ -118,9 +118,17 @@ public final class SFTPClient: SFTPClientProtocol {
 
         do {
             try SSHInit()
+        }
+        catch {
+            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
+        }
+
+        do {
             session = try SessionInit()
         }
         catch {
+            // Balance the SSHInit above; deinit does not.
+            SSHExit()
             throw SFTPClientInvalidConfig.couldNotCreateSession(error)
         }
 
@@ -274,7 +282,8 @@ public extension SFTPClient {
             return
         }
 
-        let oldTimeout = operationsTimeOut?.milliseconds ?? SessionGetTimeout(session: session)
+        // Restore whatever is configured now, which includes a `timeout` the caller set before logging in.
+        let oldTimeout = SessionGetTimeout(session: session)
         SessionSetTimeout(session: session, timeOut: timeOut)
         defer {
             SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
@@ -793,13 +802,7 @@ public extension SFTPClient {
 
         let handle = try withSessionIO {
             try checkClosed()
-            return try SFTPOpen(
-                sftp: sftp,
-                filename: path.sanitizePath,
-                flags: flags,
-                mode: permissions,
-                openType: .file
-            )
+            return try openHandle(path: path.sanitizePath, flags: flags, mode: permissions, openType: .file)
         }
 
         return SFTPFile(
@@ -836,6 +839,26 @@ extension SFTPClient {
 
         if status {
             throw AlreadyClosed()
+        }
+    }
+
+    /// Opens a remote file or directory handle, reporting a transport failure as itself. Callers must hold the session
+    /// I/O lock.
+    ///
+    /// ``SFTPOpen(sftp:filename:flags:mode:openType:)`` only sees the SFTP status, which libssh2 resets to `.ok` at the
+    /// start of every open. A failure that never got a status back — a timeout, a dropped connection — would otherwise
+    /// surface as `.sftp(status: .ok)` instead of the session error that caused it.
+    func openHandle(
+        path: String,
+        flags: OpenFlags,
+        mode: POSIXPermissions,
+        openType: LibSSH2SFTPOpenType
+    ) throws -> LibSSH2SFTPHandle {
+        do {
+            return try SFTPOpen(sftp: sftp, filename: path, flags: flags, mode: mode, openType: openType)
+        }
+        catch LibSSH2Error.sftp(status: .ok) {
+            throw session.lastError
         }
     }
 }
@@ -1181,7 +1204,7 @@ private extension SFTPClient {
             return []
         }
 
-        let handle = try SFTPOpen(sftp: sftp, filename: sanitizedPath, flags: .read, mode: [], openType: .directory)
+        let handle = try openHandle(path: sanitizedPath, flags: .read, mode: [], openType: .directory)
         defer {
             do {
                 try SFTPCloseHandle(handle: handle)

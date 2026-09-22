@@ -177,11 +177,12 @@ public extension SFTPFile {
                     return
                 }
 
-                try parent.checkOpenForFileOperation()
-
-                // libssh2 frees the handle on every path that runs to completion, so mark closed first to prevent any
-                // further use.
+                // libssh2 frees the handle on every path that runs to completion, and a parent closed first already
+                // freed it with the session. Mark closed before either: no further use, and no trap on deinit after a
+                // parent-first shutdown.
                 _closed = true
+
+                try parent.checkOpenForFileOperation()
 
                 // `SSH_FXP_CLOSE` needs an answer the server may never send. Cap the wait: closing a handle is not
                 // worth one whole `operationsTimeOut` when the connection has stopped responding. A close that gives

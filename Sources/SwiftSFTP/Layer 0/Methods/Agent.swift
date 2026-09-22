@@ -110,6 +110,9 @@ public func AgentSign(
 ) throws -> Data {
     var signature: UnsafeMutablePointer<CUnsignedChar>?
     var signatureLength = 0
+    // libssh2 allocates the signature for the caller. Sessions from ``SessionInit()`` use the default allocator, so
+    // `free` releases it; the agent offers no way back to its session for `libssh2_free`.
+    defer { free(signature) }
     try method.withCString { methodPointer in
         try data.withUnsafeBytes { rawBuffer in
             let bytes = rawBuffer.bindMemory(to: CUnsignedChar.self).baseAddress

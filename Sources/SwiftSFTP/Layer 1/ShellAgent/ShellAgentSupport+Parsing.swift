@@ -110,7 +110,11 @@ extension ShellAgentSupport {
             line
         }
 
-        return try parseHexDigestLine(hex, algorithm: algorithm)
+        // GNU coreutils and `shasum` escape a file name holding a backslash or newline, and flag the line by opening
+        // it with a backslash ahead of the digest.
+        let digest = hex.hasPrefix("\\") ? String(hex.dropFirst()) : hex
+
+        return try parseHexDigestLine(digest, algorithm: algorithm)
     }
 
     /// Parses `certutil -hashfile` multi-line output, picking the hex line.

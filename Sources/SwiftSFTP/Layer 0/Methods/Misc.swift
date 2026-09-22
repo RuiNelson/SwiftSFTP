@@ -4,13 +4,13 @@ import libssh2
 ///
 /// This typically initializes the crypto library. The underlying
 /// `libssh2_init` is not thread-safe; this wrapper serializes it through
-/// ``SynchronousExecution`` so ``Init(noCrypto:)`` can be called safely from
+/// ``SynchronousExecution`` so ``SSHInit(noCrypto:)`` can be called safely from
 /// multiple threads or tasks.
 ///
 /// Each call invokes `libssh2_init` and increments a wrapper reference count. libssh2 maintains its own init counter as
-/// well. Pair ``Init(noCrypto:)`` with ``Exit()`` for balanced teardown: ``Exit()`` calls `libssh2_exit` only when the
-/// wrapper count returns to zero. On libssh2, crypto setup runs only on the first transition from uninitialized to
-/// initialized; the `noCrypto` flag is consulted during that first transition.
+/// well. Pair ``SSHInit(noCrypto:)`` with ``SSHExit()`` for balanced teardown: ``SSHExit()`` calls `libssh2_exit` only
+/// when the wrapper count returns to zero. On libssh2, crypto setup runs only on the first transition from
+/// uninitialized to initialized; the `noCrypto` flag is consulted during that first transition.
 ///
 /// - Parameter noCrypto: LIBSSH2_INIT_NO_CRYPTO.
 /// - Throws: ``LibSSH2Error`` if the underlying `libssh2_init` call fails.

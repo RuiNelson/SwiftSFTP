@@ -548,6 +548,13 @@ public func ChannelGetExitSignal(channel: LibSSH2Channel) throws
     var errorMessageLength = 0
     var languageTag: UnsafeMutablePointer<CChar>?
     var languageTagLength = 0
+    // libssh2 hands back fresh copies owned by the caller. Sessions from ``SessionInit()`` use the default
+    // allocator, so `free` releases them; the channel offers no way back to its session for `libssh2_free`.
+    defer {
+        free(exitSignal)
+        free(errorMessage)
+        free(languageTag)
+    }
     try (
         libssh2.libssh2_channel_get_exit_signal(
             channel.rawValue,
