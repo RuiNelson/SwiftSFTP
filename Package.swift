@@ -98,11 +98,10 @@ let libssh2CSettings: [CSetting] = [
     .headerSearchPath("vendor/libssh2/include"),
     .headerSearchPath("vendor/libssh2/src"),
     .headerSearchPath("Artifacts/OpenSSL/Android/include", .when(platforms: [.android])),
-    // libssh2 includes <openssl/...> by its canonical name, but the Apple slices ship the headers inside
-    // OpenSSLCrypto.framework, which contributes only a framework search path. These private forwarding
-    // headers bridge the two. They are deliberately not a public headers path: publishing an `openssl/`
-    // directory is what collides with another SDK's crypto headers in a consuming app.
-    .headerSearchPath("Sources/libssh2/openssl-shim", .when(platforms: applePlatforms)),
+    // Select the qualified backend before crypto.h, independent of Xcode's
+    // shared include/ directory and other packages' canonical openssl/ headers.
+    .headerSearchPath("Sources/libssh2/apple", .when(platforms: applePlatforms)),
+    .define("HAVE_CONFIG_H", .when(platforms: applePlatforms)),
     .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
     .define("HAVE_O_NONBLOCK"),
@@ -158,6 +157,10 @@ let package = Package(
     products: [
         .library(
             name: "SwiftSFTP",
+            // Keep Swift/libssh2 call sites in their own Mach-O image. With static
+            // linkage, another SDK's crypto symbols can capture these calls even
+            // though OpenSSLCrypto itself is a separate dynamic framework.
+            type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
     ],

@@ -25,12 +25,22 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 **Features:**
 
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
-- **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored and statically linked via XCFrameworks for convenience).
+- **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored; dynamic frameworks on Apple platforms).
 - **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus Ed25519 key generation; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
+
+## Apple crypto coexistence
+
+The `SwiftSFTP` product is dynamically linked. On Apple platforms this keeps its
+Swift and libssh2 OpenSSL calls bound to `OpenSSLCrypto.framework` when another
+SDK statically links a crypto implementation with the same C symbol names.
+The application must embed the dynamic SwiftSFTP and OpenSSL frameworks;
+Xcode handles this for normal SwiftPM product dependencies.
+See [packaging regression tests](Tests/Packaging/README.md) for a standalone
+consumer test and the optional official MEGA artifact check.
 
 ## Cookbook
 
@@ -165,7 +175,7 @@ SwiftSFTP is available under the [Apache License 2.0](LICENSE).
 
 ### Third-party licenses
 
-SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including via static linking of vendored binaries such as OpenSSL XCFrameworks).
+SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including redistribution of the vendored OpenSSL XCFrameworks).
 
 | Component | Role | License | Source |
 | --- | --- | --- | --- |
