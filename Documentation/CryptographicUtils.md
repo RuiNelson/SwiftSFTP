@@ -227,7 +227,34 @@ let publicKey = try PublicKey(string: "ssh-ed25519 AAAA… user@host") // or a P
 
 Imported keys are checked as described in [What "valid" means](#what-valid-means): public keys must be valid for their algorithm, and private keys consistent, so `key.publicKey` is always the key that verifies `key`'s signatures. `PrivateKey` and `PublicKey` apply no SSH policy; use the `isValidForSSH_` checks for that.
 
-`AsymmetricAlgorithm.derivePublicKey(from:)` returns the pair for a private key and checks that the key is of that algorithm. `PrivateKey`, `PublicKey`, and `AsymmetricKeyPair` are `Codable` as their DER form; decoding validates the key.
+`PrivateKey`, `PublicKey`, and `AsymmetricKeyPair` are `Codable` as their DER form; decoding validates the key.
+
+### Deriving a public key
+
+Every `PrivateKey` carries its public key, so deriving it from a private key file is a property access — the equivalent of `ssh-keygen -y`:
+
+```swift
+import SwiftSFTP
+
+let keyFile = try String(contentsOfFile: "/Users/me/.ssh/id_ed25519", encoding: .utf8)
+let privateKey = try PrivateKey(string: keyFile, passphrase: "passphrase") // or nil for an unencrypted key
+
+let publicKey = privateKey.publicKey
+let authorizedKey = try publicKey.encode(format: .openSSH) // "ssh-ed25519 AAAA…", ready for authorized_keys
+let pem = try publicKey.encode(format: .pem)               // "-----BEGIN PUBLIC KEY-----…"
+let der = publicKey.derRepresentation                      // DER-encoded SubjectPublicKeyInfo
+```
+
+The OpenSSH line carries no comment; append one (such as `user@host`) if you want it in `authorized_keys`.
+
+When the key must be of a particular algorithm, derive it through that algorithm's namespace instead. `derivePublicKey(from:)` returns the key pair, and throws `keyTypeMismatch` for a key of any other type:
+
+```swift
+let pair = try AsymmetricCryptography.EdDSA.Ed25519.derivePublicKey(from: privateKey)
+let authorizedKey = try pair.publicKey.encode(format: .openSSH)
+```
+
+Ed448, ML-DSA, and SLH-DSA public keys have no OpenSSH encoding, so `encode(format: .openSSH)` throws `unsupportedPublicKeyFormat` for them; use `.pem` or `derRepresentation`.
 
 Errors are thrown as `AsymmetricCryptographyError`, for example `.passphraseRequired`, `.incorrectPassphrase`, `.invalidKeyData`, or `.unsupportedAlgorithm("X25519")`.
 
@@ -247,6 +274,6 @@ Errors are thrown as `AsymmetricCryptographyError`, for example `.passphraseRequ
 - Whether a private key matches a server's `authorized_keys` entry
 - Whether a host key belongs to the host you intend to connect to
 - Certificate chains, expiry, or revocation
-- Key strength policy beyond basic parseability
+- Key strength policy beyond OpenSSH's own rules (for example, whether a 2048-bit RSA key is strong enough for you)
 
 Use `SFTPClient` host key acceptance policies and server-side authorization for connection-time trust decisions.
