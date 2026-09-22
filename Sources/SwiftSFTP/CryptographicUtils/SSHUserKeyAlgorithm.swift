@@ -50,8 +50,7 @@ public enum SSHUserKeyAlgorithm: String, Sendable, Equatable, CaseIterable, Coda
     /// - Returns: The algorithm family, or `nil` when the key cannot be classified (invalid material, wrong passphrase,
     /// or a key type SSH user authentication does not support).
     public static func detect(from representation: String, passphrase: String? = nil) -> SSHUserKeyAlgorithm? {
-        let keyType = passphrase.map { representation.privateKeyType(password: $0) } ?? representation.privateKeyType
-        return keyType.flatMap(SSHUserKeyAlgorithm.init(keyType:))
+        representation.privateKeyType(passphrase: passphrase).flatMap(SSHUserKeyAlgorithm.init(keyType:))
     }
 
     /// The SSH user key family of `keyType`, or `nil` when SSH user authentication does not support it.

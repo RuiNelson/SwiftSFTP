@@ -252,14 +252,21 @@ public struct PrivateKeyString: Codable, Sendable, Equatable, Hashable {
         self.passphrase = passphrase
     }
 
+    /// Whether the key parses as a private key of any ``AsymmetricKeyType`` for ``passphrase``.
+    ///
+    /// Local format check only — does **not** prove the key is authorized on a server, nor that SSH supports its
+    /// algorithm (see ``isValidForSSH``). Encrypted keys without the correct passphrase return `false`.
+    public var valid: Bool {
+        representation.isValid_PrivateKey(passphrase: passphrase)
+    }
+
     /// Whether the key parses for ``passphrase`` and is of a family SSH user authentication supports.
     ///
-    /// Only ``SSHUserKeyAlgorithm`` families (RSA, ECDSA P-256 / P-384 / P-521, Ed25519) count as valid: keys that
-    /// parse but that OpenSSH cannot authenticate with, such as Ed448, ML-DSA, or SLH-DSA, return `false`. Use
-    /// ``KeyValidation`` on ``representation`` to check those. Local format check only — does **not** prove the key is
-    /// authorized on a server. Encrypted keys without the correct passphrase return `false`.
-    public var valid: Bool {
-        algorithm != nil
+    /// True exactly when ``algorithm`` is non-`nil`: RSA, ECDSA P-256 / P-384 / P-521, or Ed25519. Keys that are
+    /// ``valid`` but that OpenSSH cannot authenticate with, such as Ed448, ML-DSA, or SLH-DSA, return `false`. Does
+    /// **not** prove the key is authorized on a server.
+    public var isValidForSSH: Bool {
+        representation.isValidForSSH_PrivateKey(passphrase: passphrase)
     }
 
     /// Key family (`rsa`, `ed25519`, ECDSA curve, …) when detectible.
@@ -294,28 +301,35 @@ public struct PrivateKeyFile: Codable, Sendable, Equatable, Hashable {
         self.passphrase = passphrase
     }
 
+    /// Whether the file exists, is UTF-8 text, and parses as a private key for ``passphrase``.
+    ///
+    /// Reads the whole file for validation. Same limits as ``PrivateKeyString/valid``: format only, not server
+    /// authorization or SSH algorithm support (see ``isValidForSSH``).
+    public var valid: Bool {
+        contents?.valid ?? false
+    }
+
     /// Whether the file exists, is UTF-8 text, and parses for ``passphrase`` as a private key of a family SSH user
     /// authentication supports.
     ///
-    /// Reads the whole file for validation. Same rules as ``PrivateKeyString/valid``: SSH key families only, format
-    /// only, not server authorization.
-    public var valid: Bool {
-        guard file.isFileURL,
-              let data = try? Data(contentsOf: file),
-              let str = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return PrivateKeyString(representation: str, passphrase: passphrase).valid
+    /// Reads the whole file for validation. Same rules as ``PrivateKeyString/isValidForSSH``.
+    public var isValidForSSH: Bool {
+        contents?.isValidForSSH ?? false
     }
 
-    /// Key family when the file can be read and typed; otherwise `nil`.
-    public var algorithm: SSHUserKeyAlgorithm? {
+    /// The file's contents as in-memory key material, or `nil` when it is not a readable UTF-8 file.
+    private var contents: PrivateKeyString? {
         guard file.isFileURL,
               let data = try? Data(contentsOf: file),
               let str = String(data: data, encoding: .utf8) else {
             return nil
         }
-        return SSHUserKeyAlgorithm.detect(from: str, passphrase: passphrase)
+        return PrivateKeyString(representation: str, passphrase: passphrase)
+    }
+
+    /// Key family when the file can be read and typed; otherwise `nil`.
+    public var algorithm: SSHUserKeyAlgorithm? {
+        contents?.algorithm
     }
 }
 

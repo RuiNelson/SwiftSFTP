@@ -56,10 +56,11 @@ struct PrivateKeyTypesTests {
     func privateKeyFileMissing() {
         let key = PrivateKeyFile(file: URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)"))
         #expect(!key.valid)
+        #expect(!key.isValidForSSH)
         #expect(key.algorithm == nil)
     }
 
-    @Test("PrivateKeyString is invalid for key types SSH cannot authenticate with")
+    @Test("PrivateKeyString is valid but not valid for SSH for key types SSH cannot authenticate with")
     func privateKeyStringNonSSHKeyTypes() throws {
         let pairs = try [
             AsymmetricCryptography.EdDSA.Ed448.generateKeyPair(),
@@ -67,18 +68,19 @@ struct PrivateKeyTypesTests {
             AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair(),
         ]
         for pair in pairs {
-            let clear = try pair.privateKey.encode(format: .pkcs8)
-            #expect(clear.isValid_PrivateKey)
-            #expect(!PrivateKeyString(representation: clear).valid)
-            #expect(PrivateKeyString(representation: clear).algorithm == nil)
+            let clear = try PrivateKeyString(representation: pair.privateKey.encode(format: .pkcs8))
+            #expect(clear.valid)
+            #expect(!clear.isValidForSSH)
+            #expect(clear.algorithm == nil)
 
             let encrypted = try pair.privateKey.encode(format: .pkcs8, passphrase: TS.keyPassphrase)
-            #expect(encrypted.isValid_PrivateKey(password: TS.keyPassphrase))
-            #expect(!PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).valid)
+            #expect(PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).valid)
+            #expect(!PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).isValidForSSH)
+            #expect(!PrivateKeyString(representation: encrypted).valid)
         }
     }
 
-    @Test("PrivateKeyFile is invalid for key types SSH cannot authenticate with")
+    @Test("PrivateKeyFile is valid but not valid for SSH for key types SSH cannot authenticate with")
     func privateKeyFileNonSSHKeyType() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-mldsa-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -86,7 +88,8 @@ struct PrivateKeyTypesTests {
             .write(to: url, atomically: true, encoding: .utf8)
 
         let key = PrivateKeyFile(file: url)
-        #expect(!key.valid)
+        #expect(key.valid)
+        #expect(!key.isValidForSSH)
         #expect(key.algorithm == nil)
     }
 
@@ -103,8 +106,10 @@ struct PrivateKeyTypesTests {
             let encrypted = try pair.privateKey.encode(format: .openSSH, passphrase: TS.keyPassphrase)
             let key = PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase)
             #expect(key.valid)
+            #expect(key.isValidForSSH)
             #expect(key.algorithm == SSHUserKeyAlgorithm(keyType: pair.type))
             #expect(!PrivateKeyString(representation: encrypted).valid)
+            #expect(!PrivateKeyString(representation: encrypted).isValidForSSH)
         }
     }
 

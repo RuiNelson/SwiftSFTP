@@ -37,8 +37,8 @@ struct KeyValidationTests {
     func rsaEncryptedPrivate() {
         let key = KeyValidationTestData.RSA.encryptedPrivateKey
         #expect(!key.isValid_RSA_PrivateKey)
-        #expect(key.isValid_RSA_PrivateKey(password: KeyValidationTestData.testPassword))
-        #expect(!key.isValid_RSA_PrivateKey(password: "wrongpassword"))
+        #expect(key.isValid_RSA_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!key.isValid_RSA_PrivateKey(passphrase: "wrongpassword"))
     }
 
     @Test("RSA public key")
@@ -84,8 +84,8 @@ struct KeyValidationTests {
     func p256EncryptedPrivate() {
         let key = KeyValidationTestData.P256.encryptedPrivateKey
         #expect(!key.isValid_P256_PrivateKey)
-        #expect(key.isValid_P256_PrivateKey(password: KeyValidationTestData.testPassword))
-        #expect(!key.isValid_P256_PrivateKey(password: "wrongpassword"))
+        #expect(key.isValid_P256_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!key.isValid_P256_PrivateKey(passphrase: "wrongpassword"))
     }
 
     @Test("P-256 public key")
@@ -130,8 +130,8 @@ struct KeyValidationTests {
     func p384EncryptedPrivate() {
         let key = KeyValidationTestData.P384.encryptedPrivateKey
         #expect(!key.isValid_P384_PrivateKey)
-        #expect(key.isValid_P384_PrivateKey(password: KeyValidationTestData.testPassword))
-        #expect(!key.isValid_P384_PrivateKey(password: "wrongpassword"))
+        #expect(key.isValid_P384_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!key.isValid_P384_PrivateKey(passphrase: "wrongpassword"))
     }
 
     @Test("P-384 public key")
@@ -175,8 +175,8 @@ struct KeyValidationTests {
     func p521EncryptedPrivate() {
         let key = KeyValidationTestData.P521.encryptedPrivateKey
         #expect(!key.isValid_P521_PrivateKey)
-        #expect(key.isValid_P521_PrivateKey(password: KeyValidationTestData.testPassword))
-        #expect(!key.isValid_P521_PrivateKey(password: "wrongpassword"))
+        #expect(key.isValid_P521_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!key.isValid_P521_PrivateKey(passphrase: "wrongpassword"))
     }
 
     @Test("P-521 public key")
@@ -212,8 +212,8 @@ struct KeyValidationTests {
     func curve25519EncryptedPrivate() {
         let key = KeyValidationTestData.Curve25519.encryptedPrivateKey
         #expect(!key.isValid_Curve25519_PrivateKey)
-        #expect(key.isValid_Curve25519_PrivateKey(password: KeyValidationTestData.testPassword))
-        #expect(!key.isValid_Curve25519_PrivateKey(password: "wrongpassword"))
+        #expect(key.isValid_Curve25519_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!key.isValid_Curve25519_PrivateKey(passphrase: "wrongpassword"))
     }
 
     @Test("Curve25519 public key")
@@ -243,21 +243,67 @@ struct KeyValidationTests {
         for key in privateKeys {
             #expect(key.privateKeyType == type)
             #expect(key.isValid_PrivateKey)
-            #expect(key.privateKeyType(password: password) == type)
+            #expect(key.privateKeyType(passphrase: password) == type)
             #expect(key.publicKeyType == nil)
         }
         for key in encryptedKeys {
             #expect(key.privateKeyType == nil)
             #expect(!key.isValid_PrivateKey)
-            #expect(key.privateKeyType(password: password) == type)
-            #expect(key.isValid_PrivateKey(password: password))
-            #expect(!key.isValid_PrivateKey(password: "wrongpassword"))
+            #expect(key.privateKeyType(passphrase: password) == type)
+            #expect(key.isValid_PrivateKey(passphrase: password))
+            #expect(!key.isValid_PrivateKey(passphrase: "wrongpassword"))
         }
         for key in publicKeys {
             #expect(key.publicKeyType == type)
             #expect(key.isValid_PublicKey)
             #expect(key.privateKeyType == nil)
         }
+    }
+
+    @Test("isValidForSSH accepts exactly the key types OpenSSH defines", arguments: AsymmetricKeyType.allCases)
+    func validForSSH(type: AsymmetricKeyType) throws {
+        let pair = try Self.generate(type)
+        let isSSHType = type.openSSHName != nil
+        let privateKey = try pair.privateKey.encode(format: .pkcs8)
+        let encrypted = try pair.privateKey.encode(format: .pkcs8, passphrase: KeyValidationTestData.testPassword)
+        let publicKey = try pair.publicKey.encode(format: .pem)
+
+        #expect(privateKey.isValid_PrivateKey())
+        #expect(privateKey.isValidForSSH_PrivateKey() == isSSHType)
+        #expect(!encrypted.isValidForSSH_PrivateKey())
+        #expect(encrypted.isValidForSSH_PrivateKey(passphrase: KeyValidationTestData.testPassword) == isSSHType)
+        #expect(publicKey.isValid_PublicKey)
+        #expect(publicKey.isValidForSSH_PublicKey == isSSHType)
+        #expect(!publicKey.isValidForSSH_PrivateKey())
+        #expect(!privateKey.isValidForSSH_PublicKey)
+    }
+
+    @Test("a nil or empty passphrase only accepts unencrypted keys")
+    func nilAndEmptyPassphrase() {
+        let clear = KeyValidationTestData.RSA.privateKey
+        let encrypted = KeyValidationTestData.RSA.encryptedPrivateKey
+        #expect(clear.isValid_RSA_PrivateKey())
+        #expect(clear.isValid_RSA_PrivateKey(passphrase: nil))
+        #expect(clear.isValid_RSA_PrivateKey(passphrase: ""))
+        #expect(clear.isValid_RSA_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+        #expect(!encrypted.isValid_RSA_PrivateKey())
+        #expect(!encrypted.isValid_RSA_PrivateKey(passphrase: ""))
+        #expect(encrypted.isValid_RSA_PrivateKey(passphrase: KeyValidationTestData.testPassword))
+    }
+
+    @Test("deprecated password: variants forward to passphrase:")
+    func deprecatedPasswordVariants() {
+        let legacy: any LegacyPasswordValidation = LegacyPasswordCalls()
+        let password = KeyValidationTestData.testPassword
+        #expect(legacy.isValid(KeyValidationTestData.RSA.encryptedPrivateKey, password: password) == [true, true])
+        #expect(legacy.isValid(KeyValidationTestData.P256.encryptedPrivateKey, password: password) == [true, true])
+        #expect(legacy.isValid(KeyValidationTestData.P384.encryptedPrivateKey, password: password) == [true, true])
+        #expect(legacy.isValid(KeyValidationTestData.P521.encryptedPrivateKey, password: password) == [true, true])
+        #expect(legacy.isValid(KeyValidationTestData.Curve25519.encryptedPrivateKey, password: password) == [
+            true,
+            true,
+        ])
+        #expect(legacy.isValid(KeyValidationTestData.RSA.encryptedPrivateKey, password: "wrong") == [false, false])
     }
 
     @Test("passphrase-protected ssh-keygen keys validate with their passphrase", arguments: [
@@ -269,9 +315,9 @@ struct KeyValidationTests {
     func encryptedOpenSSH(key: String, type: AsymmetricKeyType) {
         let password = KeyValidationTestData.testPassword
         #expect(!key.isValid_PrivateKey)
-        #expect(key.isValid_PrivateKey(password: password))
-        #expect(!key.isValid_PrivateKey(password: "wrongpassword"))
-        #expect(key.privateKeyType(password: password) == type)
+        #expect(key.isValid_PrivateKey(passphrase: password))
+        #expect(!key.isValid_PrivateKey(passphrase: "wrongpassword"))
+        #expect(key.privateKeyType(passphrase: password) == type)
         #expect(SSHUserKeyAlgorithm.detect(from: key, passphrase: password) == SSHUserKeyAlgorithm(keyType: type))
         #expect(SSHUserKeyAlgorithm.detect(from: key) == nil)
     }
@@ -341,5 +387,27 @@ struct KeyValidationTests {
         let empty = ""
         #expect(!empty.isValid_RSA_PrivateKey)
         #expect(!empty.isValid_PrivateKey)
+    }
+}
+
+/// Calls the deprecated `password:` API through a protocol requirement, so the tests exercise it without deprecation
+/// warnings.
+private protocol LegacyPasswordValidation {
+    /// `[isValid_PrivateKey(password:), isValid_<type>_PrivateKey(password:)]` for the key's type.
+    func isValid(_ key: String, password: String) -> [Bool]
+}
+
+private struct LegacyPasswordCalls: LegacyPasswordValidation {
+    @available(*, deprecated)
+    func isValid(_ key: String, password: String) -> [Bool] {
+        let typed: Bool = switch key.privateKeyType(passphrase: KeyValidationTestData.testPassword) {
+        case .rsa: key.isValid_RSA_PrivateKey(password: password)
+        case .ecdsaP256: key.isValid_P256_PrivateKey(password: password)
+        case .ecdsaP384: key.isValid_P384_PrivateKey(password: password)
+        case .ecdsaP521: key.isValid_P521_PrivateKey(password: password)
+        case .ed25519: key.isValid_Curve25519_PrivateKey(password: password)
+        default: false
+        }
+        return [key.isValid_PrivateKey(password: password), typed]
     }
 }

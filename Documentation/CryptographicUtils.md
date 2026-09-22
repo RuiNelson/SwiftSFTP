@@ -15,22 +15,38 @@ All validation APIs return simple `Bool` values. They check format and cryptogra
 | Format | Private key | Public key |
 |--------|-------------|------------|
 | PEM / PKCS#8 (`BEGIN PRIVATE KEY`, `BEGIN EC PRIVATE KEY`, etc.) | ✓ | ✓ (`BEGIN PUBLIC KEY`) |
-| Encrypted PKCS#8 / legacy encrypted PEM | ✓ (with password) | — |
-| OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`) | ✓ (clear, or passphrase-protected with password) | — |
+| Encrypted PKCS#8 / legacy encrypted PEM | ✓ (with passphrase) | — |
+| OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`) | ✓ (clear, or with passphrase) | — |
 | OpenSSH one-line public key (`ssh-ed25519 AAAA… [comment]`, etc.) | — | ✓ |
 
 ### Supported algorithms
 
 Every `AsymmetricKeyType`: Ed25519, Ed448, ECDSA P-256/P-384/P-521, RSA, ML-DSA-44/65/87 and all SLH-DSA parameter sets (see [Asymmetric Keys](#asymmetric-keys-asymmetriccryptography)). Keys of other OpenSSL algorithms (DSA, X25519, Brainpool curves, …) are rejected.
 
-A valid key is not necessarily usable for SSH. OpenSSH defines no Ed448, ML-DSA, or SLH-DSA keys, so `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for them, and `PrivateKeyString.valid` / `PrivateKeyFile.valid` return `false`. Check `AsymmetricKeyType.openSSHName` when that matters.
+### Valid vs. valid for SSH
+
+The `isValid_` checks only ask whether the string is a well-formed key of any supported algorithm. A valid key is not necessarily usable for SSH: OpenSSH defines no Ed448, ML-DSA, or SLH-DSA keys. Use the `isValidForSSH_` checks when the key is meant for SSH:
+
+```swift
+pem.isValid_PrivateKey(passphrase: "passphrase")         // any AsymmetricKeyType
+pem.isValidForSSH_PrivateKey(passphrase: "passphrase")   // RSA, ECDSA P-256/384/521, Ed25519 only
+line.isValidForSSH_PublicKey
+```
+
+`PrivateKeyString` and `PrivateKeyFile` follow the same split: `.valid` accepts any supported key, `.isValidForSSH` only SSH key families (it is `true` exactly when `.algorithm` is non-`nil`). `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for keys SSH cannot use.
+
+### Passphrases
+
+Functions that take `passphrase: String? = nil` accept unencrypted keys whatever the passphrase. Encrypted keys must decrypt with it; `nil` or an empty string rejects them.
+
+The `password:` variants (`isValid_PrivateKey(password:)`, `isValid_RSA_PrivateKey(password:)`, …) are deprecated in favour of `passphrase:`.
 
 ### Key type
 
-`privateKeyType`, `privateKeyType(password:)` and `publicKeyType` return the key's `AsymmetricKeyType`, or `nil` when the string is not a valid key:
+`privateKeyType`, `privateKeyType(passphrase:)` and `publicKeyType` return the key's `AsymmetricKeyType`, or `nil` when the string is not a valid key:
 
 ```swift
-if pem.privateKeyType(password: "passphrase") == .ed448 {
+if pem.privateKeyType(passphrase: "passphrase") == .ed448 {
     // decryptable Ed448 private key
 }
 ```
@@ -49,11 +65,11 @@ let pem = """
     """
 
 if pem.isValid_PrivateKey {
-    // safe to pass to SFTPClient authentication
+    // well-formed unencrypted private key
 }
 
-if pem.isValid_PrivateKey(password: "passphrase") {
-    // decryptable encrypted private key
+if pem.isValidForSSH_PrivateKey(passphrase: "passphrase") {
+    // decryptable private key SFTPClient can authenticate with
 }
 ```
 
@@ -79,7 +95,7 @@ pem.isValid_P521_PublicKey
 pem.isValid_Curve25519_PublicKey
 ```
 
-Encrypted private keys also expose password variants, for example `isValid_RSA_PrivateKey(password:)`. For other key types, compare `privateKeyType` / `publicKeyType` with the `AsymmetricKeyType` you expect.
+Encrypted private keys use the `passphrase:` variants, for example `isValid_RSA_PrivateKey(passphrase:)`. For other key types, compare `privateKeyType` / `publicKeyType` with the `AsymmetricKeyType` you expect.
 
 OpenSSH one-line public keys (as used in `authorized_keys`) are accepted by the `_PublicKey` checks:
 
