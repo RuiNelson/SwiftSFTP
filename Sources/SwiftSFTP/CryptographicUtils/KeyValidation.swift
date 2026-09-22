@@ -131,7 +131,7 @@ private func parseOpenSSHShorthandPublicKey(_ line: String) -> (nid: Int32, bits
     let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
     guard fields.count == 2,
           let info = openSSHPublicKeyAlgorithms[fields[0]],
-          SSHHostKeyValidator.validate(algorithm: fields[0], base64: fields[1]) else { return nil }
+          SSHHostKeyAlgorithm(rawValue: fields[0])?.validates(base64: fields[1]) == true else { return nil }
     return (info.nid, info.bits)
 }
 
