@@ -59,6 +59,55 @@ struct PrivateKeyTypesTests {
         #expect(key.algorithm == nil)
     }
 
+    @Test("PrivateKeyString is invalid for key types SSH cannot authenticate with")
+    func privateKeyStringNonSSHKeyTypes() throws {
+        let pairs = try [
+            AsymmetricCryptography.EdDSA.Ed448.generateKeyPair(),
+            AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair(),
+            AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair(),
+        ]
+        for pair in pairs {
+            let clear = try pair.privateKey.encode(format: .pkcs8)
+            #expect(clear.isValid_PrivateKey)
+            #expect(!PrivateKeyString(representation: clear).valid)
+            #expect(PrivateKeyString(representation: clear).algorithm == nil)
+
+            let encrypted = try pair.privateKey.encode(format: .pkcs8, passphrase: TS.keyPassphrase)
+            #expect(encrypted.isValid_PrivateKey(password: TS.keyPassphrase))
+            #expect(!PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase).valid)
+        }
+    }
+
+    @Test("PrivateKeyFile is invalid for key types SSH cannot authenticate with")
+    func privateKeyFileNonSSHKeyType() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-mldsa-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try AsymmetricCryptography.MLDSA.MLDSA44.generateKeyPair().privateKey.encode(format: .pkcs8)
+            .write(to: url, atomically: true, encoding: .utf8)
+
+        let key = PrivateKeyFile(file: url)
+        #expect(!key.valid)
+        #expect(key.algorithm == nil)
+    }
+
+    @Test("PrivateKeyString is valid for every SSH key family, including encrypted OpenSSH")
+    func privateKeyStringSSHKeyTypes() throws {
+        let pairs = try [
+            AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P256.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P384.generateKeyPair(),
+            AsymmetricCryptography.ECDSA.P521.generateKeyPair(),
+            AsymmetricCryptography.RSA.generateKeyPair(bits: AsymmetricCryptography.RSA.minimumBits),
+        ]
+        for pair in pairs {
+            let encrypted = try pair.privateKey.encode(format: .openSSH, passphrase: TS.keyPassphrase)
+            let key = PrivateKeyString(representation: encrypted, passphrase: TS.keyPassphrase)
+            #expect(key.valid)
+            #expect(key.algorithm == SSHUserKeyAlgorithm(keyType: pair.type))
+            #expect(!PrivateKeyString(representation: encrypted).valid)
+        }
+    }
+
     // MARK: - PrivateKeySet
 
     @Test("PrivateKeySet single-key inits and isEmpty")

@@ -23,7 +23,7 @@ All validation APIs return simple `Bool` values. They check format and cryptogra
 
 Every `AsymmetricKeyType`: Ed25519, Ed448, ECDSA P-256/P-384/P-521, RSA, ML-DSA-44/65/87 and all SLH-DSA parameter sets (see [Asymmetric Keys](#asymmetric-keys-asymmetriccryptography)). Keys of other OpenSSL algorithms (DSA, X25519, Brainpool curves, …) are rejected.
 
-A valid key is not necessarily usable for SSH. OpenSSH defines no Ed448, ML-DSA, or SLH-DSA keys, so `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for them. Check `AsymmetricKeyType.openSSHName` when that matters.
+A valid key is not necessarily usable for SSH. OpenSSH defines no Ed448, ML-DSA, or SLH-DSA keys, so `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for them, and `PrivateKeyString.valid` / `PrivateKeyFile.valid` return `false`. Check `AsymmetricKeyType.openSSHName` when that matters.
 
 ### Key type
 

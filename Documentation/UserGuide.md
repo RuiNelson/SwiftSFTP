@@ -235,7 +235,8 @@ the username. An empty `PrivateKeySet` fails with `.invalidPrivateKey`.
 
 Offline checks: `PrivateKeyString` / `PrivateKeyFile` (`.valid`, `.algorithm`) or
 `String` + `KeyValidation` — see [Validating SSH Keys (Offline)](#validating-ssh-keys-offline).
-Those only prove parseability, not server authorization.
+`.valid` is `true` only for the algorithms above; keys that parse but that SSH cannot authenticate with (Ed448, ML-DSA,
+SLH-DSA) are invalid. Those checks only prove parseability, not server authorization.
 
 ### Deprecated modes
 
@@ -1216,13 +1217,17 @@ pem.isValid_RSA_PrivateKey
 pem.isValid_P256_PrivateKey
 pem.isValid_P384_PrivateKey
 pem.isValid_P521_PrivateKey
-pem.isValid_Curve25519_PrivateKey   // Ed25519 / OpenSSH "BEGIN OPENSSH PRIVATE KEY" format
+pem.isValid_Curve25519_PrivateKey   // Ed25519
 
 // Convenience wrappers used with PrivateKeySet
 let key = PrivateKeyString(representation: pem, passphrase: nil)
-key.valid
+key.valid       // true only for key families SSH can authenticate with
 key.algorithm   // e.g. .ecdsaP256 — used when ordering multi-key auth
 ```
+
+`KeyValidation` accepts every `AsymmetricKeyType`, including Ed448, ML-DSA and SLH-DSA, because it answers "is this a
+well-formed key?". `PrivateKeyString.valid` and `PrivateKeyFile.valid` answer "can SSH user authentication use this
+key?", so they are `true` only when `.algorithm` is non-`nil`: RSA, ECDSA P-256 / P-384 / P-521 or Ed25519.
 
 Equivalent `_PublicKey` variants are available for all algorithms (including `isValid_Curve25519_PublicKey`).
 

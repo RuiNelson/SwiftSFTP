@@ -252,15 +252,14 @@ public struct PrivateKeyString: Codable, Sendable, Equatable, Hashable {
         self.passphrase = passphrase
     }
 
-    /// Whether the key parses under OpenSSL / OpenSSH rules for ``passphrase``.
+    /// Whether the key parses for ``passphrase`` and is of a family SSH user authentication supports.
     ///
-    /// Local format check only — does **not** prove the key is authorized on a server. Encrypted keys without the
-    /// correct passphrase return `false`.
+    /// Only ``SSHUserKeyAlgorithm`` families (RSA, ECDSA P-256 / P-384 / P-521, Ed25519) count as valid: keys that
+    /// parse but that OpenSSH cannot authenticate with, such as Ed448, ML-DSA, or SLH-DSA, return `false`. Use
+    /// ``KeyValidation`` on ``representation`` to check those. Local format check only — does **not** prove the key is
+    /// authorized on a server. Encrypted keys without the correct passphrase return `false`.
     public var valid: Bool {
-        if let passphrase {
-            return representation.isValid_PrivateKey(password: passphrase)
-        }
-        return representation.isValid_PrivateKey
+        algorithm != nil
     }
 
     /// Key family (`rsa`, `ed25519`, ECDSA curve, …) when detectible.
@@ -295,10 +294,11 @@ public struct PrivateKeyFile: Codable, Sendable, Equatable, Hashable {
         self.passphrase = passphrase
     }
 
-    /// Whether the file exists, is UTF-8 text, and parses as a private key for ``passphrase``.
+    /// Whether the file exists, is UTF-8 text, and parses for ``passphrase`` as a private key of a family SSH user
+    /// authentication supports.
     ///
-    /// Reads the whole file for validation. Same limits as ``PrivateKeyString/valid``: format only, not server
-    /// authorization.
+    /// Reads the whole file for validation. Same rules as ``PrivateKeyString/valid``: SSH key families only, format
+    /// only, not server authorization.
     public var valid: Bool {
         guard file.isFileURL,
               let data = try? Data(contentsOf: file),
