@@ -16,14 +16,19 @@ command -v ssh-keygen >/dev/null || { echo "ssh-keygen not found" >&2; exit 1; }
 # Prefer real OpenSSL over macOS's system LibreSSL for Ed25519 conversions.
 OPENSSL="${OPENSSL_FOR_FIXTURES:-}"
 if [[ -z "$OPENSSL" ]]; then
-  for candidate in /opt/homebrew/bin/openssl /usr/local/bin/openssl "$(command -v openssl || true)"; do
+  for candidate in /opt/homebrew/bin/openssl /usr/local/bin/openssl \
+      /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl \
+      "$(command -v openssl || true)"; do
     if [[ -x "$candidate" ]] && [[ "$("$candidate" version)" == OpenSSL\ * ]]; then
       OPENSSL="$candidate"
       break
     fi
   done
 fi
-[[ -x "$OPENSSL" ]] || { echo "Real OpenSSL is required to generate fixtures; set OPENSSL_FOR_FIXTURES." >&2; exit 1; }
+[[ -x "$OPENSSL" ]] && [[ "$("$OPENSSL" version)" == OpenSSL\ * ]] || {
+  echo "Real OpenSSL is required to generate fixtures; set OPENSSL_FOR_FIXTURES." >&2
+  exit 1
+}
 
 FIXTURE_WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE_WORK_DIR"' EXIT
