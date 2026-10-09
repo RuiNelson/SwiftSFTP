@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
 
       - name: Swift version
         run: swift --version
@@ -35,7 +35,10 @@ jobs:
           apt-get install -y python3 perl make
 
       - name: Verify prepared OpenSSL sources
-        run: python3 Scripts/generate-openssl-sources.py --check
+        run: |
+          git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl
+          python3 vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
+          python3 Scripts/update-openssl-manifest.py --check
 
       - name: Verify qualified libssh2 backend
         run: python3 Scripts/generate-libssh2-backend.py --check

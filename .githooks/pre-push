@@ -67,6 +67,7 @@ check_submodule() {
 }
 
 check_submodule "vendor/libssh2" '^libssh2-[0-9]+\.[0-9]+\.[0-9]+$'
-check_submodule "vendor/openssl" '^openssl-[0-9]+\.[0-9]+\.[0-9]+$'
+# OpenSSL release detection and source preparation live in SwiftSFTP-OpenSSL.
+# Its daily GitHub workflow reports new stable releases without changing this pin.
 
 exit "$push_blocked"

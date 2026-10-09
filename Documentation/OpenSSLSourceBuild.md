@@ -1,14 +1,17 @@
 # OpenSSL source builds
 
 SwiftSFTP ships source code only. `OpenSSLCrypto` is a native SwiftPM C target built
-from `Sources/OpenSSLCrypto/`, and libssh2 is compiled from its pinned submodule.
+from `vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/`, and libssh2 is compiled from its pinned submodule.
+The OpenSSL snapshot and its preparation scripts live in the separate public
+[SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL) repository, included here as a submodule.
 There are no binary targets, packaged XCFrameworks, or separate OpenSSL dylibs. The
 dynamic SwiftSFTP product contains libcrypto and is signed by the consuming app's
 normal build. No SDK distributor signing certificate is needed.
 
 ## Configuration
 
-The snapshot is prepared from the exact stable release in `vendor/openssl`, with its
+The snapshot is prepared from the exact stable release in the companion repository's
+`vendor/openssl` submodule, with its
 revision, options, file hashes, and license recorded beside the sources. Preparation
 uses OpenSSL's own Configure dependency graph and source generators in a temporary
 directory; it never edits the submodule. This includes the default and legacy
@@ -50,18 +53,33 @@ the root test target alone does not verify a consumer's product linkage.
 
 ## Updating the pin
 
-1. Move `vendor/openssl` to an exact **stable** `openssl-X.Y.Z` tag. Confirm
-   `PRE_RELEASE_TAG` in `VERSION.dat` is empty.
-2. Run `python3 Scripts/generate-openssl-sources.py`. Maintainers need Python 3.9+,
-   Perl, and Make; consumers do not. The script generates source/header files only.
-   Preparation also refreshes a SHA-256 stamp in `Package.swift`, invalidating
-   manifest caches when the source/exclude lists change. Commit that stamp along
-   with the snapshot.
+OpenSSL maintenance takes place in SwiftSFTP-OpenSSL. Its daily GitHub Actions workflow
+opens one Issue when the official upstream publishes a newer stable release. It does
+not update either repository automatically. A maintainer updates the OpenSSL pin,
+regenerates the snapshot, runs that repository's CI and publishes the verified commit.
+See the [companion repository's maintenance instructions](https://github.com/RuiNelson/SwiftSFTP-OpenSSL#updating-openssl).
+
+Then update this repository:
+
+1. Fetch the verified SwiftSFTP-OpenSSL commit and check it out in
+   `vendor/SwiftSFTP-OpenSSL`. Keep the submodule pinned to a commit; consumer builds
+   never follow the current upstream branch.
+2. Initialize the nested OpenSSL checkout and refresh the parent manifest fingerprint:
+
+   ```sh
+   git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl
+   python3 Scripts/update-openssl-manifest.py
+   ```
+
+   SwiftPM caches manifest evaluation without tracking arbitrary JSON reads. The
+   SHA-256 stamp in `Package.swift` invalidates that cache when the submodule snapshot
+   changes its source/exclude lists. Commit the parent stamp and submodule pin together.
 3. When libssh2 changes, also run `python3 Scripts/generate-libssh2-backend.py`.
 4. Verify the prepared files and build/test both the library and consumer:
 
    ```sh
-   python3 Scripts/generate-openssl-sources.py --check
+   python3 vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
+   python3 Scripts/update-openssl-manifest.py --check
    python3 Scripts/generate-libssh2-backend.py --check
    bash Tests/Packaging/CryptoIsolation/check-header-isolation.sh
    swift build --scratch-path /private/tmp/SwiftSFTP-source-build
@@ -70,12 +88,15 @@ the root test target alone does not verify a consumer's product linkage.
    ```
 
 5. Check iOS and the other supported Apple destinations as well as Linux/Android CI.
-   Review changes to the generated configuration/dependency graph and privacy API
-   usage. Commit the pin and prepared sources together; do not edit generated C or
-   headers by hand. The privacy manifest declares file metadata use for app-container
-   and user-selected files (`C617.1`, `3B52.1`), and elapsed-time/timer calculations
-   (`35F9.1`). It declares no SDK tracking or developer-controlled data collection.
+   Review changes to configuration, dependency graphs and privacy API usage. The
+   privacy manifest declares file metadata use for app-container and user-selected
+   files (`C617.1`, `3B52.1`) and elapsed-time/timer calculations (`35F9.1`); it declares
+   no SDK tracking or developer-controlled data collection.
 
-CI regenerates the snapshot with `--check`, ensuring it matches the pinned stable
-release and contains no extra files. Package users compile the committed snapshot,
-so generation is not part of their build and does not require a plugin approval.
+Check out all submodules recursively in CI and manual clones. SwiftPM also initializes
+nested submodules when fetching this package as a Git dependency. Package users compile
+the committed prepared sources; generation is not part of their build and needs no
+plugin approval, Perl or Make.
+The companion repository's original OpenSSL submodule uses `update = none`, so consumers
+fetch the prepared files only. Initialize that upstream checkout explicitly for source
+verification as shown above; its unrelated upstream test submodules are not needed.

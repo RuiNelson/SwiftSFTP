@@ -4,7 +4,7 @@
 import Foundation
 import PackageDescription
 
-// OpenSSL source manifest SHA-256: 3edb73fd5a871401d549c070019bbb3ac9316b530d70f3d3d47e1875c59debab
+// OpenSSL source manifest SHA-256: b502af822741fbc662c993894a65ff3f31167f32f709e5b3f1972f7ca17fdd17
 
 struct OpenSSLSourceManifest: Decodable {
     let sources: [String]
@@ -14,13 +14,14 @@ struct OpenSSLSourceManifest: Decodable {
 let opensslSources = try JSONDecoder().decode(
     OpenSSLSourceManifest.self,
     from: Data(contentsOf: URL(fileURLWithPath: Context.packageDirectory)
-        .appendingPathComponent("Sources/OpenSSLCrypto/UPSTREAM.json"))
+        .appendingPathComponent("vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/UPSTREAM.json"))
 )
 
-// Prepared from the pinned, unmodified OpenSSL submodule. SwiftPM compiles these
+// Prepared in the pinned SwiftSFTP-OpenSSL submodule. SwiftPM compiles these
 // portable C sources for the destination: no binary targets or build-time tools.
 let opensslTarget = Target.target(
     name: "OpenSSLCrypto",
+    path: "vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto",
     exclude: ["LICENSE.txt", "UPSTREAM.json"] + opensslSources.excluded,
     sources: opensslSources.sources,
     publicHeadersPath: "include",
@@ -44,13 +45,12 @@ let opensslTarget = Target.target(
 
 let libssh2ExcludedPaths = [
     // This target's root also contains other targets and their resources.
-    "Sources/OpenSSLCrypto",
     "Sources/SwiftSFTP",
     "Tests",
     "Documentation",
     "Scripts",
     "TestServer",
-    "vendor/openssl",
+    "vendor/SwiftSFTP-OpenSSL",
     "vendor/PathWorks",
     "vendor/libssh2/.github",
     "vendor/libssh2/cmake",

@@ -141,6 +141,11 @@ Consumers need neither system OpenSSL nor Perl/Make, build plugins, or an SDK si
 certificate. Xcode signs the built product as part of the application's normal signing.
 The first build compiles OpenSSL; subsequent builds are incremental.
 
+OpenSSL preparation and its generated sources are maintained in
+[SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL), included here as
+`vendor/SwiftSFTP-OpenSSL`. SwiftPM fetches the nested submodules automatically;
+use `git clone --recurse-submodules` when checking out this repository manually.
+
 The package includes a privacy manifest for the SDK's file metadata access. Applications
 remain responsible for their own data practices and privacy declarations.
 See [OpenSSL source maintenance](Documentation/OpenSSLSourceBuild.md) for the pinned
@@ -198,7 +203,7 @@ SwiftSFTP depends on the following libraries. Their licenses apply when you use 
 | --- | --- | --- | --- |
 | **SwiftSFTP** | This package | [Apache License 2.0](LICENSE) | [LICENSE](LICENSE) |
 | **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](vendor/libssh2/COPYING) | [vendor/libssh2/COPYING](vendor/libssh2/COPYING) |
-| **OpenSSL** | Cryptography (pinned source snapshot, compiled by SwiftPM) | [Apache License 2.0](Sources/OpenSSLCrypto/LICENSE.txt) | [Sources/OpenSSLCrypto/LICENSE.txt](Sources/OpenSSLCrypto/LICENSE.txt) |
+| **OpenSSL** | Cryptography (pinned source snapshot, compiled by SwiftPM) | [Apache License 2.0](https://github.com/RuiNelson/SwiftSFTP-OpenSSL/blob/main/Sources/OpenSSLCrypto/LICENSE.txt) | [SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL) |
 | **PathWorks** | Path utilities (SwiftPM dependency) | [MIT](https://github.com/RuiNelson/PathWorks/blob/main/LICENSE) | [PathWorks](https://github.com/RuiNelson/PathWorks) |
 | **swift-log** | Logging (SwiftPM dependency) | [Apache License 2.0](https://github.com/apple/swift-log/blob/main/LICENSE.txt) | [apple/swift-log](https://github.com/apple/swift-log) |
 
