@@ -13,13 +13,20 @@ ENCRYPTED_PASSWORD="secret123"
 
 command -v ssh-keygen >/dev/null || { echo "ssh-keygen not found" >&2; exit 1; }
 
-# The macOS system /usr/bin/openssl is LibreSSL, which silently writes empty output for some Ed25519
-# PKCS8/PEM conversions instead of failing. Use Homebrew's real OpenSSL instead.
-OPENSSL="/opt/homebrew/bin/openssl"
-[[ -x "$OPENSSL" ]] || { echo "$OPENSSL not found; install it with 'brew install openssl'" >&2; exit 1; }
+# Prefer real OpenSSL over macOS's system LibreSSL for Ed25519 conversions.
+OPENSSL="${OPENSSL_FOR_FIXTURES:-}"
+if [[ -z "$OPENSSL" ]]; then
+  for candidate in /opt/homebrew/bin/openssl /usr/local/bin/openssl "$(command -v openssl || true)"; do
+    if [[ -x "$candidate" ]] && [[ "$("$candidate" version)" == OpenSSL\ * ]]; then
+      OPENSSL="$candidate"
+      break
+    fi
+  done
+fi
+[[ -x "$OPENSSL" ]] || { echo "Real OpenSSL is required to generate fixtures; set OPENSSL_FOR_FIXTURES." >&2; exit 1; }
 
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+FIXTURE_WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$FIXTURE_WORK_DIR"' EXIT
 
 mkdir -p "$KEYPAIRS" "$FIXTURES"
 rm -rf "$KEYPAIRS"/* "$FIXTURES"/*
@@ -51,7 +58,7 @@ generate_key_pair() {
   pkcs8_private="$(key_file "$algo" private pkcs8 clear)"
   pkcs8_encrypted="$(key_file "$algo" private pkcs8 encrypted)"
   pem_public="$(key_file "$algo" public pem clear)"
-  work="$TMPDIR/$algo"
+  work="$FIXTURE_WORK_DIR/$algo"
 
   ssh-keygen "$@" -C "" -f "$openssh_private" -N "" -q
   mv "${openssh_private}.pub" "$openssh_public"

@@ -32,7 +32,7 @@ jobs:
       - name: Install source verification tools
         run: |
           apt-get update -q
-          apt-get install -y python3 perl make
+          apt-get install -y python3 perl make openssl openssh-client
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL/Vendor/openssl"
@@ -48,6 +48,9 @@ jobs:
 
       - name: Build
         run: swift build --scratch-path /tmp/swift-build -v
+
+      - name: Generate test keys and fixtures
+        run: bash Scripts/generate-test-keys-and-fixtures.sh
 
       # Swift Testing filters match test IDs (`SwiftSFTPTests.KeyValidationTests/…`), not display names, so a
       # filter that matches nothing passes silently; fail instead. Swift Testing prefixes its summary with a symbol.
