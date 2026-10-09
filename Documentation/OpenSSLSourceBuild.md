@@ -71,9 +71,11 @@ Then update this repository:
    python3 Scripts/update-openssl-manifest.py
    ```
 
-   SwiftPM caches manifest evaluation without tracking arbitrary JSON reads. The
-   SHA-256 stamp in `Package.swift` invalidates that cache when the submodule snapshot
-   changes its source/exclude lists. Commit the parent stamp and submodule pin together.
+   SwiftPM evaluates remote Git manifests before materializing their source tree.
+   The helper copies the generated source directories and exclusions into
+   `Package.swift`, so it can be evaluated without reading the submodule's files.
+   Its SHA-256 stamp identifies the snapshot. Commit this manifest block and the
+   submodule pin together.
 3. When libssh2 changes, also run `python3 Scripts/generate-libssh2-backend.py`.
 4. Verify the prepared files and build/test both the library and consumer:
 

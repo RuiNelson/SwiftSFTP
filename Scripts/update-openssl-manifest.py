@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh SwiftPM's manifest fingerprint after updating SwiftSFTP-OpenSSL."""
+"""Refresh the self-contained SwiftPM source manifest after updating SwiftSFTP-OpenSSL."""
 
 import argparse
 import hashlib
@@ -19,10 +19,14 @@ def main():
     manifest_path = ROOT / "Package.swift"
     manifest = manifest_path.read_text()
     digest = hashlib.sha256(SNAPSHOT.read_bytes()).hexdigest()
-    updated, count = re.subn(r"// OpenSSL source manifest SHA-256: \S+",
-                            f"// OpenSSL source manifest SHA-256: {digest}", manifest)
+    pattern = r"// BEGIN OPENSSL SOURCE MANIFEST\n.*?// END OPENSSL SOURCE MANIFEST"
+    companion_manifest = SNAPSHOT.parents[2] / "Package.swift"
+    prepared = re.search(pattern, companion_manifest.read_text(), re.DOTALL)
+    if prepared is None or f"// OpenSSL source manifest SHA-256: {digest}" not in prepared.group(0):
+        raise SystemExit("Stale SwiftSFTP-OpenSSL manifest; regenerate the source snapshot in that repository")
+    updated, count = re.subn(pattern, lambda _: prepared.group(0), manifest, flags=re.DOTALL)
     if count != 1:
-        raise SystemExit("Missing OpenSSL source manifest fingerprint in Package.swift")
+        raise SystemExit("Missing generated OpenSSL source manifest block in Package.swift")
     if args.check:
         if updated != manifest:
             raise SystemExit("Stale OpenSSL fingerprint; run python3 Scripts/update-openssl-manifest.py")

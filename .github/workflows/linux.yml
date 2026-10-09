@@ -33,6 +33,9 @@ jobs:
         run: |
           apt-get update -q
           apt-get install -y python3 perl make
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/SwiftSFTP-OpenSSL"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/SwiftSFTP-OpenSSL/vendor/openssl"
 
       - name: Verify prepared OpenSSL sources
         run: |
