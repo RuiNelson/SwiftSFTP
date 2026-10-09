@@ -34,8 +34,8 @@ jobs:
 
       - name: Verify prepared OpenSSL sources
         run: |
-          git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl
-          python3 vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
+          git -C Vendor/SwiftSFTP-OpenSSL submodule update --init --checkout Vendor/openssl
+          python3 Vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
           python3 Scripts/update-openssl-manifest.py --check
 
       - name: Verify qualified libssh2 backend

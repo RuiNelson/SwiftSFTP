@@ -1,10 +1,10 @@
 [submodule "vendor/libssh2"]
-	path = vendor/libssh2
+	path = Vendor/libssh2
 	url = https://github.com/libssh2/libssh2.git
 	branch = master
 [submodule "vendor/PathWorks"]
-	path = vendor/PathWorks
+	path = Vendor/PathWorks
 	url = https://github.com/RuiNelson/PathWorks.git
 [submodule "vendor/SwiftSFTP-OpenSSL"]
-	path = vendor/SwiftSFTP-OpenSSL
+	path = Vendor/SwiftSFTP-OpenSSL
 	url = https://github.com/RuiNelson/SwiftSFTP-OpenSSL.git

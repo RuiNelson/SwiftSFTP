@@ -5,7 +5,7 @@
  * OpenBSD implementation for its own key parsing but keeps it internal, so
  * this target-local helper forwards to it from the same sources we compile.
  *
- * Do not edit vendor/libssh2 for this; keep the accessor outside the submodule.
+ * Do not edit Vendor/libssh2 for this; keep the accessor outside the submodule.
  */
 
 #include "libssh2_priv.h"

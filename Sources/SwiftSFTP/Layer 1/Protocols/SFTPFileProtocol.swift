@@ -68,7 +68,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// A close that times out throws, and the handle it was closing stays owned by libssh2: the library unlinks a
     /// handle, flushes the read requests still queued on it and frees it only *after* the server's `SSH_FXP_STATUS`
     /// reply arrives (libssh2 never walks its own handle list to clean up the rest — a standing TODO in
-    /// `vendor/libssh2/src/sftp.c`, still open upstream as of libssh2 master, 2026-09).
+    /// `Vendor/libssh2/src/sftp.c`, still open upstream as of libssh2 master, 2026-09).
     ///
     /// SwiftSFTP records such a handle and reclaims it in ``SFTPClientProtocol/close()``, after the socket is down:
     /// retrying the close then fails immediately instead of blocking, and libssh2 frees the handle and its queued

@@ -1,7 +1,7 @@
 # OpenSSL source builds
 
 SwiftSFTP ships source code only. `OpenSSLCrypto` is a native SwiftPM C target built
-from `vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/`, and libssh2 is compiled from its pinned submodule.
+from `Vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/`, and libssh2 is compiled from its pinned submodule.
 The OpenSSL snapshot and its preparation scripts live in the separate public
 [SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL) repository, included here as a submodule.
 There are no binary targets, packaged XCFrameworks, or separate OpenSSL dylibs. The
@@ -11,7 +11,7 @@ normal build. No SDK distributor signing certificate is needed.
 ## Configuration
 
 The snapshot is prepared from the exact stable release in the companion repository's
-`vendor/openssl` submodule, with its
+`Vendor/openssl` submodule, with its
 revision, options, file hashes, and license recorded beside the sources. Preparation
 uses OpenSSL's own Configure dependency graph and source generators in a temporary
 directory; it never edits the submodule. This includes the default and legacy
@@ -62,12 +62,12 @@ See the [companion repository's maintenance instructions](https://github.com/Rui
 Then update this repository:
 
 1. Fetch the verified SwiftSFTP-OpenSSL commit and check it out in
-   `vendor/SwiftSFTP-OpenSSL`. Keep the submodule pinned to a commit; consumer builds
+   `Vendor/SwiftSFTP-OpenSSL`. Keep the submodule pinned to a commit; consumer builds
    never follow the current upstream branch.
 2. Initialize the nested OpenSSL checkout and refresh the parent manifest fingerprint:
 
    ```sh
-   git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl
+   git -C Vendor/SwiftSFTP-OpenSSL submodule update --init --checkout Vendor/openssl
    python3 Scripts/update-openssl-manifest.py
    ```
 
@@ -80,7 +80,7 @@ Then update this repository:
 4. Verify the prepared files and build/test both the library and consumer:
 
    ```sh
-   python3 vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
+   python3 Vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
    python3 Scripts/update-openssl-manifest.py --check
    python3 Scripts/generate-libssh2-backend.py --check
    bash Tests/Packaging/CryptoIsolation/check-header-isolation.sh

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<USAGE
-Usage: ./AndroidBuild/build.sh [swift build arguments...]
+Usage: ./Scripts/AndroidBuild/build.sh [swift build arguments...]
 
 Cross-compile SwiftSFTP for Android. Run from the repository root.
 
@@ -15,8 +15,8 @@ Environment:
   SWIFT_ANDROID_SDK   Target triple (default: aarch64-unknown-linux-android28)
 
 Examples:
-  ./AndroidBuild/build.sh
-  ./AndroidBuild/build.sh test --scratch-path /tmp/swift-android-test --filter "Key Validation"
+  ./Scripts/AndroidBuild/build.sh
+  ./Scripts/AndroidBuild/build.sh test --scratch-path /tmp/swift-android-test --filter "Key Validation"
 USAGE
 }
 

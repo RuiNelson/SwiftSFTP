@@ -34,13 +34,13 @@ jobs:
           apt-get update -q
           apt-get install -y python3 perl make
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/SwiftSFTP-OpenSSL"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/vendor/SwiftSFTP-OpenSSL/vendor/openssl"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL/Vendor/openssl"
 
       - name: Verify prepared OpenSSL sources
         run: |
-          git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl
-          python3 vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
+          git -C Vendor/SwiftSFTP-OpenSSL submodule update --init --checkout Vendor/openssl
+          python3 Vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
           python3 Scripts/update-openssl-manifest.py --check
 
       - name: Verify qualified libssh2 backend

@@ -9,9 +9,9 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 - **Extensions** — shared helpers (pointers, strings, errors) used by both layers.
 - **CryptographicUtils** — OpenSSL-backed key generation, import, export, and validation, plus hashing.
 
-`vendor/libssh2` and `vendor/SwiftSFTP-OpenSSL/vendor/openssl` are read-only upstream submodules;
+`Vendor/libssh2` and `Vendor/SwiftSFTP-OpenSSL/Vendor/openssl` are read-only upstream submodules;
 do not edit them except when explicitly upgrading vendored sources. OpenSSL preparation belongs to
-the separate `SwiftSFTP-OpenSSL` repository, included here as `vendor/SwiftSFTP-OpenSSL`.
+the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-OpenSSL`.
 
 ## Layer 0 — libssh2 wrappers (`Sources/SwiftSFTP/Layer 0`)
 
@@ -62,15 +62,15 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `vendor/SwiftSFTP-
 ## OpenSSL Source Distribution
 
 - OpenSSL source preparation lives in the public `RuiNelson/SwiftSFTP-OpenSSL` repository, included as the
-  `vendor/SwiftSFTP-OpenSSL` submodule. Keep it pinned to a verified commit.
-- The nested upstream `vendor/SwiftSFTP-OpenSSL/vendor/openssl` submodule is read-only and uses a **stable**
+  `Vendor/SwiftSFTP-OpenSSL` submodule. Keep it pinned to a verified commit.
+- The nested upstream `Vendor/SwiftSFTP-OpenSSL/Vendor/openssl` submodule is read-only and uses a **stable**
   OpenSSL release tag (`openssl-X.Y.Z`). Never leave it on a `-dev`, `alpha` or `beta` snapshot or branch tip:
   check its `VERSION.dat` after moving it and confirm `PRE_RELEASE_TAG` is empty.
   A newer major/minor line in development does not outrank the newest stable
   release — prefer the stable tag even when its version number is lower.
 - Update and prepare OpenSSL inside SwiftSFTP-OpenSSL. After updating this repository's submodule pin, run
   `python3 Scripts/update-openssl-manifest.py` and rerun `swift build` + `swift test`.
-- SwiftPM compiles `vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/` directly on every supported platform.
+- SwiftPM compiles `Vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/` directly on every supported platform.
   Do not add binary targets, precompiled libraries, build-time OpenSSL downloads or consumer-side
   Perl/Make/plugin requirements.
 - The prepared snapshot is generated; edit the generator in SwiftSFTP-OpenSSL rather than its C sources or
@@ -80,7 +80,7 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `vendor/SwiftSFTP-
   another SDK's OpenSSL/BoringSSL calls. Keep the whole header set in one Clang module.
 - CI runs the submodule's generator with `--check` and `Scripts/update-openssl-manifest.py --check` to verify
   the snapshot and parent manifest fingerprint. Check out submodules recursively, then initialize the
-  companion's maintenance-only upstream with `git -C vendor/SwiftSFTP-OpenSSL submodule update --init --checkout vendor/openssl`.
+  companion's maintenance-only upstream with `git -C Vendor/SwiftSFTP-OpenSSL submodule update --init --checkout Vendor/openssl`.
   Keep its `update = none` setting so consumer builds fetch the prepared snapshot only.
 - SwiftSFTP-OpenSSL checks upstream stable releases daily and opens one Issue per newer release.
   Updates remain a maintainer action; do not follow `master` or update pins automatically during builds.

@@ -7,8 +7,8 @@
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![tvOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](LinuxBuild/build.sh)
-[![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](AndroidBuild/build.sh)
+[![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](Scripts/LinuxBuild/build.sh)
+[![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](Scripts/AndroidBuild/build.sh)
 
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
 [![Release](https://img.shields.io/github/v/release/RuiNelson/SwiftSFTP)](https://github.com/RuiNelson/SwiftSFTP/releases)
@@ -143,7 +143,7 @@ The first build compiles OpenSSL; subsequent builds are incremental.
 
 OpenSSL preparation and its generated sources are maintained in
 [SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL), included here as
-`vendor/SwiftSFTP-OpenSSL`. SwiftPM fetches the nested submodules automatically;
+`Vendor/SwiftSFTP-OpenSSL`. SwiftPM fetches the nested submodules automatically;
 use `git clone --recurse-submodules` when checking out this repository manually.
 
 The package includes a privacy manifest for the SDK's file metadata access. Applications
@@ -202,7 +202,7 @@ SwiftSFTP depends on the following libraries. Their licenses apply when you use 
 | Component | Role | License | Source |
 | --- | --- | --- | --- |
 | **SwiftSFTP** | This package | [Apache License 2.0](LICENSE) | [LICENSE](LICENSE) |
-| **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](vendor/libssh2/COPYING) | [vendor/libssh2/COPYING](vendor/libssh2/COPYING) |
+| **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](Vendor/libssh2/COPYING) | [Vendor/libssh2/COPYING](Vendor/libssh2/COPYING) |
 | **OpenSSL** | Cryptography (pinned source snapshot, compiled by SwiftPM) | [Apache License 2.0](https://github.com/RuiNelson/SwiftSFTP-OpenSSL/blob/main/Sources/OpenSSLCrypto/LICENSE.txt) | [SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL) |
 | **PathWorks** | Path utilities (SwiftPM dependency) | [MIT](https://github.com/RuiNelson/PathWorks/blob/main/LICENSE) | [PathWorks](https://github.com/RuiNelson/PathWorks) |
 | **swift-log** | Logging (SwiftPM dependency) | [Apache License 2.0](https://github.com/apple/swift-log/blob/main/LICENSE.txt) | [apple/swift-log](https://github.com/apple/swift-log) |

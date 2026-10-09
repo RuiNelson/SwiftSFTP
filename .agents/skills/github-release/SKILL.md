@@ -30,7 +30,7 @@ Use this skill to prepare and publish GitHub releases. Keep the process self-con
 - Run `./format.sh` before committing release changes.
 - Run `swift build` after wrapper API changes.
 - Run `swift test --scratch-path /private/tmp/SwiftSFTP-NG-test` after behavior, package, or public API changes.
-- OpenSSL artifacts are consumed from `Artifacts/OpenSSL/*.xcframework`; do not rebuild or modify vendored OpenSSL/libssh2 sources unless the release explicitly requires it.
+- OpenSSL sources are consumed from the pinned `Vendor/SwiftSFTP-OpenSSL` submodule. Verify its prepared snapshot and the parent manifest before releases; keep upstream OpenSSL/libssh2 source checkouts read-only.
 
 ## Release Title
 

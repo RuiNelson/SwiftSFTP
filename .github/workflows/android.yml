@@ -27,5 +27,5 @@ jobs:
       android_ndk_versions: '["r27d"]'
       android_sdk_triples: '["aarch64-unknown-linux-android28"]'
       android_sdk_pre_build_command: |
-        git submodule update --init --recursive --depth 1 vendor/libssh2 vendor/SwiftSFTP-OpenSSL
+        git submodule update --init --recursive --depth 1 Vendor/libssh2 Vendor/SwiftSFTP-OpenSSL
       android_sdk_build_command: swift build --scratch-path /tmp/swift-android-build

@@ -3,13 +3,13 @@ set -euo pipefail
 
 usage() {
     cat <<USAGE
-Usage: ./LinuxBuild/build.sh [swift build arguments...]
+Usage: ./Scripts/LinuxBuild/build.sh [swift build arguments...]
 
 Build SwiftSFTP on Linux inside Docker. Run from the repository root.
 
 Examples:
-  ./LinuxBuild/build.sh
-  ./LinuxBuild/build.sh test --scratch-path /tmp/swift-build
+  ./Scripts/LinuxBuild/build.sh
+  ./Scripts/LinuxBuild/build.sh test --scratch-path /tmp/swift-build
 USAGE
 }
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SNAPSHOT = ROOT / "vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/UPSTREAM.json"
+SNAPSHOT = ROOT / "Vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto/UPSTREAM.json"
 
 
 def main():
