@@ -12,8 +12,6 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
-# These debug symbols are part of the published binary artifacts.
-!Artifacts/OpenSSL/**/*.dSYM/
 
 ## Playgrounds
 timeline.xctimeline
@@ -65,12 +63,8 @@ fastlane/test_output
 /.swiftpm
 /build
 .DS_Store
-.openssl-build/
 /TestServer/Fixtures
 /TestServer/KeyPairs
-/.openssl-android-build
-/.openssl-android-build-test
-/.openssl-android-build-quick
 
 # Temporary local-network benchmark (private test server, do not commit)
 Tests/SwiftSFTPTests/WiFiBenchmark.swift

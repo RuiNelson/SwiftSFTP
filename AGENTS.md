@@ -49,7 +49,7 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 - `Validation/` holds the `String` validation APIs (`KeyValidation`, `known_hosts` checks) and `SSHUserKeyAlgorithm`.
 - `OpenSSH/` holds the OpenSSH formats: the SSH wire encoding, the key codec, key file ciphers, and
   `OpenSSHKeyPolicy`. It does not import OpenSSL.
-- `OpenSSL/` is the only place that imports OpenSSL: `OpenSSLKey` wraps `EVP_PKEY`, alongside ciphers, digests, and
+- `OpenSSL/` is the only place that imports `OpenSSLCrypto`: `OpenSSLKey` wraps `EVP_PKEY`, alongside ciphers, digests, and
   support types.
 - `Deprecated/` holds deprecated API, forwarding to its replacement.
 - Parsing (`PublicKey`, `PrivateKey`) checks that keys are valid and consistent but applies no policy; SSH acceptance
@@ -57,23 +57,25 @@ SwiftSFTP wraps libssh2 as a modern SwiftPM library. Source is organized in numb
 - Check imported keys in the `init(importing:)` initializers of `PublicKey` and `PrivateKey`, so every format gets the
   same checks.
 
-## OpenSSL Artifacts
+## OpenSSL Source Distribution
 
 - OpenSSL source lives in `vendor/openssl` as a submodule (read only).
 - Always pin `vendor/openssl` to the latest **stable** OpenSSL release tag (`openssl-X.Y.Z`). Never leave it on a
   `-dev`, `alpha` or `beta` snapshot, and never on a branch tip: check `vendor/openssl/VERSION.dat` after moving it,
   and confirm `PRE_RELEASE_TAG` is empty. A newer major/minor line in development does not outrank the newest stable
   release — prefer the stable tag even when its version number is lower.
-- After moving the submodule, rebuild the XCFrameworks and rerun `swift build` + `swift test`: header layout changes
-  between releases can break the hand-written module map in `Scripts/build-openssl-xcframeworks.sh`. Keep
-  `configuration.h`, `macros.h`, `opensslv.h` and `opensslconf.h` in the `OpenSSLCrypto` module together — mixing
-  modular and textual copies of these leaks `OPENSSL_API_LEVEL` and fails every libssh2 translation unit.
-- Use `Scripts/build-openssl-xcframeworks.sh` to build dynamic OpenSSL XCFrameworks.
-- After updating libssh2, run `python3 Scripts/generate-libssh2-apple-backend.py`; CI checks that its generated Apple backend matches the pinned submodule.
-- Default OpenSSL artifact builds exclude x86 macOS and x86 simulator slices.
-- Use `--intelMac` to include x86_64 macOS.
-- Use `--intelSim` to include x86_64 simulator slices.
-- SwiftPM consumes `Artifacts/OpenSSL/*.xcframework`; these must be present for package users.
+- After moving the submodule, run `python3 Scripts/generate-openssl-sources.py` and rerun `swift build` + `swift test`.
+- SwiftPM compiles `Sources/OpenSSLCrypto/` directly on every supported platform. Do not add binary targets,
+  precompiled libraries, build-time OpenSSL downloads, or consumer-side Perl/Make/plugin requirements.
+- `Sources/OpenSSLCrypto/` is generated; edit the generator rather than its C sources or headers. It preserves the
+  upstream licenses, qualifies public headers under `SwiftSFTP_OpenSSL/`, and gives public C symbols private linker
+  names while hiding internal symbols to avoid capturing
+  another SDK's OpenSSL/BoringSSL calls. Keep the whole header set in one Clang module.
+- CI runs `python3 Scripts/generate-openssl-sources.py --check` to verify the committed snapshot against the pin.
+- After updating libssh2, run `python3 Scripts/generate-libssh2-backend.py`; CI checks its generated backend against
+  the pinned submodule. The adapter is used on all platforms, and the submodule stays unmodified.
+- Preserve the crypto coexistence consumer tests when changing linkage, visibility, or headers. See
+  `Documentation/OpenSSLSourceBuild.md` for the portable C configuration and maintenance workflow.
 
 ## Testing
 

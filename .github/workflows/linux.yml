@@ -29,10 +29,16 @@ jobs:
       - name: Swift version
         run: swift --version
 
-      - name: Install system dependencies
+      - name: Install source verification tools
         run: |
           apt-get update -q
-          apt-get install -y libssl-dev pkg-config
+          apt-get install -y python3 perl make
+
+      - name: Verify prepared OpenSSL sources
+        run: python3 Scripts/generate-openssl-sources.py --check
+
+      - name: Verify qualified libssh2 backend
+        run: python3 Scripts/generate-libssh2-backend.py --check
 
       - name: Build
         run: swift build --scratch-path /tmp/swift-build -v
@@ -49,4 +55,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "KeyValidationTests"
+          OFFLINE_TEST_FILTER: "KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+
+      - name: Test consumer crypto symbol isolation
+        run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation

@@ -188,7 +188,7 @@ Validation decodes the base64 wire blob, which must name the line's algorithm an
 | `AsymmetricCryptography.MLDSA.MLDSA44` / `MLDSA65` / `MLDSA87` | `.mlDSA44` / `.mlDSA65` / `.mlDSA87` | — |
 | `AsymmetricCryptography.SLHDSA.SHA2_128s` … `SHAKE_256f` (12 parameter sets) | `.slhDSA_SHA2_128s` … | — |
 
-ML-DSA and SLH-DSA need OpenSSL 3.5 or later. The bundled Apple XCFrameworks include it; on Linux, check `AsymmetricKeyType.isAvailable` against the system OpenSSL.
+ML-DSA and SLH-DSA need OpenSSL 3.5 or later. SwiftSFTP compiles its pinned OpenSSL sources on every supported platform, so the same algorithms are available on Apple, Linux, and Android. `AsymmetricKeyType.isAvailable` still reports runtime availability.
 
 RSA keys default to 3072 bits (`RSA.generateKeyPair(bits:)` accepts 2048–16384). A single RSA key serves both PKCS#1 v1.5 and PSS signatures.
 

@@ -1,45 +1,57 @@
 // swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
+import Foundation
 import PackageDescription
 
-let applePlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS]
+// OpenSSL source manifest SHA-256: 3edb73fd5a871401d549c070019bbb3ac9316b530d70f3d3d47e1875c59debab
 
-let opensslTargets: [Target] = [
-    .systemLibrary(
-        name: "COpenSSL",
-        path: "Sources/OpenSSL",
-        providers: [
-            .apt(["libssl-dev"]),
-            .yum(["openssl-devel"]),
-        ]
-    ),
-    .binaryTarget(
-        name: "OpenSSLCrypto",
-        path: "Artifacts/OpenSSL/OpenSSLCrypto.xcframework"
-    ),
-    .binaryTarget(
-        name: "OpenSSLSSL",
-        path: "Artifacts/OpenSSL/OpenSSLSSL.xcframework"
-    ),
-]
+struct OpenSSLSourceManifest: Decodable {
+    let sources: [String]
+    let excluded: [String]
+}
 
-let libssh2OpenSSLDependencies: [Target.Dependency] = [
-    .target(name: "COpenSSL", condition: .when(platforms: [.linux, .android])),
-    .target(name: "OpenSSLCrypto", condition: .when(platforms: applePlatforms)),
-]
+let opensslSources = try JSONDecoder().decode(
+    OpenSSLSourceManifest.self,
+    from: Data(contentsOf: URL(fileURLWithPath: Context.packageDirectory)
+        .appendingPathComponent("Sources/OpenSSLCrypto/UPSTREAM.json"))
+)
 
-let swiftSFTPOpenSSLDependencies: [Target.Dependency] = [
-    .target(name: "COpenSSL", condition: .when(platforms: [.linux, .android])),
-    .target(name: "OpenSSLCrypto", condition: .when(platforms: applePlatforms)),
-]
-
-let opensslLinkerSettings: [LinkerSetting] = [
-    .linkedLibrary("ssl", .when(platforms: [.linux, .android])),
-    .linkedLibrary("crypto", .when(platforms: [.linux, .android])),
-]
+// Prepared from the pinned, unmodified OpenSSL submodule. SwiftPM compiles these
+// portable C sources for the destination: no binary targets or build-time tools.
+let opensslTarget = Target.target(
+    name: "OpenSSLCrypto",
+    exclude: ["LICENSE.txt", "UPSTREAM.json"] + opensslSources.excluded,
+    sources: opensslSources.sources,
+    publicHeadersPath: "include",
+    cSettings: [
+        .headerSearchPath("."),
+        .headerSearchPath("private"),
+        .headerSearchPath("crypto"),
+        .headerSearchPath("crypto/modes"),
+        .headerSearchPath("providers/common/include"),
+        .headerSearchPath("providers/implementations/include"),
+        .headerSearchPath("providers/fips/include"),
+        .define("OPENSSL_BUILDING_OPENSSL"),
+        .define("OPENSSLDIR", to: "\"\""),
+        .define("MODULESDIR", to: "\"\""),
+        .define("NDEBUG"),
+        .define("_GNU_SOURCE", .when(platforms: [.linux, .android])),
+        .define("OPENSSL_APPLE_CRYPTO_RANDOM", .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS])),
+    ],
+    linkerSettings: [.linkedLibrary("pthread", .when(platforms: [.linux]))]
+)
 
 let libssh2ExcludedPaths = [
+    // This target's root also contains other targets and their resources.
+    "Sources/OpenSSLCrypto",
+    "Sources/SwiftSFTP",
+    "Tests",
+    "Documentation",
+    "Scripts",
+    "TestServer",
+    "vendor/openssl",
+    "vendor/PathWorks",
     "vendor/libssh2/.github",
     "vendor/libssh2/cmake",
     "vendor/libssh2/docs",
@@ -98,11 +110,9 @@ let libssh2Sources = [
 let libssh2CSettings: [CSetting] = [
     .headerSearchPath("vendor/libssh2/include"),
     .headerSearchPath("vendor/libssh2/src"),
-    .headerSearchPath("Artifacts/OpenSSL/Android/include", .when(platforms: [.android])),
-    // Select the qualified backend before crypto.h, independent of Xcode's
-    // shared include/ directory and other packages' canonical openssl/ headers.
-    .headerSearchPath("Sources/libssh2/apple", .when(platforms: applePlatforms)),
-    .define("HAVE_CONFIG_H", .when(platforms: applePlatforms)),
+    // Select our qualified backend before another SDK's openssl/ headers.
+    .headerSearchPath("Sources/libssh2/openssl"),
+    .define("HAVE_CONFIG_H"),
     .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
     .define("HAVE_O_NONBLOCK"),
@@ -117,31 +127,31 @@ let libssh2CSettings: [CSetting] = [
 
 let libssh2Target = Target.target(
     name: "libssh2",
-    dependencies: libssh2OpenSSLDependencies,
+    dependencies: ["OpenSSLCrypto"],
     path: ".",
     exclude: libssh2ExcludedPaths,
     sources: libssh2Sources,
     publicHeadersPath: "Sources/libssh2/include",
-    cSettings: libssh2CSettings,
-    linkerSettings: opensslLinkerSettings
+    cSettings: libssh2CSettings
 )
 
 let strictConcurrencySettings: [SwiftSetting] = [
-    .swiftLanguageMode(.v6)
+    .swiftLanguageMode(.v6),
 ]
 
 let swiftSFTPTarget = Target.target(
     name: "SwiftSFTP",
-    dependencies: ["libssh2"] + swiftSFTPOpenSSLDependencies + [
+    dependencies: ["libssh2", "OpenSSLCrypto"] + [
         .product(name: "PathWorks", package: "PathWorks"),
         .product(name: "Logging", package: "swift-log"),
     ],
+    resources: [.copy("PrivacyInfo.xcprivacy")],
     swiftSettings: strictConcurrencySettings
 )
 
 let swiftSFTPTestsTarget = Target.testTarget(
     name: "SwiftSFTPTests",
-    dependencies: ["SwiftSFTP", "libssh2"] + swiftSFTPOpenSSLDependencies,
+    dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"],
     swiftSettings: strictConcurrencySettings
 )
 
@@ -158,9 +168,8 @@ let package = Package(
     products: [
         .library(
             name: "SwiftSFTP",
-            // Keep Swift/libssh2 call sites in their own Mach-O image. With static
-            // linkage, another SDK's crypto symbols can capture these calls even
-            // though OpenSSLCrypto itself is a separate dynamic framework.
+            // OpenSSL is compiled into SwiftSFTP with SDK-private C symbols. Keeping
+            // the product dynamic also maintains the existing delivery contract.
             type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
@@ -169,6 +178,6 @@ let package = Package(
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
-    targets: opensslTargets + [libssh2Target, swiftSFTPTarget, swiftSFTPTestsTarget],
+    targets: [opensslTarget, libssh2Target, swiftSFTPTarget, swiftSFTPTestsTarget],
     swiftLanguageModes: [.v6]
 )

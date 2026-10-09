@@ -25,8 +25,8 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 **Features:**
 
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
-- **Solid Base**: Built on top of the robust and reliable `libssh2` and `OpenSSL` (vendored; dynamic frameworks on Apple platforms).
-- **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
+- **Solid Base**: Built on top of `libssh2` and OpenSSL, compiled from pinned C sources by SwiftPM on every supported platform.
+- **Parallel Transfers**: Multi-worker uploads and downloads; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
@@ -133,17 +133,34 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 3. Choose the version rule you prefer (e.g., "Up to Next Major Version") and click **Add Package**.
 4. Make sure the `SwiftSFTP` product is added to your app target.
 
-### Apple crypto coexistence
+### Source distribution
 
-The `SwiftSFTP` product is dynamically linked. On Apple platforms this keeps its
-Swift and libssh2 OpenSSL calls bound to `OpenSSLCrypto.framework` when another
-SDK statically links a crypto implementation with the same C symbol names.
-The application must embed the dynamic SwiftSFTP and OpenSSL frameworks;
-Xcode handles this for normal SwiftPM product dependencies.
+SwiftSFTP includes no precompiled libraries or XCFrameworks. SwiftPM builds libssh2
+and the prepared OpenSSL C sources for the destination platform and architecture.
+Consumers need neither system OpenSSL nor Perl/Make, build plugins, or an SDK signing
+certificate. Xcode signs the built product as part of the application's normal signing.
+The first build compiles OpenSSL; subsequent builds are incremental.
+
+The package includes a privacy manifest for the SDK's file metadata access. Applications
+remain responsible for their own data practices and privacy declarations.
+See [OpenSSL source maintenance](Documentation/OpenSSLSourceBuild.md) for the pinned
+configuration, updating instructions, and the portable C performance tradeoff.
+
+### Crypto coexistence
+
+The `SwiftSFTP` product remains dynamically linked. Its OpenSSL public symbols use
+SDK-private linker names, and its internal symbols are hidden, so another SDK's crypto
+implementation cannot replace the calls inside SwiftSFTP. The OpenSSL headers use a
+private package namespace rather than the
+canonical `openssl/` include tree. Xcode embeds the SwiftSFTP framework for normal
+SwiftPM product dependencies; there are no separate OpenSSL frameworks to embed.
 See [packaging regression tests](Tests/Packaging/README.md) for a standalone
 consumer test and the optional official MEGA artifact check.
 
 ## Benchmarks
+
+These measurements used the previous precompiled OpenSSL builds. They have not been
+repeated with the portable C configuration now compiled by SwiftPM.
 
 Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server and client (Client ↔ Wi-Fi AP ↔ Server), comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
 
@@ -175,13 +192,13 @@ SwiftSFTP is available under the [Apache License 2.0](LICENSE).
 
 ### Third-party licenses
 
-SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP (including redistribution of the vendored OpenSSL XCFrameworks).
+SwiftSFTP depends on the following libraries. Their licenses apply when you use or redistribute SwiftSFTP, including its prepared OpenSSL sources.
 
 | Component | Role | License | Source |
 | --- | --- | --- | --- |
 | **SwiftSFTP** | This package | [Apache License 2.0](LICENSE) | [LICENSE](LICENSE) |
 | **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](vendor/libssh2/COPYING) | [vendor/libssh2/COPYING](vendor/libssh2/COPYING) |
-| **OpenSSL** | Cryptography (vendored; XCFrameworks on Apple platforms, system OpenSSL on Linux/Android) | [Apache License 2.0](vendor/openssl/LICENSE.txt) | [vendor/openssl/LICENSE.txt](vendor/openssl/LICENSE.txt) |
+| **OpenSSL** | Cryptography (pinned source snapshot, compiled by SwiftPM) | [Apache License 2.0](Sources/OpenSSLCrypto/LICENSE.txt) | [Sources/OpenSSLCrypto/LICENSE.txt](Sources/OpenSSLCrypto/LICENSE.txt) |
 | **PathWorks** | Path utilities (SwiftPM dependency) | [MIT](https://github.com/RuiNelson/PathWorks/blob/main/LICENSE) | [PathWorks](https://github.com/RuiNelson/PathWorks) |
 | **swift-log** | Logging (SwiftPM dependency) | [Apache License 2.0](https://github.com/apple/swift-log/blob/main/LICENSE.txt) | [apple/swift-log](https://github.com/apple/swift-log) |
 

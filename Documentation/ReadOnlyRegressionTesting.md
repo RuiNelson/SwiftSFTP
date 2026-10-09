@@ -46,4 +46,4 @@ The mode fix is at the shared Layer 0 OPEN boundary: when `.create` is absent, u
 
 Stalled cancellation ([#8](https://github.com/RuiNelson/SwiftSFTP/issues/8)) requires separate pending-I/O handling and is not changed by these fixes. The original device measurement was 9.822705792 seconds to terminal result and cleanup after task cancellation; ≤2 seconds is an application acceptance criterion, not an existing documented library guarantee.
 
-The repository's missing macOS/simulator OpenSSL artifacts can prevent `swift test` before test execution. Such a build failure is not a test pass. Physical-device app-hosted results and their exact counts are reported in the PR validation section separately from unsupported/unexecuted platforms.
+SwiftPM now compiles OpenSSL from the prepared sources for macOS and simulator destinations. A build failure before test execution is not a test pass. Physical-device app-hosted results and their exact counts are reported in the PR validation section separately from unsupported/unexecuted platforms.

@@ -1,9 +1,5 @@
 import Foundation
-#if canImport(OpenSSLCrypto)
-    import OpenSSLCrypto
-#elseif canImport(OpenSSL)
-    import OpenSSL
-#endif
+import OpenSSLCrypto
 
 // MARK: - Errors
 

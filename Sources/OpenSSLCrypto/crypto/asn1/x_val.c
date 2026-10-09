@@ -1,0 +1,25 @@
+/* Prepared by Scripts/generate-openssl-sources.py. */
+#pragma GCC visibility push(hidden)
+#define STATIC_LEGACY
+/*
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * this file except in compliance with the License.  You can obtain a copy
+ * in the file LICENSE in the source distribution or at
+ * https://www.openssl.org/source/license.html
+ */
+#pragma GCC visibility push(default)
+
+#include <stdio.h>
+#pragma GCC visibility pop
+#include "internal/cryptlib.h"
+#include <SwiftSFTP_OpenSSL/asn1t.h>
+#include <SwiftSFTP_OpenSSL/x509.h>
+
+ASN1_SEQUENCE(X509_VAL) = {
+    ASN1_SIMPLE(X509_VAL, notBefore, ASN1_TIME),
+    ASN1_SIMPLE(X509_VAL, notAfter, ASN1_TIME)
+} ASN1_SEQUENCE_END(X509_VAL)
+
+IMPLEMENT_ASN1_FUNCTIONS(X509_VAL)

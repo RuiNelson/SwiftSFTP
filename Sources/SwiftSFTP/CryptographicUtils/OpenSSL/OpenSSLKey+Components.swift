@@ -1,9 +1,5 @@
 import Foundation
-#if canImport(OpenSSLCrypto)
-    import OpenSSLCrypto
-#elseif canImport(OpenSSL)
-    import OpenSSL
-#endif
+import OpenSSLCrypto
 
 /// The components of an RSA private key that OpenSSH stores, as unsigned big-endian integers.
 struct RSAPrivateKeyComponents {

@@ -1,9 +1,5 @@
 import Foundation
-#if canImport(OpenSSLCrypto)
-    import OpenSSLCrypto
-#elseif canImport(OpenSSL)
-    import OpenSSL
-#endif
+import OpenSSLCrypto
 
 /// A symmetric cipher fetched from OpenSSL by name (for example `AES-256-CTR`), applied without padding.
 final class OpenSSLCipher {

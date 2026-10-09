@@ -18,8 +18,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     exit 0
 fi
 
-if [[ ! -d .git ]]; then
-    echo "Run this script from the repository root (expected a .git directory)." >&2
+if [[ ! -f Package.swift ]]; then
+    echo "Run this script from the repository root (expected Package.swift)." >&2
     exit 1
 fi
 

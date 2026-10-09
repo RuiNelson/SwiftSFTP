@@ -1,4 +1,4 @@
-# Apple crypto coexistence regression tests
+# Crypto coexistence regression tests
 
 The consumers in this directory are independent packages. They exercise the public
 SwiftSFTP product as an application would; adding tests to SwiftSFTP's own test target
@@ -9,20 +9,20 @@ would bypass the product linkage boundary.
 From the repository root:
 
 ```sh
-python3 Scripts/generate-libssh2-apple-backend.py --check
+python3 Scripts/generate-libssh2-backend.py --check
 bash Tests/Packaging/CryptoIsolation/check-header-isolation.sh
 swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /private/tmp/swiftsftp-crypto-isolation
 ```
 
 The header check compiles the vendored OpenSSL backend with a deliberately invalid
-foreign `openssl/opensslv.h` **first** in the include search path. Apple configuration
-must select our framework-qualified adapter before any canonical includes are read.
+foreign `openssl/opensslv.h` **first** in the include search path. The libssh2
+configuration must select our package-qualified adapter before canonical includes.
 
 The consumer statically links a second C implementation of `EVP_PKEY_CTX_new_id`.
-SwiftSFTP key generation must succeed without calling it. With automatic/static
-SwiftSFTP linkage, the counter is 1 and the generated key is nil; explicit dynamic
-linkage keeps these call sites bound to OpenSSLCrypto in their own Mach-O image.
-These checks run in Apple CI. They do not establish ELF symbol isolation on Linux/Android.
+SwiftSFTP key generation must succeed without calling it. OpenSSL is compiled from C
+sources with SDK-private public linker names and hidden internal symbols.
+The standalone consumer runs in both Apple and Linux CI. The foreign-header shell
+check uses the macOS SDK and runs in Apple CI.
 
 ## Official MEGA artifact (iOS 27)
 
@@ -58,18 +58,19 @@ Without the opt-in, the network test is skipped. A live verification must report
 **two passing tests with no skips**, not count the offline test alone as network proof.
 The fixture has 2,097,359 bytes; writes/uploads and MEGA account access are not exercised.
 
-## Why the generated Apple adapter exists
+## Why the generated adapter exists
 
 Xcode puts its shared build-product `include/` directory ahead of private target `-I`
 paths. Merely adding a private `openssl/` forwarding tree therefore still permits MEGA
-headers to compile libssh2 against BoringSSL while the linker selects OpenSSLCrypto.
-`HAVE_CONFIG_H` is scoped to the Apple libssh2 target. Its private configuration preloads
+headers to compile libssh2 against BoringSSL while the linker selects our OpenSSL.
+`HAVE_CONFIG_H` is scoped to the libssh2 target. Its private configuration preloads
 an exact copy of the pinned libssh2 backend with only its 13 OpenSSL include paths
-qualified as `OpenSSLCrypto/swiftsftp_openssl/...`. The existing include guard prevents
+qualified as `SwiftSFTP_OpenSSL/...`. The existing include guard prevents
 the subsequent backend include from selecting foreign headers. The submodule is untouched.
-The generator's `--check` runs before CI rebuilds can hide a stale committed adapter.
+The generator's `--check` detects a stale committed adapter.
 
-The normal Linux/Android C configuration continues to use the system/backend headers.
-The dynamic SwiftSFTP product requires dynamic-library delivery; Xcode handles embedding
-for a normal SwiftPM dependency. Platform-specific distribution and real-device checks
-remain separate from these simulator and macOS regressions.
+The same source configuration is used on Apple, Linux, and Android. The dynamic
+SwiftSFTP product contains OpenSSL; Xcode handles embedding for a normal SwiftPM
+dependency. Platform-specific distribution and real-device checks remain separate
+from these simulator and macOS regressions. MEGA's optional external binary is a test
+dependency only; it is not part of SwiftSFTP's source distribution.
