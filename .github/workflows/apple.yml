@@ -2,7 +2,7 @@ name: Apple
 
 on:
   push:
-    branches: [main]
+    branches: [main, bin-free]
   pull_request:
     branches: [main]
 
