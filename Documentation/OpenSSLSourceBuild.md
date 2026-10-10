@@ -35,11 +35,13 @@ files or libraries installed outside the app. OpenSSL async contexts are disable
 as required on iOS; SwiftSFTP's Swift concurrency APIs are unaffected. Apple builds
 use CommonCrypto's random generator for OS entropy.
 
-The preparation script scopes suppression of Clang's `-Wshorten-64-to-32` diagnostics
-to each OpenSSL C translation unit. This avoids hundreds of warnings about upstream
-integer conversions in Xcode. Other warnings remain enabled; public headers, libssh2,
-SwiftSFTP and consuming applications keep their normal diagnostics. The suppression
-uses source pragmas and does not require unsafe SwiftPM compiler flags.
+The `OpenSSLCrypto` target uses SwiftPM's `.disableWarning("conversion")` and
+`.disableWarning("double-promotion")` settings to suppress Clang's implicit-conversion
+warnings, including integer narrowing, signedness, floating-point, boolean and enum
+conversions, as well as promotion from `float` to `double`. Other warnings remain
+enabled. Libssh2, SwiftSFTP and consuming applications keep their normal diagnostics.
+These settings are available since Swift tools 6.2 and do not require warning pragmas
+or unsafe SwiftPM compiler flags.
 
 ## Headers and symbol visibility
 
