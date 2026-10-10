@@ -273,24 +273,20 @@ let libssh2Target = Target.target(
     cSettings: libssh2CSettings
 )
 
-let strictConcurrencySettings: [SwiftSetting] = [
-    .swiftLanguageMode(.v6),
-]
-
 let swiftSFTPTarget = Target.target(
     name: "SwiftSFTP",
-    dependencies: ["libssh2", "OpenSSLCrypto"] + [
+    dependencies: [
+        "libssh2",
+        "OpenSSLCrypto",
         .product(name: "PathWorks", package: "PathWorks"),
         .product(name: "Logging", package: "swift-log"),
     ],
-    resources: [.copy("PrivacyInfo.xcprivacy")],
-    swiftSettings: strictConcurrencySettings
+    resources: [.copy("PrivacyInfo.xcprivacy")]
 )
 
 let swiftSFTPTestsTarget = Target.testTarget(
     name: "SwiftSFTPTests",
-    dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"],
-    swiftSettings: strictConcurrencySettings
+    dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"]
 )
 
 let package = Package(
