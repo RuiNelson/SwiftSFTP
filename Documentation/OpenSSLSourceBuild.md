@@ -59,6 +59,19 @@ No unsafe compiler/linker flags
 are needed in the package manifest. Keep the standalone crypto coexistence test:
 the root test target alone does not verify a consumer's product linkage.
 
+## Directional SSH compression
+
+`Sources/libssh2/transport.c` is generated from the pinned libssh2 source. Its incoming packet decompression checks
+the remote endpoint's negotiated algorithm, so server-to-client compression can work independently of the
+client-to-server preference. The pinned upstream source checks the local endpoint in that decision, which prevents
+SFTP initialization when only incoming traffic is compressed.
+
+`Scripts/generate-libssh2-backend.py` prepares and verifies this transport adapter alongside the qualified OpenSSL
+header. The upstream license is preserved. Regenerate both adapters after changing the libssh2 pin; `--check`
+verifies the exact source and adjustment in CI. The generator also accepts an upstream source that already contains
+the correction. `Tests/SwiftSFTPTests/SFTPClient/Compression.swift` exercises preference order, all four directional
+combinations, file transfers, and fork inheritance against the Docker test server.
+
 ## Updating the pin
 
 OpenSSL maintenance takes place in SwiftSFTP-OpenSSL. Its daily GitHub Actions workflow

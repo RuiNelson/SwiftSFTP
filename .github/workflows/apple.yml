@@ -38,7 +38,7 @@ jobs:
           python3 Vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
           python3 Scripts/update-openssl-manifest.py --check
 
-      - name: Verify qualified libssh2 backend
+      - name: Verify libssh2 adapters
         run: python3 Scripts/generate-libssh2-backend.py --check
 
       - name: Test foreign OpenSSL header precedence
@@ -59,7 +59,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation

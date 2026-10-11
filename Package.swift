@@ -216,6 +216,7 @@ let libssh2ExcludedPaths = [
 let libssh2Sources = [
     "Sources/libssh2/server_sign_algorithms.c",
     "Sources/libssh2/swiftsftp_bcrypt_pbkdf.c",
+    "Sources/libssh2/transport.c",
     "Vendor/libssh2/src/agent.c",
     "Vendor/libssh2/src/bcrypt_pbkdf.c",
     "Vendor/libssh2/src/chacha.c",
@@ -241,7 +242,6 @@ let libssh2Sources = [
     "Vendor/libssh2/src/scp.c",
     "Vendor/libssh2/src/session.c",
     "Vendor/libssh2/src/sftp.c",
-    "Vendor/libssh2/src/transport.c",
     "Vendor/libssh2/src/userauth.c",
     "Vendor/libssh2/src/userauth_kbd_packet.c",
     "Vendor/libssh2/src/version.c",
@@ -263,6 +263,7 @@ let libssh2CSettings: [CSetting] = [
     .define("HAVE_SYS_TIME_H"),
     .define("HAVE_SYS_UIO_H"),
     .define("HAVE_UNISTD_H"),
+    .define("LIBSSH2_HAVE_ZLIB"),
     .define("LIBSSH2_OPENSSL"),
 ]
 
@@ -273,7 +274,8 @@ let libssh2Target = Target.target(
     exclude: libssh2ExcludedPaths,
     sources: libssh2Sources,
     publicHeadersPath: "Sources/libssh2/include",
-    cSettings: libssh2CSettings
+    cSettings: libssh2CSettings,
+    linkerSettings: [.linkedLibrary("z")]
 )
 
 let swiftSFTPTarget = Target.target(

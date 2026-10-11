@@ -77,8 +77,41 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; must be positive and finite (`.infinity` is rejected) |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
+| `useCompressionClientToServer` | `[CompressionAlgorithm]` | `[]` | Ordered compression preferences for data sent to the server; empty means `[.none]` |
+| `useCompressionServerToClient` | `[CompressionAlgorithm]` | `[]` | Ordered compression preferences for data received from the server; negotiated independently |
 | `logger` | `Logger?` | `nil` | swift-log logger for close/deinit warnings |
 | `trapOnDeInitWithoutClose` | `Bool` | `true` | `SIGTRAP` if deinit without `close()` (`SFTPClient.init` defaults to `false`) |
+
+### SSH compression
+
+Choose compression independently for each direction when creating the client. The same arguments are available on
+`SFTPClient.init` and `initAndLogin`:
+
+```swift
+let client = try await SFTPClient.initAndLogin(
+    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t")),
+    useCompressionClientToServer: [],
+    useCompressionServerToClient: [.zlib]
+)
+
+print(client.compressionClientToServer) // .none
+print(client.compressionServerToClient) // .zlib if supported by the server, otherwise .none
+```
+
+The arrays are ordered from most to least preferred. Repeated algorithms are removed while preserving their first
+occurrence, and `[]` is equivalent to `[.none]`. If `.none` is absent, it is appended as the final fallback:
+`[.zlib]` becomes `[.zlib, .none]`, while `[.none, .zlib]` prefers no compression.
+
+`.zlib` expands to `zlib@openssh.com`, which starts compressing after authentication, followed by plain `zlib`.
+If the server does not support zlib, the connection can proceed without compression. The read-only
+`compressionClientToServer` and `compressionServerToClient` properties report the negotiated algorithm family,
+including `.zlib` for either zlib variant. They return `.none` before the handshake and after the client closes.
+Compression preferences are applied before the handshake and are inherited by forks.
+
+If the compression preferences cannot be configured, the client continues without compression in both directions.
+Compression configuration failures do not throw from initialization. Applications that require compression should
+check `compressionClientToServer` and `compressionServerToClient` after login and decide whether to continue.
 
 ### Timeouts
 
@@ -106,8 +139,9 @@ defer { try? await worker.close() }
 ```
 
 The fork inherits the server location, operation timeout, most recently configured login timeout, host-key acceptance
-policy, authentication, logger, and deinitialization behavior. It has an independent SSH session, socket, SFTP
-subsystem, identity, and keepalive state. Pass `false` to create the configured client without connecting it.
+policy, authentication, compression preferences in both directions, logger, and deinitialization behavior. It has an
+independent SSH session, socket, SFTP subsystem, identity, and keepalive state. Pass `false` to create the configured
+client without connecting it.
 
 ### Closing the connection
 

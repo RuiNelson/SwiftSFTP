@@ -29,10 +29,10 @@ jobs:
       - name: Swift version
         run: swift --version
 
-      - name: Install source verification tools
+      - name: Install source verification tools and build dependencies
         run: |
           apt-get update -q
-          apt-get install -y python3 perl make openssl openssh-client
+          apt-get install -y python3 perl make openssl openssh-client zlib1g-dev
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/Vendor/SwiftSFTP-OpenSSL/Vendor/openssl"
@@ -43,7 +43,7 @@ jobs:
           python3 Vendor/SwiftSFTP-OpenSSL/Scripts/generate-openssl-sources.py --check
           python3 Scripts/update-openssl-manifest.py --check
 
-      - name: Verify qualified libssh2 backend
+      - name: Verify libssh2 adapters
         run: python3 Scripts/generate-libssh2-backend.py --check
 
       - name: Build
@@ -64,7 +64,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation

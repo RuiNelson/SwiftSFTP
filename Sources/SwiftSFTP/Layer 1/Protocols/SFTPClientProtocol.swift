@@ -19,12 +19,20 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// authentication payload, and configures blocking mode. It does not open a socket, perform the SSH handshake, or
     /// initialize SFTP; those steps happen in ``login(timeOut:)``.
     ///
+    /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their
+    /// first occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed
+    /// fallback. If the preferences cannot be configured, initialization continues without compression in either
+    /// direction. Check ``compressionClientToServer`` and ``compressionServerToClient`` after login when compression
+    /// is required.
+    ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
     ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for no
     /// blocking timeout (libssh2 default).
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
+    ///   - useCompressionClientToServer: Ordered compression preferences for data sent to the server.
+    ///   - useCompressionServerToClient: Ordered compression preferences for data received from the server.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, the concrete client traps if it is deallocated before ``close()``;
     /// file handles opened from the client inherit the same behavior.
@@ -34,6 +42,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
         operationsTimeOut: TimeInterval?,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
+        useCompressionClientToServer: [CompressionAlgorithm],
+        useCompressionServerToClient: [CompressionAlgorithm],
         logger: Logger?,
         trapOnDeInitWithoutClose: Bool
     ) throws(SFTPClientInvalidConfig)
@@ -99,8 +109,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Creates an independent client with the same connection configuration.
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
-    /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, logger, and
-    /// deinitialization behavior.
+    /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
+    /// preferences in both directions, logger, and deinitialization behavior.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
@@ -146,6 +156,17 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// inside libssh2; it waits for it. Combined with an `operationsTimeOut` of `nil` that means `close()` can block
     /// for as long as the peer stays silent.
     var teardownGracePeriod: TimeInterval { get set }
+
+    /// Negotiated client-to-server compression, or `.none` before handshake or after closing the client.
+    ///
+    /// Both `zlib` and `zlib@openssh.com` are reported as `.zlib`. This can be `.none` even when compression was
+    /// requested, if the server chose the uncompressed fallback.
+    var compressionClientToServer: CompressionAlgorithm { get }
+
+    /// Negotiated server-to-client compression, or `.none` before handshake or after closing the client.
+    ///
+    /// Both `zlib` and `zlib@openssh.com` are reported as `.zlib`. Each direction is negotiated independently.
+    var compressionServerToClient: CompressionAlgorithm { get }
 
     /// Enables, reconfigures, or disables periodic SSH keepalive messages.
     ///

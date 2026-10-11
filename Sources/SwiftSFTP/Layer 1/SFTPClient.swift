@@ -26,6 +26,8 @@ public final class SFTPClient: SFTPClientProtocol {
     private let tcpLocation: TCPLocation
     private let operationsTimeOut: TimeInterval?
     private let hostKeyAcceptance: HostKeyAcceptance
+    private let useCompressionClientToServer: [CompressionAlgorithm]
+    private let useCompressionServerToClient: [CompressionAlgorithm]
     /// Shared with child handles (files, shell agent) for close/deinit diagnostics.
     let logger: Logger?
     /// Inherited by ``SFTPFile`` and ``SSHShellAgent`` so they trap if destroyed without ``close()``.
@@ -53,6 +55,8 @@ public final class SFTPClient: SFTPClientProtocol {
         operationsTimeOut: TimeInterval? = 10.0,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
+        useCompressionClientToServer: [CompressionAlgorithm] = [],
+        useCompressionServerToClient: [CompressionAlgorithm] = [],
         logger: Logger? = nil,
         trapOnDeInitWithoutClose: Bool = false
     ) throws(SFTPClientInvalidConfig) {
@@ -113,6 +117,8 @@ public final class SFTPClient: SFTPClientProtocol {
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
         self.authentication = authentication
+        self.useCompressionClientToServer = CompressionAlgorithm.normalizedPreferences(useCompressionClientToServer)
+        self.useCompressionServerToClient = CompressionAlgorithm.normalizedPreferences(useCompressionServerToClient)
 
         // init session
 
@@ -131,6 +137,13 @@ public final class SFTPClient: SFTPClientProtocol {
             SSHExit()
             throw SFTPClientInvalidConfig.couldNotCreateSession(error)
         }
+
+        Self.configureCompression(
+            session: session,
+            clientToServerPreferences: self.useCompressionClientToServer.map(\.methodPreferences)
+                .joined(separator: ","),
+            serverToClientPreferences: self.useCompressionServerToClient.map(\.methodPreferences).joined(separator: ",")
+        )
 
         // HostKeys
 
@@ -162,6 +175,41 @@ public final class SFTPClient: SFTPClientProtocol {
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
             raise(SIGTRAP)
+        }
+    }
+}
+
+// MARK: Compression configuration
+
+extension SFTPClient {
+    /// Applies compression preferences before handshake, falling back to no compression in both directions on failure.
+    static func configureCompression(
+        session: borrowing LibSSH2Session,
+        clientToServerPreferences: String,
+        serverToClientPreferences: String
+    ) {
+        do {
+            try SessionFlag(
+                session: session,
+                flag: .compress,
+                value: clientToServerPreferences != "none" || serverToClientPreferences != "none"
+            )
+            try SessionMethodPreference(
+                session: session,
+                methodType: .compressClientToServer,
+                preferences: clientToServerPreferences
+            )
+            try SessionMethodPreference(
+                session: session,
+                methodType: .compressServerToClient,
+                preferences: serverToClientPreferences
+            )
+        }
+        catch {
+            try? SessionFlag(session: session, flag: .compress, value: false)
+            // Replace any preferences applied before the failure so handshake advertises only `none`.
+            try? SessionMethodPreference(session: session, methodType: .compressClientToServer, preferences: "none")
+            try? SessionMethodPreference(session: session, methodType: .compressServerToClient, preferences: "none")
         }
     }
 }
@@ -211,9 +259,13 @@ public extension SFTPClient {
     /// Creates, connects, authenticates, and initializes an SFTP client in one async operation.
     ///
     /// Use this convenience when callers need a fully logged-in, `Sendable` client without performing the separate
-    /// ``init(openSocketIn:operationsTimeOut:hostKeyAcceptance:authentication:logger:trapOnDeInitWithoutClose:)`` and
-    /// ``login(timeOut:)`` steps. `operationsTimeOut` is applied to ordinary operations after login, while
-    /// `loginTimeOut` is used only for the connection, authentication, and SFTP initialization sequence.
+    /// initializer and ``login(timeOut:)`` steps. `operationsTimeOut` applies after login; `loginTimeOut` covers
+    /// connection, authentication, and SFTP initialization.
+    ///
+    /// Compression lists preserve preference order and remove duplicates. An empty list means `[.none]`; `.none` is
+    /// appended when absent to allow an uncompressed fallback. If the preferences cannot be configured, the client
+    /// continues without compression in both directions. Check ``compressionClientToServer`` and
+    /// ``compressionServerToClient`` after login when compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
@@ -222,6 +274,8 @@ public extension SFTPClient {
     ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
+    ///   - useCompressionClientToServer: Ordered compression preferences for data sent to the server.
+    ///   - useCompressionServerToClient: Ordered compression preferences for data received from the server.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, trap if the returned client is deallocated before ``close()``.
     /// - Returns: A connected and authenticated SFTP client.
@@ -233,6 +287,8 @@ public extension SFTPClient {
         loginTimeOut: TimeInterval = 10.0,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
+        useCompressionClientToServer: [CompressionAlgorithm] = [],
+        useCompressionServerToClient: [CompressionAlgorithm] = [],
         logger: Logger? = nil,
         trapOnDeInitWithoutClose: Bool = true
     ) async throws -> Self {
@@ -241,6 +297,8 @@ public extension SFTPClient {
             operationsTimeOut: operationsTimeOut,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
+            useCompressionClientToServer: useCompressionClientToServer,
+            useCompressionServerToClient: useCompressionServerToClient,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
@@ -372,6 +430,8 @@ public extension SFTPClient {
             operationsTimeOut: operationsTimeOut,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
+            useCompressionClientToServer: useCompressionClientToServer,
+            useCompressionServerToClient: useCompressionServerToClient,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
@@ -394,6 +454,26 @@ public extension SFTPClient {
         }
 
         return instance
+    }
+
+    /// Returns the compression negotiated for data sent to the server.
+    var compressionClientToServer: CompressionAlgorithm {
+        withSessionIO {
+            guard !closed else { return .none }
+            return CompressionAlgorithm(
+                negotiatedMethod: SessionMethods(session: session, methodType: .compressClientToServer)
+            )
+        }
+    }
+
+    /// Returns the compression negotiated for data received from the server.
+    var compressionServerToClient: CompressionAlgorithm {
+        withSessionIO {
+            guard !closed else { return .none }
+            return CompressionAlgorithm(
+                negotiatedMethod: SessionMethods(session: session, methodType: .compressServerToClient)
+            )
+        }
     }
 
     var timeout: TimeInterval {
