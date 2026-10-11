@@ -45,7 +45,7 @@ struct CompressionTests {
     }
 
     @Test(
-        "directional compression can be configured before login and queried after close",
+        "directional compression and forks can be configured before login and queried after close",
         arguments: CompressionAlgorithm.allCases,
         CompressionAlgorithm.allCases
     )
@@ -56,15 +56,28 @@ struct CompressionTests {
         let client = try SFTPClient(
             openSocketIn: TCPLocation(hostname: "localhost"),
             authentication: UserAuthentication(name: "test", auth: .password("test")),
-            useCompressionClientToServer: [clientToServer],
-            useCompressionServerToClient: [serverToClient]
+            compressionPreference: (clientToServer: [clientToServer], serverToClient: [serverToClient])
         )
         let protocolClient: any SFTPClientProtocol = client
-        #expect(protocolClient.compressionClientToServer == .none)
-        #expect(protocolClient.compressionServerToClient == .none)
+        #expect(protocolClient.compression.clientToServer == .none)
+        #expect(protocolClient.compression.serverToClient == .none)
+
+        let fork = try await client.fork(loggedIn: false)
+        do {
+            #expect(fork.compression.clientToServer == .none)
+            #expect(fork.compression.serverToClient == .none)
+            let algorithms = try SessionSupportedAlgs(session: fork.session, methodType: .compressClientToServer)
+            #expect(algorithms.contains("zlib") == (clientToServer == .zlib || serverToClient == .zlib))
+        }
+        catch {
+            try? await fork.close()
+            try? await client.close()
+            throw error
+        }
+        try await fork.close()
 
         try await client.close()
-        #expect(protocolClient.compressionClientToServer == .none)
-        #expect(protocolClient.compressionServerToClient == .none)
+        #expect(protocolClient.compression.clientToServer == .none)
+        #expect(protocolClient.compression.serverToClient == .none)
     }
 }

@@ -26,8 +26,7 @@ public final class SFTPClient: SFTPClientProtocol {
     private let tcpLocation: TCPLocation
     private let operationsTimeOut: TimeInterval?
     private let hostKeyAcceptance: HostKeyAcceptance
-    private let useCompressionClientToServer: [CompressionAlgorithm]
-    private let useCompressionServerToClient: [CompressionAlgorithm]
+    private let compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])
     /// Shared with child handles (files, shell agent) for close/deinit diagnostics.
     let logger: Logger?
     /// Inherited by ``SFTPFile`` and ``SSHShellAgent`` so they trap if destroyed without ``close()``.
@@ -55,8 +54,10 @@ public final class SFTPClient: SFTPClientProtocol {
         operationsTimeOut: TimeInterval? = 10.0,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
-        useCompressionClientToServer: [CompressionAlgorithm] = [],
-        useCompressionServerToClient: [CompressionAlgorithm] = [],
+        compressionPreference: (
+            clientToServer: [CompressionAlgorithm],
+            serverToClient: [CompressionAlgorithm]
+        ) = ([], []),
         logger: Logger? = nil,
         trapOnDeInitWithoutClose: Bool = false
     ) throws(SFTPClientInvalidConfig) {
@@ -117,8 +118,10 @@ public final class SFTPClient: SFTPClientProtocol {
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
         self.authentication = authentication
-        self.useCompressionClientToServer = CompressionAlgorithm.normalizedPreferences(useCompressionClientToServer)
-        self.useCompressionServerToClient = CompressionAlgorithm.normalizedPreferences(useCompressionServerToClient)
+        self.compressionPreference = (
+            clientToServer: CompressionAlgorithm.normalizedPreferences(compressionPreference.clientToServer),
+            serverToClient: CompressionAlgorithm.normalizedPreferences(compressionPreference.serverToClient)
+        )
 
         // init session
 
@@ -130,7 +133,7 @@ public final class SFTPClient: SFTPClientProtocol {
         }
 
         do {
-            session = try SessionInit()
+            self.session = try SessionInit()
         }
         catch {
             // Balance the SSHInit above; deinit does not.
@@ -140,15 +143,22 @@ public final class SFTPClient: SFTPClientProtocol {
 
         Self.configureCompression(
             session: session,
-            clientToServerPreferences: self.useCompressionClientToServer.map(\.methodPreferences)
+            clientToServerPreferences: self
+                .compressionPreference
+                .clientToServer
+                .map(\.methodPreferences)
                 .joined(separator: ","),
-            serverToClientPreferences: self.useCompressionServerToClient.map(\.methodPreferences).joined(separator: ",")
+            serverToClientPreferences: self
+                .compressionPreference
+                .serverToClient
+                .map(\.methodPreferences)
+                .joined(separator: ",")
         )
 
         // HostKeys
 
         do {
-            _knownHosts = try Self.loadHostKeyAcceptanceSettings(
+            self._knownHosts = try Self.loadHostKeyAcceptanceSettings(
                 to: session,
                 with: hostKeyAcceptance,
                 location: openSocketIn
@@ -225,10 +235,10 @@ public extension SFTPClient {
         guard timeOut > 0, timeOut.isFinite else {
             throw SFTPClientInvalidConfig.invalidTimeOutValue
         }
-        
+
         try SSHInit()
         defer { SSHExit() }
-        
+
         let session = try SessionInit()
         defer { try? SessionFree(session: session) }
 
@@ -264,8 +274,8 @@ public extension SFTPClient {
     ///
     /// Compression lists preserve preference order and remove duplicates. An empty list means `[.none]`; `.none` is
     /// appended when absent to allow an uncompressed fallback. If the preferences cannot be configured, the client
-    /// continues without compression in both directions. Check ``compressionClientToServer`` and
-    /// ``compressionServerToClient`` after login when compression is required.
+    /// continues without compression in both directions. Check both members of ``compression`` after login when
+    /// compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
@@ -274,8 +284,8 @@ public extension SFTPClient {
     ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
-    ///   - useCompressionClientToServer: Ordered compression preferences for data sent to the server.
-    ///   - useCompressionServerToClient: Ordered compression preferences for data received from the server.
+    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to
+    /// data sent to the server; `serverToClient` applies to data received from it.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, trap if the returned client is deallocated before ``close()``.
     /// - Returns: A connected and authenticated SFTP client.
@@ -287,8 +297,10 @@ public extension SFTPClient {
         loginTimeOut: TimeInterval = 10.0,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
-        useCompressionClientToServer: [CompressionAlgorithm] = [],
-        useCompressionServerToClient: [CompressionAlgorithm] = [],
+        compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]) = (
+            [],
+            []
+        ),
         logger: Logger? = nil,
         trapOnDeInitWithoutClose: Bool = true
     ) async throws -> Self {
@@ -297,12 +309,11 @@ public extension SFTPClient {
             operationsTimeOut: operationsTimeOut,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
-            useCompressionClientToServer: useCompressionClientToServer,
-            useCompressionServerToClient: useCompressionServerToClient,
+            compressionPreference: compressionPreference,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
-        
+
         do {
             try await instance.login(timeOut: loginTimeOut)
         }
@@ -430,8 +441,7 @@ public extension SFTPClient {
             operationsTimeOut: operationsTimeOut,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
-            useCompressionClientToServer: useCompressionClientToServer,
-            useCompressionServerToClient: useCompressionServerToClient,
+            compressionPreference: compressionPreference,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
@@ -456,22 +466,20 @@ public extension SFTPClient {
         return instance
     }
 
-    /// Returns the compression negotiated for data sent to the server.
-    var compressionClientToServer: CompressionAlgorithm {
+    /// Returns the compression negotiated for both directions of the connection.
+    var compression: (clientToServer: CompressionAlgorithm, serverToClient: CompressionAlgorithm) {
         withSessionIO {
-            guard !closed else { return .none }
-            return CompressionAlgorithm(
-                negotiatedMethod: SessionMethods(session: session, methodType: .compressClientToServer)
-            )
-        }
-    }
+            guard !closed else {
+                return (.none, .none)
+            }
 
-    /// Returns the compression negotiated for data received from the server.
-    var compressionServerToClient: CompressionAlgorithm {
-        withSessionIO {
-            guard !closed else { return .none }
-            return CompressionAlgorithm(
-                negotiatedMethod: SessionMethods(session: session, methodType: .compressServerToClient)
+            return (
+                clientToServer: CompressionAlgorithm(
+                    negotiatedMethod: SessionMethods(session: session, methodType: .compressClientToServer)
+                ),
+                serverToClient: CompressionAlgorithm(
+                    negotiatedMethod: SessionMethods(session: session, methodType: .compressServerToClient)
+                )
             )
         }
     }

@@ -22,8 +22,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their
     /// first occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed
     /// fallback. If the preferences cannot be configured, initialization continues without compression in either
-    /// direction. Check ``compressionClientToServer`` and ``compressionServerToClient`` after login when compression
-    /// is required.
+    /// direction. Check both members of ``compression`` after login when compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
@@ -31,8 +30,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// blocking timeout (libssh2 default).
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
-    ///   - useCompressionClientToServer: Ordered compression preferences for data sent to the server.
-    ///   - useCompressionServerToClient: Ordered compression preferences for data received from the server.
+    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to
+    /// data sent to the server; `serverToClient` applies to data received from it.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, the concrete client traps if it is deallocated before ``close()``;
     /// file handles opened from the client inherit the same behavior.
@@ -42,8 +41,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
         operationsTimeOut: TimeInterval?,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
-        useCompressionClientToServer: [CompressionAlgorithm],
-        useCompressionServerToClient: [CompressionAlgorithm],
+        compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
         logger: Logger?,
         trapOnDeInitWithoutClose: Bool
     ) throws(SFTPClientInvalidConfig)
@@ -157,16 +155,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// for as long as the peer stays silent.
     var teardownGracePeriod: TimeInterval { get set }
 
-    /// Negotiated client-to-server compression, or `.none` before handshake or after closing the client.
+    /// Negotiated compression in each direction, or `(.none, .none)` before handshake or after closing the client.
     ///
-    /// Both `zlib` and `zlib@openssh.com` are reported as `.zlib`. This can be `.none` even when compression was
-    /// requested, if the server chose the uncompressed fallback.
-    var compressionClientToServer: CompressionAlgorithm { get }
-
-    /// Negotiated server-to-client compression, or `.none` before handshake or after closing the client.
-    ///
-    /// Both `zlib` and `zlib@openssh.com` are reported as `.zlib`. Each direction is negotiated independently.
-    var compressionServerToClient: CompressionAlgorithm { get }
+    /// `clientToServer` describes data sent to the server; `serverToClient` describes data received from it. Both
+    /// `zlib` and `zlib@openssh.com` are reported as `.zlib`. Each direction is negotiated independently and can be
+    /// `.none` even when compression was requested, if the server chose the uncompressed fallback.
+    var compression: (clientToServer: CompressionAlgorithm, serverToClient: CompressionAlgorithm) { get }
 
     /// Enables, reconfigures, or disables periodic SSH keepalive messages.
     ///
