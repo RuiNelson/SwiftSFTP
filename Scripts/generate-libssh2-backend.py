@@ -13,18 +13,21 @@ TRANSPORT_OUTPUT = ROOT / "Sources/libssh2/transport.c"
 
 def transport_adapter():
     original = TRANSPORT_SOURCE.read_text()
-    outgoing_check = (
+    upstream_check = (
         "        /* Check for and deal with decompression */\n"
         "        compressed = session->local.comp &&\n"
         "                     session->local.comp->compress &&\n"
         "                     ((session->state & SSH2_STATE_AUTHENTICATED) ||\n"
         "                      session->local.comp->use_in_auth);"
     )
-    incoming_check = outgoing_check.replace("session->local.comp", "session->remote.comp")
-    if original.count(outgoing_check) == 1:
-        adapted = original.replace(outgoing_check, incoming_check, 1)
-    elif original.count(incoming_check) == 1 and outgoing_check not in original:
-        adapted = original
+    fixed_check = upstream_check.replace("session->local.comp", "session->remote.comp")
+    if original.count(upstream_check) == 1:
+        adapted = original.replace(upstream_check, fixed_check, 1)
+    elif original.count(fixed_check) == 1:
+        raise SystemExit(
+            "The pinned libssh2 already fixes incoming decompression; drop the transport adapter "
+            "and compile Vendor/libssh2/src/transport.c"
+        )
     else:
         raise SystemExit("The pinned libssh2 decompression check changed; review the transport adapter")
     return (
