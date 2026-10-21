@@ -891,16 +891,33 @@ private func truncateRemoteFile(_ client: SFTPClient, at path: String) async {
 }
 
 /// Creates an empty file or directory at `path`, standing in for another process that got there first.
-private func plantRemote(_ client: SFTPClient, at path: String, asDirectory: Bool) async {
-    if asDirectory {
-        try? await client.createDirectory(path: path, makePath: false, mode: [.serverDefault])
+///
+/// Records an issue when it cannot, so a test whose transfer then succeeds says why instead of looking like a missed
+/// check. It does not throw, because most callers run inside a progress callback, which cannot.
+private func plantRemote(
+    _ client: SFTPClient,
+    at path: String,
+    asDirectory: Bool,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    do {
+        if asDirectory {
+            try await client.createDirectory(path: path, makePath: false, mode: [.serverDefault])
+        }
+        else {
+            let handle = try await client.openFile(
+                [.create, .write, .exclusive],
+                path: path,
+                permissions: [.serverDefault]
+            )
+            try await handle.close()
+        }
     }
-    else if let handle = try? await client.openFile(
-        [.create, .write, .exclusive],
-        path: path,
-        permissions: [.serverDefault]
-    ) {
-        try? await handle.close()
+    catch {
+        Issue.record(
+            "Could not plant a \(asDirectory ? "directory" : "file") at \(path): \(error)",
+            sourceLocation: sourceLocation
+        )
     }
 }
 
