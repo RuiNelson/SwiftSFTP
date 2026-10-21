@@ -31,6 +31,7 @@ private struct BitmapWrite: Sendable, Equatable {
 private actor FlushRecorder {
     private(set) var writes: [BitmapWrite] = []
     private var pendingFailure: (any Error)?
+    private var holdsNextWrite = false
 
     /// The closure a ``ResumableSynchronizer`` flushes through.
     nonisolated var flush: BitmapFlush {
@@ -44,24 +45,47 @@ private actor FlushRecorder {
         pendingFailure = FlushFailure()
     }
 
-    private func record(_ write: BitmapWrite) throws {
+    /// Makes the next write hang until the task carrying it is cancelled, the way one over a wedged connection would.
+    func holdNextWriteUntilCancelled() {
+        holdsNextWrite = true
+    }
+
+    private func record(_ write: BitmapWrite) async throws {
         writes.append(write)
 
         if let pendingFailure {
             self.pendingFailure = nil
             throw pendingFailure
         }
+
+        if holdsNextWrite {
+            holdsNextWrite = false
+            // Far longer than any test runs, so only cancellation ends it in time.
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+        }
     }
 
-    /// Waits until `count` writes have been recorded, or fails the test after `timeout` seconds.
+    /// Waits until `count` writes have been recorded, or fails the test after `polls` checks.
     ///
-    /// Waiting on the condition rather than on a fixed span is what keeps this deterministic: a machine busy enough to
-    /// starve the flush loop delays the test instead of failing it, and a loop that genuinely never retries still fails
-    /// rather than hanging.
-    func waitForWrites(atLeast count: Int, timeout: TimeInterval = 5) async throws {
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while writes.count < count, Date() < deadline {
+    /// The budget is counted in polls, not in wall-clock time. A full parallel run can hold every thread of the shared
+    /// concurrency pool for seconds at a time, and a wall-clock deadline keeps running through that stall, so it can
+    /// expire before the flush loop was ever scheduled. A poll only happens when this waiter gets a thread from the
+    /// same
+    /// pool the flush loop runs on, so a machine busy enough to starve the loop delays the test instead of failing it,
+    /// and a loop that genuinely never writes still fails rather than hanging.
+    func waitForWrites(
+        atLeast count: Int,
+        polls: Int = 1000,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        var remaining = polls
+        while writes.count < count, remaining > 0 {
             try await Task.sleep(nanoseconds: 5_000_000)
+            remaining -= 1
+        }
+
+        if writes.count < count {
+            Issue.record("\(writes.count) of \(count) writes after \(polls) polls", sourceLocation: sourceLocation)
         }
     }
 }
@@ -372,6 +396,28 @@ struct ResumableSynchronizerFlushTests {
         let writes = await recorder.writes
         #expect(writes.count >= 2, "a write that failed leaves the bitmap dirty for the next tick")
         #expect(writes.allSatisfy { $0 == writes.first }, "the retry carries the same bytes to the same offset")
+    }
+
+    @Test("writes once more on the way out when a periodic write is still in flight")
+    func finalFlushAfterInFlightWrite() async throws {
+        let recorder = FlushRecorder()
+        await recorder.holdNextWriteUntilCancelled()
+        let trailer = makeTrailer(fileSize: 1000, blockScale: 100)
+        let synchronizer = ResumableSynchronizer(trailer: trailer, flush: recorder.flush)
+
+        try await synchronizer.withPeriodicFlush(every: 0.02) {
+            await synchronizer.markComplete(block: 6)
+            // The first tick's write is now under way and stays so until the scope stops the loop.
+            try await recorder.waitForWrites(atLeast: 1)
+        }
+
+        var expected = trailer.bitmap
+        expected.set(block: 6)
+        let write = BitmapWrite(bitmap: expected.data, offset: trailer.bitmapFileOffset)
+
+        // The tick cleared the dirty flag before its write, so a final flush that ran alongside it would find nothing
+        // to do, and the interrupted write would leave block 6 out of the file.
+        #expect(await recorder.writes == [write, write], "the cut-off periodic write is redone on the way out")
     }
 
     @Test("leaves no flush task running once the scope ends")

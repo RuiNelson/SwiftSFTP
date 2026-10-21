@@ -179,11 +179,15 @@ extension ResumableSynchronizer {
 extension ResumableSynchronizer {
     /// Runs `body` with the periodic bitmap flush alive alongside it, and writes the bitmap once more on the way out.
     ///
-    /// The flush loop is an `async let` child of this scope, so it is cancelled and awaited before this returns however
-    /// `body` ends. The final write is deliberately **not** left to that teardown: cancellation from outside reaches
-    /// the loop and the workers at the same instant, so a teardown write racing them can land before the last
+    /// However `body` ends, the flush loop is cancelled and awaited before this returns. The final write is
+    /// deliberately sequenced after `body`: cancellation from outside reaches the workers and anything running
+    /// alongside them at the same instant, so a final write racing them can land before the last
     /// ``markComplete(block:)`` does, and the blocks a worker had just finished would be counted in memory and never
-    /// written. Sequencing it after `body` instead means every completion the workers managed to report is in the file.
+    /// written. Writing after `body` means every completion the workers managed to report is in the file.
+    ///
+    /// The loop is stopped *before* that final write, not after it. A tick clears the dirty flag before its write
+    /// lands, so a final write running alongside one would find nothing to do; if that tick's write then failed, or was
+    /// cut off by the cancellation, the last completions would never reach the file.
     ///
     /// - Parameters:
     ///   - interval: Seconds between writes. Production uses the default; see ``flushInterval``.
@@ -192,18 +196,26 @@ extension ResumableSynchronizer {
         every interval: TimeInterval = ResumableSynchronizer.flushInterval,
         _ body: () async throws -> Value
     ) async rethrows -> Value {
-        // Never awaited by name: leaving the scope is what cancels the loop.
-        async let _: Void = flushPeriodically(every: interval)
+        // A task rather than an `async let`, because the loop has to be stopped before the final write, and an
+        // `async let` is only cancelled once the scope has already been left.
+        let periodicFlush = Task { await self.flushPeriodically(every: interval) }
 
         do {
             let value = try await body()
-            await flushBeyondCancellation()
+            await finishFlushing(after: periodicFlush)
             return value
         }
         catch {
-            await flushBeyondCancellation()
+            await finishFlushing(after: periodicFlush)
             throw error
         }
+    }
+
+    /// Stops the periodic loop, waiting out any write it has in flight, then writes the bitmap one last time.
+    private nonisolated func finishFlushing(after periodicFlush: Task<Void, Never>) async {
+        periodicFlush.cancel()
+        await periodicFlush.value
+        await flushBeyondCancellation()
     }
 
     /// Writes the bitmap one last time, out of reach of the cancellation that ended the transfer.
@@ -217,9 +229,10 @@ extension ResumableSynchronizer {
 
     /// Writes the bitmap every `interval` seconds while it keeps moving, until the task is cancelled.
     ///
-    /// Run it as a child task of the transfer, which is exactly what ``withPeriodicFlush(every:_:)`` does. The loop
-    /// ends on cancellation and writes nothing more on its way out: the final write belongs after the workers have
-    /// stopped reporting, not alongside them, and ``withPeriodicFlush(every:_:)`` is what sequences it there.
+    /// Run it alongside the transfer, which is exactly what ``withPeriodicFlush(every:_:)`` does. The loop ends on
+    /// cancellation and writes nothing more on its way out: the final write belongs after the workers have stopped
+    /// reporting and this loop has stopped writing, not alongside either, and ``withPeriodicFlush(every:_:)`` is what
+    /// sequences it there.
     func flushPeriodically(every interval: TimeInterval = ResumableSynchronizer.flushInterval) async {
         let nanoseconds = UInt64(max(interval, 0) * 1_000_000_000)
 
