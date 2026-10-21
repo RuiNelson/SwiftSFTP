@@ -10,42 +10,27 @@ extension ShellAgentSupport {
     ) throws -> String {
         let fromNative = pathForRemoteShell(from, shellType: shellType)
         let toNative = pathForRemoteShell(to, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: to, shellType: shellType)
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let src = unixShellQuote(fromNative)
             let dst = unixShellQuote(toNative)
             let cp = verbose ? "cp -fv" : "cp -f"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return "\(cp) \(src) \(dst)"
-            }
-            let parentQuoted = unixShellQuote(parentNative)
-            return "mkdir -p \(parentQuoted) && \(cp) \(src) \(dst)"
+            return "\(ensureParent)\(cp) \(src) \(dst)"
 
         case .windowsPowerShell:
             // Emitted as raw PowerShell for the persistent `-Command -` session (not wrapped in powershell.exe).
             let src = powerShellQuote(fromNative)
             let dst = powerShellQuote(toNative)
             let verboseFlag = verbose ? " -Verbose" : ""
-            // Drive roots (`/C:` → `C:\`) and `.` need no New-Item step.
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
-            }
-            let parentQuoted = powerShellQuote(parentNative)
-            return
-                "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
+            return "\(ensureParent)Copy-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
 
         case .windowsCommandPrompt:
             // `copy` has no useful per-file completion stream; verbose is a no-op for progress.
             let src = cmdQuote(fromNative)
             let dst = cmdQuote(toNative)
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "copy /Y \(src) \(dst)"
-            }
-            let parentQuoted = cmdQuote(parentNative)
-            return "mkdir \(parentQuoted) 2>nul & copy /Y \(src) \(dst)"
+            return "\(ensureParent)copy /Y \(src) \(dst)"
         }
     }
 
@@ -57,39 +42,25 @@ extension ShellAgentSupport {
     ) throws -> String {
         let fromNative = pathForRemoteShell(from, shellType: shellType)
         let toNative = pathForRemoteShell(to, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: to, shellType: shellType)
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let src = unixShellQuote(fromNative)
             let dst = unixShellQuote(toNative)
             let mv = verbose ? "mv -fv" : "mv -f"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return "\(mv) \(src) \(dst)"
-            }
-            let parentQuoted = unixShellQuote(parentNative)
-            return "mkdir -p \(parentQuoted) && \(mv) \(src) \(dst)"
+            return "\(ensureParent)\(mv) \(src) \(dst)"
 
         case .windowsPowerShell:
             let src = powerShellQuote(fromNative)
             let dst = powerShellQuote(toNative)
             let verboseFlag = verbose ? " -Verbose" : ""
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
-            }
-            let parentQuoted = powerShellQuote(parentNative)
-            return
-                "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
+            return "\(ensureParent)Move-Item -Force\(verboseFlag) -LiteralPath \(src) -Destination \(dst)"
 
         case .windowsCommandPrompt:
             let src = cmdQuote(fromNative)
             let dst = cmdQuote(toNative)
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "move /Y \(src) \(dst)"
-            }
-            let parentQuoted = cmdQuote(parentNative)
-            return "mkdir \(parentQuoted) 2>nul & move /Y \(src) \(dst)"
+            return "\(ensureParent)move /Y \(src) \(dst)"
         }
     }
 
@@ -104,33 +75,19 @@ extension ShellAgentSupport {
 
         let sourcesNative = files.map { pathForRemoteShell($0, shellType: shellType) }
         let toNative = pathForRemoteShell(to, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(to, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: to, shellType: shellType)
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let quotedSources = sourcesNative.map(unixShellQuote).joined(separator: " ")
             let dst = unixShellQuote(toNative)
             // `cat` streams bytes in order; `>` creates/truncates the destination.
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return "cat \(quotedSources) > \(dst)"
-            }
-            let parentQuoted = unixShellQuote(parentNative)
-            return "mkdir -p \(parentQuoted) && cat \(quotedSources) > \(dst)"
+            return "\(ensureParent)cat \(quotedSources) > \(dst)"
 
         case .windowsPowerShell:
             // Binary-safe stream concat (Get-Content is text-oriented and can corrupt binary).
             let srcList = sourcesNative.map(powerShellQuote).joined(separator: ", ")
             let dst = powerShellQuote(toNative)
-            let ensureParent: String
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                ensureParent = ""
-            }
-            else {
-                let parentQuoted = powerShellQuote(parentNative)
-                ensureParent =
-                    "New-Item -ItemType Directory -Force -Path \(parentQuoted) | Out-Null; "
-            }
             return
                 "\(ensureParent)$__o = [System.IO.File]::Open(\(dst), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); try { foreach ($__s in @(\(srcList))) { $__i = [System.IO.File]::OpenRead($__s); try { $__i.CopyTo($__o) } finally { $__i.Dispose() } } } finally { $__o.Dispose() }"
 
@@ -138,11 +95,7 @@ extension ShellAgentSupport {
             // `copy /b a + b dest` concatenates binary files.
             let quotedSources = sourcesNative.map(cmdQuote).joined(separator: " + ")
             let dst = cmdQuote(toNative)
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "copy /b /y \(quotedSources) \(dst)"
-            }
-            let parentQuoted = cmdQuote(parentNative)
-            return "mkdir \(parentQuoted) 2>nul & copy /b /y \(quotedSources) \(dst)"
+            return "\(ensureParent)copy /b /y \(quotedSources) \(dst)"
         }
     }
 
@@ -156,28 +109,16 @@ extension ShellAgentSupport {
         }
 
         let pathNative = pathForRemoteShell(file, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(file, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: file, shellType: shellType)
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let path = unixShellQuote(pathNative)
             // `head -c` is available on Linux coreutils and macOS; streams zeros without loading the whole file.
-            let write = "head -c \(length) /dev/zero > \(path)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return write
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(write)"
+            return "\(ensureParent)head -c \(length) /dev/zero > \(path)"
 
         case .windowsPowerShell:
             let path = powerShellQuote(pathNative)
-            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
-                .isSFTPDriveRootOrSlash {
-                ""
-            }
-            else {
-                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
-            }
             // SetLength establishes the size; NTFS may store it sparsely, which still reads as zeros.
             return
                 "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); try { $__f.SetLength([int64]\(length)) } finally { $__f.Dispose() }"
@@ -185,10 +126,7 @@ extension ShellAgentSupport {
         case .windowsCommandPrompt:
             let path = cmdQuote(pathNative)
             // `fsutil file createnew` writes a zero-filled file of the given size.
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return "fsutil file createnew \(path) \(length)"
-            }
-            return "mkdir \(cmdQuote(parentNative)) 2>nul & fsutil file createnew \(path) \(length)"
+            return "\(ensureParent)fsutil file createnew \(path) \(length)"
         }
     }
 
@@ -202,27 +140,16 @@ extension ShellAgentSupport {
         }
 
         let pathNative = pathForRemoteShell(file, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(file, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let path = unixShellQuote(pathNative)
-            let write = "head -c \(length) /dev/urandom > \(path)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return write
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(write)"
+            let ensureParent = ensureParentPrefix(of: file, shellType: shellType)
+            return "\(ensureParent)head -c \(length) /dev/urandom > \(path)"
 
         case .windowsPowerShell:
             let path = powerShellQuote(pathNative)
-            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
-                .isSFTPDriveRootOrSlash {
-                ""
-            }
-            else {
-                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
-            }
+            let ensureParent = ensureParentPrefix(of: file, shellType: shellType)
             // Chunked CSPRNG write so multi-GB files need not fit in memory.
             return
                 "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); $__rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $__buf = New-Object byte[] 1048576; $__left = [int64]\(length); try { while ($__left -gt 0) { $__n = [int]([Math]::Min([int64]$__buf.Length, $__left)); $__chunk = New-Object byte[] $__n; $__rng.GetBytes($__chunk); $__f.Write($__chunk, 0, $__n); $__left -= $__n } } finally { $__rng.Dispose(); $__f.Dispose() }"
@@ -230,13 +157,7 @@ extension ShellAgentSupport {
         case .windowsCommandPrompt:
             // No portable pure-cmd CSPRNG; use a one-shot PowerShell child (same as other cmd-hosted ops).
             let path = powerShellQuote(pathNative)
-            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
-                .isSFTPDriveRootOrSlash {
-                ""
-            }
-            else {
-                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
-            }
+            let ensureParent = ensureParentPrefix(of: file, shellType: .windowsPowerShell)
             let script =
                 "\(ensureParent)$__f = [System.IO.File]::Open(\(path), [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write); $__rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $__left = [int64]\(length); try { while ($__left -gt 0) { $__n = [int]([Math]::Min([int64]1048576, $__left)); $__chunk = New-Object byte[] $__n; $__rng.GetBytes($__chunk); $__f.Write($__chunk, 0, $__n); $__left -= $__n } } finally { $__rng.Dispose(); $__f.Dispose() }"
             // wrapForPersistentShell for cmd runs the body as-is; invoke PowerShell explicitly.
@@ -256,8 +177,7 @@ extension ShellAgentSupport {
 
         let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
         let outputNative = pathForRemoteShell(output, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: output, shellType: shellType)
 
         // Shared flag forms: -c create, optional compression, -f archive, then members. Both GNU tar and bsdtar accept
         // this layout.
@@ -268,33 +188,18 @@ extension ShellAgentSupport {
         case .darwin, .linux, .posixCompatible:
             let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
             let archive = unixShellQuote(outputNative)
-            let create = "tar -c \(compressionPart)-f \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return create
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+            return "\(ensureParent)tar -c \(compressionPart)-f \(archive) \(members)"
 
         case .windowsPowerShell:
             // Windows ships bsdtar as `tar.exe`; same flags as libarchive/bsdtar.
             let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
-                .isSFTPDriveRootOrSlash {
-                ""
-            }
-            else {
-                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
-            }
             return "\(ensureParent)tar -c \(compressionPart)-f \(archive) \(members)"
 
         case .windowsCommandPrompt:
             let members = sourcesNative.map(cmdQuote).joined(separator: " ")
             let archive = cmdQuote(outputNative)
-            let create = "tar -c \(compressionPart)-f \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return create
-            }
-            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+            return "\(ensureParent)tar -c \(compressionPart)-f \(archive) \(members)"
         }
     }
 
@@ -313,18 +218,13 @@ extension ShellAgentSupport {
         }
 
         let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
-        let outputNative = pathForRemoteShell(output, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
 
         switch tool {
         case .infoZip:
             return try infoZipCommand(
                 shellType: shellType,
                 sourcesNative: sourcesNative,
-                outputNative: outputNative,
-                parentSFTP: parentSFTP,
-                parentNative: parentNative,
+                output: output,
                 compressionLevel: compressionLevel
             )
 
@@ -332,9 +232,7 @@ extension ShellAgentSupport {
             return try tarZipCommand(
                 shellType: shellType,
                 sourcesNative: sourcesNative,
-                outputNative: outputNative,
-                parentSFTP: parentSFTP,
-                parentNative: parentNative,
+                output: output,
                 compressionLevel: compressionLevel
             )
 
@@ -342,9 +240,7 @@ extension ShellAgentSupport {
             return try microsoftZipCommand(
                 shellType: shellType,
                 sourcesNative: sourcesNative,
-                outputNative: outputNative,
-                parentSFTP: parentSFTP,
-                parentNative: parentNative,
+                output: output,
                 compressionLevel: compressionLevel
             )
 
@@ -408,29 +304,22 @@ extension ShellAgentSupport {
     private static func infoZipCommand(
         shellType: ShellType,
         sourcesNative: [String],
-        outputNative: String,
-        parentSFTP: String,
-        parentNative: String,
+        output: String,
         compressionLevel: Int
     ) throws -> String {
+        let outputNative = pathForRemoteShell(output, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: output, shellType: shellType)
+
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
             let archive = unixShellQuote(outputNative)
             // `-r` recurses directories; `-[0-9]` sets deflate level (`-0` store only).
-            let create = "rm -f \(archive) && zip -r -q -\(compressionLevel) \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return create
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+            return "\(ensureParent)rm -f \(archive) && zip -r -q -\(compressionLevel) \(archive) \(members)"
 
         case .windowsPowerShell:
             let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent = windowsPowerShellEnsureParent(
-                parentSFTP: parentSFTP,
-                parentNative: parentNative
-            )
             // Prefer `zip` if installed (Git for Windows, etc.); remove existing archive first.
             return
                 "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; zip -r -q -\(compressionLevel) \(archive) \(members)"
@@ -438,12 +327,8 @@ extension ShellAgentSupport {
         case .windowsCommandPrompt:
             let members = sourcesNative.map(cmdQuote).joined(separator: " ")
             let archive = cmdQuote(outputNative)
-            let create =
-                "if exist \(archive) del /f /q \(archive) & zip -r -q -\(compressionLevel) \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return create
-            }
-            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+            return
+                "\(ensureParent)if exist \(archive) del /f /q \(archive) & zip -r -q -\(compressionLevel) \(archive) \(members)"
         }
     }
 
@@ -451,40 +336,28 @@ extension ShellAgentSupport {
     private static func tarZipCommand(
         shellType: ShellType,
         sourcesNative: [String],
-        outputNative: String,
-        parentSFTP: String,
-        parentNative: String,
+        output: String,
         compressionLevel: Int
     ) throws -> String {
+        let outputNative = pathForRemoteShell(output, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: output, shellType: shellType)
         let options = "--format=zip --options zip:compression-level=\(compressionLevel)"
 
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
             let archive = unixShellQuote(outputNative)
-            let create = "tar \(options) -cf \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return create
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+            return "\(ensureParent)tar \(options) -cf \(archive) \(members)"
 
         case .windowsPowerShell:
             let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent = windowsPowerShellEnsureParent(
-                parentSFTP: parentSFTP,
-                parentNative: parentNative
-            )
             return "\(ensureParent)tar \(options) -cf \(archive) \(members)"
 
         case .windowsCommandPrompt:
             let members = sourcesNative.map(cmdQuote).joined(separator: " ")
             let archive = cmdQuote(outputNative)
-            let create = "tar \(options) -cf \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return create
-            }
-            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+            return "\(ensureParent)tar \(options) -cf \(archive) \(members)"
         }
     }
 
@@ -495,49 +368,54 @@ extension ShellAgentSupport {
     private static func microsoftZipCommand(
         shellType: ShellType,
         sourcesNative: [String],
-        outputNative: String,
-        parentSFTP: String,
-        parentNative: String,
+        output: String,
         compressionLevel: Int
     ) throws -> String {
         switch shellType {
         case .darwin, .linux, .posixCompatible:
             throw ShellAgentError.hostDoesNotSupportOperation
 
-        case .windowsPowerShell:
+        case .windowsPowerShell, .windowsCommandPrompt:
             let paths = sourcesNative.map(powerShellQuote).joined(separator: ", ")
-            let archive = powerShellQuote(outputNative)
-            let ensureParent = windowsPowerShellEnsureParent(
-                parentSFTP: parentSFTP,
-                parentNative: parentNative
-            )
-            let level = powerShellCompressArchiveLevel(compressionLevel)
-            return
-                "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; Compress-Archive -Path @(\(paths)) -DestinationPath \(archive) -CompressionLevel \(level) -Force"
-
-        case .windowsCommandPrompt:
-            // Persistent host is cmd; always go through powershell.exe for Compress-Archive.
-            let paths = sourcesNative.map(powerShellQuote).joined(separator: ", ")
-            let archive = powerShellQuote(outputNative)
-            let ensureParent: String = if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP
-                .isSFTPDriveRootOrSlash {
-                ""
-            }
-            else {
-                "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
-            }
+            let archive = powerShellQuote(pathForRemoteShell(output, shellType: shellType))
+            let ensureParent = ensureParentPrefix(of: output, shellType: .windowsPowerShell)
             let level = powerShellCompressArchiveLevel(compressionLevel)
             let script =
                 "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; Compress-Archive -Path @(\(paths)) -DestinationPath \(archive) -CompressionLevel \(level) -Force"
-            return powerShellRemoteCommand(script)
+            // Persistent host is cmd; always go through powershell.exe for Compress-Archive.
+            return shellType == .windowsCommandPrompt ? powerShellRemoteCommand(script) : script
         }
     }
 
-    private static func windowsPowerShellEnsureParent(parentSFTP: String, parentNative: String) -> String {
-        if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-            return ""
+    /// Prefix that creates the parent directory of `destination`, or `""` when that parent is `.` or a root.
+    ///
+    /// `shellType` selects the prefix syntax, so a PowerShell script run from cmd passes
+    /// ``ShellType/windowsPowerShell``.
+    private static func ensureParentPrefix(of destination: String, shellType: ShellType) -> String {
+        let parentSFTP = sftpFormForParentComputation(destination, shellType: shellType).removingLastPathComponent
+        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let isCurrentOrRoot = parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/"
+
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            if isCurrentOrRoot {
+                return ""
+            }
+            return "mkdir -p \(unixShellQuote(parentNative)) && "
+
+        case .windowsPowerShell:
+            // Drive roots (`/C:` → `C:\`) need no New-Item step either.
+            if isCurrentOrRoot || parentSFTP.isSFTPDriveRootOrSlash {
+                return ""
+            }
+            return "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
+
+        case .windowsCommandPrompt:
+            if isCurrentOrRoot || parentSFTP.isSFTPDriveRootOrSlash {
+                return ""
+            }
+            return "mkdir \(cmdQuote(parentNative)) 2>nul & "
         }
-        return "New-Item -ItemType Directory -Force -Path \(powerShellQuote(parentNative)) | Out-Null; "
     }
 
     /// Maps 0...9 onto PowerShell `CompressionLevel` names.
@@ -601,8 +479,7 @@ extension ShellAgentSupport {
 
         let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
         let outputNative = pathForRemoteShell(output, shellType: shellType)
-        let parentSFTP = sftpFormForParentComputation(output, shellType: shellType).removingLastPathComponent
-        let parentNative = pathForRemoteShell(parentSFTP, shellType: shellType)
+        let ensureParent = ensureParentPrefix(of: output, shellType: shellType)
 
         // `a` = add/create; `-y` assume Yes; `-bd` disable progress; `-mxN` compression level.
         // Passing directories includes their contents. Remove existing archive first so the result is a full recreate.
@@ -610,31 +487,20 @@ extension ShellAgentSupport {
         case .darwin, .linux, .posixCompatible:
             let members = sourcesNative.map(unixShellQuote).joined(separator: " ")
             let archive = unixShellQuote(outputNative)
-            let create = "rm -f \(archive) && \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" {
-                return create
-            }
-            return "mkdir -p \(unixShellQuote(parentNative)) && \(create)"
+            return
+                "\(ensureParent)rm -f \(archive) && \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
 
         case .windowsPowerShell:
             let members = sourcesNative.map(powerShellQuote).joined(separator: " ")
             let archive = powerShellQuote(outputNative)
-            let ensureParent = windowsPowerShellEnsureParent(
-                parentSFTP: parentSFTP,
-                parentNative: parentNative
-            )
             return
                 "\(ensureParent)if (Test-Path -LiteralPath \(archive)) { Remove-Item -Force -LiteralPath \(archive) }; \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
 
         case .windowsCommandPrompt:
             let members = sourcesNative.map(cmdQuote).joined(separator: " ")
             let archive = cmdQuote(outputNative)
-            let create =
-                "if exist \(archive) del /f /q \(archive) & \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
-            if parentSFTP.isEmpty || parentSFTP == "." || parentSFTP == "/" || parentSFTP.isSFTPDriveRootOrSlash {
-                return create
-            }
-            return "mkdir \(cmdQuote(parentNative)) 2>nul & \(create)"
+            return
+                "\(ensureParent)if exist \(archive) del /f /q \(archive) & \(binary) a -y -bd -mx\(compressionLevel) \(archive) \(members)"
         }
     }
 
