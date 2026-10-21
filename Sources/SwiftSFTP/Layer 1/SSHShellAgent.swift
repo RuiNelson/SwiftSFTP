@@ -498,115 +498,24 @@ extension SSHShellAgent {
         onOutputLine: ((String) -> Void)?
     ) throws -> RemoteProcessResult {
         let nonce = Self.makeCommandNonce()
-        let beginMarker = Self.markerBegin(nonce: nonce)
-        let rcPrefix = Self.markerRCPrefix(nonce: nonce)
-        let doneMarker = Self.markerDone(nonce: nonce)
-
         let script = ShellAgentSupport.wrapForPersistentShell(command, shellType: shellType, nonce: nonce)
         try writeAll(Data(script.utf8))
 
-        var filteredStdout = Data()
-        var filteredStderr = Data()
-        var stdoutLineBuffer = Data()
-        // Fail closed: a DONE without a parsed RC must not look like success.
-        var exitStatus: Int?
-        var finished = false
+        var parser = ShellResponseParser(shellType: shellType, nonce: nonce, onOutputLine: onOutputLine)
         let chunkSize = 32 * 1024
 
-        func handleLine(_ rawLine: String, isStdout: Bool) {
-            // cmd.exe may prefix output with a prompt (`C:\path>`). Match markers with `contains` of the full
-            // nonce-bearing token so unrelated output cannot spoof completion.
-            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let rcRange = trimmed.range(of: rcPrefix) {
-                let code = trimmed[rcRange.upperBound...]
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                // Drop trailing prompt junk if any.
-                let digits = code.prefix(while: { $0.isNumber || $0 == "-" })
-                if let parsed = Int(digits) {
-                    exitStatus = parsed
-                }
-                return
-            }
-            if trimmed.contains(doneMarker) {
-                finished = true
-                return
-            }
-            if trimmed.contains(beginMarker) {
-                return
-            }
-            guard !trimmed.isEmpty else {
-                return
-            }
-            // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such
-            // prompt, and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
-            let payload = shellType.iKnowThis ? trimmed : ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
-            guard !payload.isEmpty else {
-                return
-            }
-            onOutputLine?(payload)
-            if isStdout {
-                filteredStdout.append(contentsOf: payload.utf8)
-                filteredStdout.append(UInt8(ascii: "\n"))
-            }
-            else {
-                filteredStderr.append(contentsOf: payload.utf8)
-                filteredStderr.append(UInt8(ascii: "\n"))
-            }
-        }
-
-        func feed(_ chunk: Data, lineBuffer: inout Data, isStdout: Bool) {
-            lineBuffer.append(chunk)
-            while let newline = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
-                let lineData = lineBuffer[..<newline]
-                lineBuffer.removeSubrange(...newline)
-                let line = String(decoding: lineData, as: UTF8.self)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
-                handleLine(line, isStdout: isStdout)
-            }
-        }
-
-        while !finished {
+        while !parser.finished {
             // Extended data is merged into standard (see startProcess); only one stream is read.
-            let outChunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
-
-            if !outChunk.isEmpty {
-                feed(outChunk, lineBuffer: &stdoutLineBuffer, isStdout: true)
+            let chunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
+            if !chunk.isEmpty {
+                parser.feed(chunk)
             }
-
-            if finished {
+            else if ChannelEOF(channel: channel) {
                 break
             }
-
-            if outChunk.isEmpty, ChannelEOF(channel: channel) {
-                throw ShellAgentError.commandFailed(
-                    exitCode: -1,
-                    stdout: String(decoding: filteredStdout, as: UTF8.self),
-                    stderr: "Shell channel closed before command completed"
-                )
-            }
         }
 
-        if !stdoutLineBuffer.isEmpty {
-            let line = String(decoding: stdoutLineBuffer, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !line.isEmpty {
-                handleLine(line, isStdout: true)
-            }
-        }
-
-        guard let resolvedStatus = exitStatus else {
-            throw ShellAgentError.commandFailed(
-                exitCode: -1,
-                stdout: String(decoding: filteredStdout, as: UTF8.self),
-                stderr: "Shell command completed without an exit-status marker"
-            )
-        }
-
-        return RemoteProcessResult(
-            stdout: filteredStdout,
-            stderr: filteredStderr,
-            exitStatus: resolvedStatus
-        )
+        return try parser.finish()
     }
 
     private func writeAll(_ data: Data) throws {
@@ -702,7 +611,7 @@ extension SSHShellAgent {
             written += n
         }
 
-        var lineBuffer = Data()
+        var lines = ShellLineBuffer()
         let chunkSize = 32 * 1024
         let wait = client.timeout
         let seconds: TimeInterval = if wait == .infinity || wait <= 0 {
@@ -715,17 +624,8 @@ extension SSHShellAgent {
 
         while Date() < deadline {
             let outChunk = try ChannelRead(channel: channel, stream: .standard, maximumLength: chunkSize)
-            if !outChunk.isEmpty {
-                lineBuffer.append(outChunk)
-                while let newline = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let lineData = lineBuffer[..<newline]
-                    lineBuffer.removeSubrange(...newline)
-                    let line = String(decoding: lineData, as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if line.contains(markerReady) {
-                        return
-                    }
-                }
+            if !outChunk.isEmpty, lines.append(outChunk).contains(where: { $0.contains(markerReady) }) {
+                return
             }
             if outChunk.isEmpty, ChannelEOF(channel: channel) {
                 throw ShellAgentError.commandFailed(
