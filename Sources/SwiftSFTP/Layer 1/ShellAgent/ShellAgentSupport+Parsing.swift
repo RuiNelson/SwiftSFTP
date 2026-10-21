@@ -8,10 +8,7 @@ extension ShellAgentSupport {
             return trimmed
         }
         let second = trimmed.index(after: trimmed.startIndex)
-        guard trimmed[trimmed.startIndex].isLetter, trimmed[second] == ":" else {
-            return trimmed
-        }
-        guard let gt = trimmed.firstIndex(of: ">") else {
+        guard trimmed[trimmed.startIndex].isLetter, trimmed[second] == ":", let gt = trimmed.firstIndex(of: ">") else {
             return trimmed
         }
         return String(trimmed[trimmed.index(after: gt)...])

@@ -125,8 +125,8 @@ private func isValidHashedKnownHostsHost(_ host: String) -> Bool {
 
     let salt = String(parts[2])
     let hash = String(parts[3])
-    guard !salt.isEmpty, !hash.isEmpty else { return false }
-    guard Data(base64Encoded: salt) != nil, Data(base64Encoded: hash) != nil else { return false }
+    guard !salt.isEmpty, !hash.isEmpty, Data(base64Encoded: salt) != nil,
+          Data(base64Encoded: hash) != nil else { return false }
     return true
 }
 

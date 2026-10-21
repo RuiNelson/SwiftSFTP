@@ -334,10 +334,7 @@ extension ResumableTrailer {
         metadata: while true {
             let key = try cursor.read(UInt16.self)
             // The length of a fixed-length field is implicit, so an unknown key cannot be stepped over.
-            guard let field = TrailerField(rawValue: key) else {
-                throw .corrupt
-            }
-            guard seen.insert(field).inserted else {
+            guard let field = TrailerField(rawValue: key), seen.insert(field).inserted else {
                 throw .corrupt
             }
 

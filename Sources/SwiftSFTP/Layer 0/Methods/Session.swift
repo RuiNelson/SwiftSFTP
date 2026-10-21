@@ -189,8 +189,8 @@ public func HostKeyHash(session: LibSSH2Session, hashType: LibSSH2HostKeyHashTyp
 public func SessionHostKey(session: LibSSH2Session) -> (key: Data, type: LibSSH2HostKeyType)? {
     var length = 0
     var type: Int32 = 0
-    guard let pointer = libssh2.libssh2_session_hostkey(session.rawValue, &length, &type) else { return nil }
-    guard let keyType = LibSSH2HostKeyType(fromRaw: type) else { return nil }
+    guard let pointer = libssh2.libssh2_session_hostkey(session.rawValue, &length, &type),
+          let keyType = LibSSH2HostKeyType(fromRaw: type) else { return nil }
     return (Data(bytes: pointer, count: length), keyType)
 }
 

@@ -47,8 +47,7 @@ func _libssh2CallbackBox<T: AnyObject>(_ abstract: UnsafeMutablePointer<UnsafeMu
 }
 
 func _copyToLibSSH2AllocatedBuffer(_ data: Data) -> UnsafeMutablePointer<UInt8>? {
-    guard !data.isEmpty else { return nil }
-    guard let pointer = malloc(data.count)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+    guard !data.isEmpty, let pointer = malloc(data.count)?.assumingMemoryBound(to: UInt8.self) else { return nil }
     _ = data.copyBytes(to: UnsafeMutableBufferPointer(start: pointer, count: data.count))
     return pointer
 }

@@ -24,12 +24,10 @@ public extension SFTPClient {
             }
         }
 
-        if makePath {
-            if sanitizedPath.pathComponents.count >= 2 {
-                let parent = sanitizedPath.removingLastPathComponent
+        if makePath, sanitizedPath.pathComponents.count >= 2 {
+            let parent = sanitizedPath.removingLastPathComponent
 
-                try await createDirectory(path: parent, makePath: true, mode: mode)
-            }
+            try await createDirectory(path: parent, makePath: true, mode: mode)
         }
 
         try withSessionIO {

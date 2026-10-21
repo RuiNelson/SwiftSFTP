@@ -133,8 +133,7 @@ struct Authentication {
 
     @Test("Public key authentication succeeds for all users and key formats")
     func publicKeyAuthSuccess() throws {
-        guard requireTestServer() else { return }
-        guard let keys = try loadPrivateKeysFromTestServer() else { return }
+        guard requireTestServer(), let keys = try loadPrivateKeysFromTestServer() else { return }
 
         for (username, algorithm) in Self.keyUsers {
             for format in PrivateKeyFormat.allCases {
