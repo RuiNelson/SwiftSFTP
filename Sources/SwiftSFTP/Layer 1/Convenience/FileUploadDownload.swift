@@ -118,18 +118,19 @@ public extension SFTPFileProtocol {
         }
 
         let localFileSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
-        let availableBytes = localFileSize > startFromFileOffset ? localFileSize - startFromFileOffset : 0
-        let fileSize = Int64(clamping: min(upTo ?? UInt64.max, availableBytes))
-        var remainingBytes = fileSize
-        var completed = Int64()
-        var wasCancelled = false
+        var progress = TransferProgressTracker(
+            sourceSize: localFileSize,
+            offset: startFromFileOffset,
+            limit: upTo,
+            callback: continuation
+        )
+        // Bytes still to read, which runs a chunk ahead of the bytes written that `progress` counts.
+        var remainingBytes = progress.totalBytes
 
         func nextChunkSize() -> Int {
             remainingBytes > 0 ? Int(min(Int64(bufferSize), remainingBytes)) : 0
         }
 
-        var startTime = Date()
-        var endTime = Date()
         try await withThrowingTaskGroup(of: Data?.self) { group in
             var pendingChunk = try await localIO.read(upToCount: nextChunkSize())
             while let data = pendingChunk, data.isEmpty == false {
@@ -148,28 +149,16 @@ public extension SFTPFileProtocol {
                     throw FileTransferErrors.shortWrite(expected: data.count, actual: size)
                 }
 
-                completed += Int64(size)
-
-                endTime = .init()
-                var interval: TimeInterval {
-                    endTime.timeIntervalSince(startTime)
-                }
-
-                if await continuation(completed, fileSize, size, interval) == false {
-                    wasCancelled = true
+                guard await progress.report(size) else {
                     break
                 }
 
-                startTime = endTime
                 pendingChunk = try await group.next() ?? nil
             }
         }
 
-        guard !wasCancelled else {
-            throw FileTransferErrors.transferCancelled
-        }
-
-        return UInt64(completed)
+        try progress.throwIfCancelled()
+        return UInt64(progress.completedBytes)
     }
 
     /// Downloads this remote SFTP file handle into a local file.
@@ -240,15 +229,14 @@ public extension SFTPFileProtocol {
         }
 
         let startingPosition = offset
-        let remoteFileSize = try await stat.fileSize
-        let availableBytes = remoteFileSize > startingPosition ? remoteFileSize - startingPosition : 0
-        let totalBytes = Int64(clamping: min(upTo ?? UInt64.max, availableBytes))
-        var remainingBytes = totalBytes
-        var completed = Int64()
-        var wasCancelled = false
+        var progress = try await TransferProgressTracker(
+            sourceSize: stat.fileSize,
+            offset: startingPosition,
+            limit: upTo,
+            callback: continuation
+        )
+        var remainingBytes = progress.totalBytes
 
-        var startTime = Date()
-        var endTime = Date()
         try await withThrowingTaskGroup(of: Void.self) { group in
             while remainingBytes > 0 {
                 try Task.checkCancellation()
@@ -265,30 +253,18 @@ public extension SFTPFileProtocol {
                     try await localIO.write(contentsOf: data)
                 }
 
-                completed += Int64(data.count)
                 remainingBytes -= Int64(data.count)
 
-                endTime = .init()
-                var interval: TimeInterval {
-                    endTime.timeIntervalSince(startTime)
-                }
-
-                if await continuation(completed, totalBytes, data.count, interval) == false {
-                    wasCancelled = true
+                guard await progress.report(data.count) else {
                     break
                 }
-
-                startTime = endTime
             }
 
             _ = try await group.next()
         }
 
-        guard !wasCancelled else {
-            throw FileTransferErrors.transferCancelled
-        }
-
-        return UInt64(completed)
+        try progress.throwIfCancelled()
+        return UInt64(progress.completedBytes)
     }
 
     /// Reads data from another SFTP file handle into this handle.
@@ -363,15 +339,14 @@ public extension SFTPFileProtocol {
         }
 
         let startingPosition = source.offset
-        let fileSize = try await source.stat.fileSize
-        let availableBytes = fileSize > startingPosition ? fileSize - startingPosition : 0
-        let totalBytes = Int64(clamping: min(UInt64(clamping: upTo ?? Int64.max), availableBytes))
-        var remainingBytes = totalBytes
-        var completed = Int64()
-        var wasCancelled = false
+        var progress = try await TransferProgressTracker(
+            sourceSize: source.stat.fileSize,
+            offset: startingPosition,
+            limit: upTo.map { UInt64(clamping: $0) },
+            callback: continuation
+        )
+        var remainingBytes = progress.totalBytes
 
-        var startTime = Date()
-        var endTime = Date()
         while remainingBytes > 0 {
             try Task.checkCancellation()
 
@@ -386,24 +361,13 @@ public extension SFTPFileProtocol {
                 throw FileTransferErrors.shortWrite(expected: data.count, actual: size)
             }
 
-            completed += Int64(size)
             remainingBytes -= Int64(size)
 
-            endTime = .init()
-            var interval: TimeInterval {
-                endTime.timeIntervalSince(startTime)
-            }
-
-            if await continuation(completed, totalBytes, size, interval) == false {
-                wasCancelled = true
+            guard await progress.report(size) else {
                 break
             }
-
-            startTime = endTime
         }
 
-        guard !wasCancelled else {
-            throw FileTransferErrors.transferCancelled
-        }
+        try progress.throwIfCancelled()
     }
 }
