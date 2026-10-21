@@ -35,6 +35,19 @@ struct SFTPClientMultiTransfers {
         #expect(attempts == 2)
     }
 
+    @Test("aggregate progress saturates instead of overflowing")
+    func progressReporterSaturates() async {
+        let reported = ReportedProgress()
+        let reporter = MultiTransferProgressReporter(completedBytes: UInt64(Int64.max), totalBytes: .max) {
+            completed, _, _, _ in
+            reported.append(completed)
+            return true
+        }
+
+        #expect(await reporter.report(1))
+        #expect(reported.values == [.max])
+    }
+
     @Test("multiUpload transfers ranges and reports aggregate progress")
     func multiUploadTransfersRanges() async throws {
         try await withClient { client in
@@ -273,6 +286,20 @@ private final class OverlapDetector: @unchecked Sendable {
             concurrent -= 1
             return true
         }
+    }
+}
+
+/// The completed byte counts a progress callback received, in order.
+private final class ReportedProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reported = [Int64]()
+
+    var values: [Int64] {
+        lock.withLock { reported }
+    }
+
+    func append(_ value: Int64) {
+        lock.withLock { reported.append(value) }
     }
 }
 

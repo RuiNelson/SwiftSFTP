@@ -44,6 +44,41 @@ struct SFTPClientResumableCleanup {
         }
     }
 
+    @Test("remote sweep skips a temporary file it cannot delete and sweeps the rest")
+    func remoteSweepSkipsUndeletableTemporary() async throws {
+        try await withClient { client in
+            let directory = uniqueRemotePath("resumable-cleanup-undeletable")
+            let stuck = "\(directory)/\("payload.bin".resumableTemporaryFileName)"
+            let stale = "\(directory)/\("other.bin".resumableTemporaryFileName)"
+            let faulty = FaultInjectingClient(wrapping: client, faults: InjectedFaults(beforeDeleteFile: { path in
+                if path == stuck {
+                    throw InjectedFailure()
+                }
+            }))
+
+            try await client.createDirectory(path: directory, makePath: true, mode: [.serverDefault])
+
+            do {
+                for path in [stuck, stale] {
+                    try await client.createEmptyFile(path)
+                    try await client.backdate(path, by: 7200)
+                }
+
+                let deleted = try await faulty.cleanupResumableUploads(in: directory, olderThan: 3600)
+                let survivors = try await client.listDirectory(path: directory, recursive: false)
+
+                #expect(deleted == [stale])
+                #expect(survivors.map(\.fullPath) == [stuck])
+            }
+            catch {
+                try? await client.delete(path: directory)
+                throw error
+            }
+
+            try await client.delete(path: directory)
+        }
+    }
+
     @Test("remote sweep of a directory without temporary files returns nothing")
     func remoteSweepWithoutMatchesReturnsNothing() async throws {
         try await withClient { client in
@@ -108,6 +143,33 @@ struct SFTPClientResumableCleanup {
         #expect(Set(survivors.map(\.lastPathComponent)) ==
             Set([fresh, keeper, staleDirectory].map(\.lastPathComponent)))
     }
+
+    #if canImport(Darwin)
+        @Test("local sweep skips a temporary file it cannot delete and returns the rest sorted by path")
+        func localSweepSkipsUndeletableTemporary() throws {
+            let client = try makeClient()
+            let directory = try makeLocalDirectory()
+            let stuck = directory.appendingPathComponent("payload.bin".resumableTemporaryFileName)
+            let swept = ["a.bin", "b.bin", "c.bin"]
+                .map { directory.appendingPathComponent($0.resumableTemporaryFileName) }
+            defer {
+                try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: stuck.path)
+                try? FileManager.default.removeItem(at: directory)
+            }
+
+            for url in [stuck] + swept {
+                try Data().write(to: url)
+                try url.backdate(by: 7200)
+            }
+            // The user-immutable flag is the one way to make a single file undeletable for its owner.
+            try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: stuck.path)
+
+            let deleted = try client.cleanupResumableDownloads(in: directory, olderThan: 3600)
+
+            #expect(deleted == swept.sorted { $0.path < $1.path })
+            #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [stuck.lastPathComponent])
+        }
+    #endif
 
     @Test("local sweep of a directory without temporary files returns nothing")
     func localSweepWithoutMatchesReturnsNothing() throws {
