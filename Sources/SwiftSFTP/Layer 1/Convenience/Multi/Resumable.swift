@@ -407,35 +407,17 @@ private extension SFTPClientProtocol {
             continuation: continuation
         )
 
-        do {
-            try Task.checkCancellation()
+        try await performMultiTransfer(workers: connections, progress: progress) {
             try await synchronizer.withPeriodicFlush {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    for connection in connections {
-                        group.addTask {
-                            do {
-                                try await transfer(connection, synchronizer, progress)
-                            }
-                            catch {
-                                progress.stop(error)
-                                throw error
-                            }
-                        }
-                    }
-
-                    try await group.waitForAll()
+                try await runMultiTransferWorkers(connections, progress: progress) { connection in
+                    try await transfer(connection, synchronizer, progress)
                 }
             }
 
             try await temporary.finish(payloadSize: trailer.fileSize)
             try await temporary.publish()
             await temporary.close()
-            await closeMultiTransferForks(connections)
-        }
-        catch {
-            progress.stop()
-            await closeMultiTransferForks(connections)
-
+        } onFailure: {
             // The lifecycle rule, in one line: the partial file survives everything except a state that makes it
             // useless. A dropped network, a short write, a local I/O error, a cancellation, and even a server that will
             // not truncate all leave bytes the next run can trust, because a bit only goes to 1 once the destination
@@ -449,8 +431,6 @@ private extension SFTPClientProtocol {
                 await temporary.delete()
             }
             await temporary.close()
-
-            throw progress.firstFailure ?? error
         }
     }
 }

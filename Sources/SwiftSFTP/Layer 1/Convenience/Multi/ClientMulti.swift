@@ -179,28 +179,18 @@ public extension SFTPClientProtocol {
         let ranges = multiTransferRanges(fileSize: fileSize, workers: transferWorkers.count)
         let progress = MultiTransferProgressReporter(totalBytes: fileSize, continuation: continuation)
 
-        do {
-            try Task.checkCancellation()
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for (worker, range) in zip(transferWorkers, ranges) {
-                    group.addTask {
-                        do {
-                            try await worker.uploadRange(
-                                from: localURL,
-                                to: temporaryPath,
-                                range: range,
-                                bufferSize: bufferSize,
-                                progress: progress
-                            )
-                        }
-                        catch {
-                            progress.stop(error)
-                            throw error
-                        }
-                    }
-                }
-
-                try await group.waitForAll()
+        try await performMultiTransfer(workers: transferWorkers, progress: progress) {
+            try await runMultiTransferWorkers(
+                Array(zip(transferWorkers, ranges)),
+                progress: progress
+            ) { worker, range in
+                try await worker.uploadRange(
+                    from: localURL,
+                    to: temporaryPath,
+                    range: range,
+                    bufferSize: bufferSize,
+                    progress: progress
+                )
             }
 
             if let destinationStat = try await stat(path: destinationPath, followLink: true) {
@@ -211,13 +201,8 @@ public extension SFTPClientProtocol {
             }
 
             try await rename(from: temporaryPath, to: destinationPath)
-            await closeMultiTransferForks(transferWorkers)
-        }
-        catch {
-            progress.stop()
-            await closeMultiTransferForks(transferWorkers)
+        } onFailure: {
             try? await deleteFile(path: temporaryPath)
-            throw progress.firstFailure ?? error
         }
     }
 
@@ -339,37 +324,21 @@ public extension SFTPClientProtocol {
         let ranges = multiTransferRanges(fileSize: fileSize, workers: transferWorkers.count)
         let progress = MultiTransferProgressReporter(totalBytes: fileSize, continuation: continuation)
 
-        do {
-            try Task.checkCancellation()
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for (worker, range) in zip(transferWorkers, ranges) {
-                    group.addTask {
-                        do {
-                            try await worker.downloadRange(
-                                from: sourcePath,
-                                to: localURL,
-                                range: range,
-                                bufferSize: bufferSize,
-                                progress: progress
-                            )
-                        }
-                        catch {
-                            progress.stop(error)
-                            throw error
-                        }
-                    }
-                }
-
-                try await group.waitForAll()
+        try await performMultiTransfer(workers: transferWorkers, progress: progress) {
+            try await runMultiTransferWorkers(
+                Array(zip(transferWorkers, ranges)),
+                progress: progress
+            ) { worker, range in
+                try await worker.downloadRange(
+                    from: sourcePath,
+                    to: localURL,
+                    range: range,
+                    bufferSize: bufferSize,
+                    progress: progress
+                )
             }
-
-            await closeMultiTransferForks(transferWorkers)
-        }
-        catch {
-            progress.stop()
-            await closeMultiTransferForks(transferWorkers)
+        } onFailure: {
             try? FileManager.default.removeItem(at: localURL)
-            throw progress.firstFailure ?? error
         }
     }
 }
@@ -566,6 +535,63 @@ extension SFTPClientProtocol {
 func closeMultiTransferForks(_ workers: [any SFTPClientProtocol]) async {
     for worker in workers.dropFirst() {
         try? await worker.close()
+    }
+}
+
+/// Runs a multi-worker transfer and settles its workers the same way in every direction.
+///
+/// `transfer` runs only if the task is not already cancelled, and the forks are closed once it returns. When anything
+/// throws, the progress reporter is stopped so no worker reports past the failure, the forks are closed, `onFailure`
+/// deals with what the transfer left behind, and the first worker failure is thrown in place of whatever error ended
+/// the transfer.
+///
+/// - Parameters:
+///   - workers: The transfer's connections. Every one but the first, which belongs to the caller, is closed.
+///   - progress: The transfer's reporter, whose ``MultiTransferProgressReporter/firstFailure`` is rethrown.
+///   - transfer: Moves the bytes and makes the result visible.
+///   - onFailure: Removes or keeps what a failed transfer left behind, after the forks are closed.
+func performMultiTransfer(
+    workers: [any SFTPClientProtocol],
+    progress: MultiTransferProgressReporter,
+    transfer: () async throws -> Void,
+    onFailure: () async -> Void
+) async throws {
+    do {
+        try Task.checkCancellation()
+        try await transfer()
+        await closeMultiTransferForks(workers)
+    }
+    catch {
+        progress.stop()
+        await closeMultiTransferForks(workers)
+        await onFailure()
+        throw progress.firstFailure ?? error
+    }
+}
+
+/// Runs `body` on every worker in parallel, stopping `progress` at the first failure so the other workers stop too.
+///
+/// - Throws: The first error to reach the task group, which may be a sibling's ``FileTransferErrors/transferCancelled``
+/// rather than the cause; ``performMultiTransfer(workers:progress:transfer:onFailure:)`` throws the cause instead.
+func runMultiTransferWorkers<Worker: Sendable>(
+    _ workers: [Worker],
+    progress: MultiTransferProgressReporter,
+    body: @escaping @Sendable (Worker) async throws -> Void
+) async throws {
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for worker in workers {
+            group.addTask {
+                do {
+                    try await body(worker)
+                }
+                catch {
+                    progress.stop(error)
+                    throw error
+                }
+            }
+        }
+
+        try await group.waitForAll()
     }
 }
 
