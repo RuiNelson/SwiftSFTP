@@ -191,6 +191,7 @@ let libssh2ExcludedPaths = [
     "Tests",
     "Documentation",
     "Scripts",
+    "SampleApp",
     "TestServer",
     "Vendor/SwiftSFTP-OpenSSL",
     "Vendor/libssh2/.github",

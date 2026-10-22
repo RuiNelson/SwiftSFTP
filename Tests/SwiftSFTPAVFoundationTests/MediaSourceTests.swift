@@ -6,6 +6,36 @@
     import Testing
 
     extension AVFoundationUnitTests {
+        @Test("contiguous ranges preserve read-ahead without seeking", arguments: [64, 512 * 1024])
+        func contiguousRangesPreserveReadAhead(blockSize: Int) async throws {
+            let data = Data((0 ..< blockSize * 3).map { UInt8($0 % 251) })
+            let file = StubMediaFile(data: data)
+            let source = MediaSource { file }
+
+            for offset in stride(from: 0, to: data.count, by: blockSize) {
+                let received = try await source.read(upTo: blockSize, atOffset: UInt64(offset))
+                #expect(received == data.subdata(in: offset ..< offset + blockSize))
+                #expect(file.seekCount == 0, "Even seeking to the current offset discards libssh2 read-ahead")
+            }
+
+            await source.close()
+        }
+
+        @Test("discontinuous ranges seek while contiguous ranges reuse the cursor")
+        func discontinuousRangesSeek() async throws {
+            let data = Data((0 ..< 1024).map { UInt8($0 % 251) })
+            let file = StubMediaFile(data: data)
+            let source = MediaSource { file }
+
+            for (offset, expectedSeeks) in [(64, 1), (512, 2), (128, 3), (256, 3)] {
+                let received = try await source.read(upTo: 128, atOffset: UInt64(offset))
+                #expect(received == data.subdata(in: offset ..< offset + 128))
+                #expect(file.seekCount == expectedSeeks)
+            }
+
+            await source.close()
+        }
+
         @Test("concurrent ranges share one handle without interfering with its cursor")
         func concurrentRanges() async throws {
             let data = Data((0 ..< 4096).map { UInt8($0 % 251) })
@@ -133,6 +163,7 @@
         private var position: UInt64 = 0
         private var closes = 0
         private var reads = 0
+        private var seeks = 0
 
         init(
             data: Data,
@@ -150,7 +181,12 @@
 
         var offset: UInt64 {
             get { lock.withLock { position } }
-            set { lock.withLock { position = newValue } }
+            set {
+                lock.withLock {
+                    seeks += 1
+                    position = newValue
+                }
+            }
         }
 
         var closeCount: Int {
@@ -159,6 +195,10 @@
 
         var readCount: Int {
             lock.withLock { reads }
+        }
+
+        var seekCount: Int {
+            lock.withLock { seeks }
         }
 
         var closed: Bool {

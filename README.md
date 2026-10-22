@@ -146,6 +146,9 @@ The caller still owns and closes the SFTP client. The media type is inferred fro
 `contentType: .mpeg4Movie` for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
 See the [User's Guide](Documentation/UserGuide.md#avfoundation-playback) for lifetime and error handling details.
 
+The [sample app](SampleApp/README.md) includes a SwiftUI player for macOS, iOS, and visionOS, using this checkout's
+local package. Open `SampleApp/SFTP+AV/MediaPlayerOverSFTP.xcodeproj` in Xcode to run it.
+
 ## Adding SwiftSFTP to your Project
 
 ### Swift Package Manager
