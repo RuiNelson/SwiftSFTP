@@ -187,6 +187,7 @@ let opensslTarget = Target.target(
 let libssh2ExcludedPaths = [
     // This target's root also contains other targets and their resources.
     "Sources/SwiftSFTP",
+    "Sources/SwiftSFTPAVFoundation",
     "Tests",
     "Documentation",
     "Scripts",
@@ -290,7 +291,20 @@ let swiftSFTPTarget = Target.target(
 
 let swiftSFTPTestsTarget = Target.testTarget(
     name: "SwiftSFTPTests",
-    dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"]
+    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation", "libssh2", "OpenSSLCrypto"]
+)
+
+let swiftSFTPAVFoundationTarget = Target.target(
+    name: "SwiftSFTPAVFoundation",
+    dependencies: [
+        "SwiftSFTP",
+        .product(name: "PathWorks", package: "PathWorks"),
+    ]
+)
+
+let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
+    name: "SwiftSFTPAVFoundationTests",
+    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
 )
 
 let package = Package(
@@ -311,11 +325,21 @@ let package = Package(
             type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
+        .library(
+            name: "SwiftSFTPAVFoundation",
+            type: .dynamic,
+            // Supply both modules through one product: linking the SwiftSFTP target
+            // through two dynamic products duplicates its code in Xcode's build graph.
+            targets: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
-    targets: [opensslTarget, libssh2Target, swiftSFTPTarget, swiftSFTPTestsTarget],
+    targets: [
+        opensslTarget, libssh2Target, swiftSFTPTarget, swiftSFTPAVFoundationTarget,
+        swiftSFTPTestsTarget, swiftSFTPAVFoundationTestsTarget,
+    ],
     swiftLanguageModes: [.v6]
 )

@@ -24,6 +24,17 @@ sources with SDK-private public linker names and hidden internal symbols.
 The standalone consumer runs in both Apple and Linux CI. The foreign-header shell
 check uses the macOS SDK and runs in Apple CI.
 
+## AVFoundation product (macOS, no server required)
+
+```sh
+swift test --package-path Tests/Packaging/AVFoundation --scratch-path /private/tmp/swiftsftp-avfoundation-consumer
+```
+
+This consumer depends on the `SwiftSFTPAVFoundation` product alone and imports both the core and media modules.
+The product includes both modules in one dynamic library. Selecting the core target through two separate dynamic
+products would duplicate SwiftSFTP and its dependencies in Xcode's build graph; the consumer catches packaging
+regressions that the library's own test targets cannot detect.
+
 ## Official MEGA artifact (iOS 27)
 
 `MEGACoexistence` consumes MEGA's official, checksum-pinned `libmega_25_12_12`

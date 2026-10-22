@@ -9,14 +9,15 @@ This guide walks through everything you need to integrate and use SwiftSFTP in y
 3. [Host Key Verification](#host-key-verification)
 4. [Navigating the Remote Filesystem](#navigating-the-remote-filesystem)
 5. [Working with Files](#working-with-files)
-6. [Uploading and Downloading](#uploading-and-downloading)
-7. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
-8. [Shell Agent (Server-Side Operations)](#shell-agent-server-side-operations)
-9. [Symlinks](#symlinks)
-10. [Filesystem Statistics](#filesystem-statistics)
-11. [Keeping the Connection Alive](#keeping-the-connection-alive)
-12. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
-13. [Error Handling](#error-handling)
+6. [AVFoundation Playback](#avfoundation-playback)
+7. [Uploading and Downloading](#uploading-and-downloading)
+8. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
+9. [Shell Agent (Server-Side Operations)](#shell-agent-server-side-operations)
+10. [Symlinks](#symlinks)
+11. [Filesystem Statistics](#filesystem-statistics)
+12. [Keeping the Connection Alive](#keeping-the-connection-alive)
+13. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
+14. [Error Handling](#error-handling)
 
 ---
 
@@ -497,6 +498,54 @@ try await file.set(
 // Truncate
 try await file.truncate(toSize: 0)
 ```
+
+---
+
+## AVFoundation Playback
+
+Use `.product(name: "SwiftSFTPAVFoundation", package: "SwiftSFTP")` as your target's dependency. It supplies both the
+`SwiftSFTP` and `SwiftSFTPAVFoundation` modules in one dynamic library. Import them alongside AVFoundation.
+The adapter is available on macOS 11+, iOS 14+, tvOS 14+, visionOS, and Mac Catalyst 14+.
+The SFTP library remains usable on watchOS, Linux, and Android; the AVFoundation adapter has no API on those platforms.
+
+Use an already authenticated client:
+
+```swift
+import AVFoundation
+import SwiftSFTP
+import SwiftSFTPAVFoundation
+
+let player = AVPlayer(playerItem: client.makePlayerItem(at: "/Videos/holiday.mp4"))
+player.play()
+
+// Or create an asset for metadata loading, AVAssetReader, or your own player item.
+let asset = client.makeAsset(
+    at: "/Videos/holiday.mp4",
+    options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+)
+```
+
+`makeAsset(at:contentType:options:)` and `makePlayerItem(at:contentType:)` are available on `SFTPClientProtocol`,
+including `SFTPClient` and protocol existentials. Construction performs no network I/O. AVFoundation opens the file
+read-only when it first loads the asset, then requests byte ranges as playback or seeking needs them. No local media
+file is created. All requests share one handle, with seek/read pairs serialized so concurrent requests cannot change
+each other's cursor. Reads are delivered in blocks of at most 64 KiB.
+
+The media type is inferred from a registered filename extension, ignoring case. Missing or unrecognized extensions
+fall back to `.movie`. Specify the format explicitly when needed:
+
+```swift
+let asset = client.makeAsset(at: "/Videos/extensionless", contentType: .mpeg4Movie)
+```
+
+The asset retains the client and shares its connection with your other operations. Keep the client logged in and
+open until playback and metadata loading finish. Releasing the asset, or the player item holding it, cancels pending
+requests and asynchronously closes the asset's handle. It does not close the client. Closing the client yourself makes
+subsequent media reads fail.
+
+Loading failures are reported through AVFoundation's normal asset loading errors and `AVPlayerItem.status == .failed`.
+AVFoundation preserves the mapped POSIX code in its underlying `NSPOSIXErrorDomain` error: `ENOENT` for a missing
+file, `EACCES` for denied access, `ENOTCONN` for a closed or unauthenticated client, and `ETIMEDOUT` for a timeout.
 
 ---
 
