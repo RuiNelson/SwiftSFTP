@@ -94,6 +94,12 @@ public extension SSHShellAgent {
                     return
                 }
 
+                // Nothing goes out behind a packet an interrupted write left half sent. When that packet cannot go out
+                // either, the client's teardown frees the channel with the session.
+                guard (try? client.finishInterruptedSend(slice: nil)) != nil else {
+                    return
+                }
+
                 try? ChannelSendEOF(channel: channel)
                 try? ChannelClose(channel: channel)
                 try? ChannelWaitClosed(channel: channel)
@@ -476,6 +482,9 @@ extension SSHShellAgent {
         try client.withSessionIO {
             try checkClosed()
 
+            // Under the ordinary timeout: the marker wait below has none.
+            try client.finishInterruptedSend(slice: nil)
+
             let previousTimeoutMs = SessionGetTimeout(session: client.session)
             // `0` means no blocking-call timeout in libssh2 (same as `operationsTimeOut: nil` / `.infinity`).
             SessionSetTimeout(session: client.session, timeoutMilliseconds: 0)
@@ -543,6 +552,7 @@ extension SSHShellAgent {
         try client.withSessionIO {
             try client.checkClosed()
             _ = try client.sftp
+            try client.finishInterruptedSend(slice: nil)
 
             let channel = try ChannelOpen(session: client.session, channelType: "session")
             do {

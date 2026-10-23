@@ -283,40 +283,115 @@ struct WriteAheadTests {
     @Test("a write cancelled while the server takes no data gives up after the grace period")
     func cancelledWithFullSocketGivesUp() async throws {
         let payload = offsetStampedPayload(byteCount: 16 * 1024 * 1024 + 5)
-        let gracePeriod = 0.5
 
         try await withStalledConnection(
             "write-ahead-give-up",
             megabytes: 1,
             stallAfterBytes: .max,
             operationsTimeOut: nil,
-            gracePeriod: gracePeriod,
+            gracePeriod: 0.5,
             receiveBufferSize: 64 * 1024
         ) { wedged in
-            let client = wedged.client
-            shrinkSendBuffer(of: client)
             let remotePath = wedged.remotePath + "-written"
-            let handle = try await client.openFile([.create, .write], path: remotePath, permissions: .serverDefault)
-
-            let baseline = wedged.proxy.relayedToServer
-            let write = Task { try await handle.write(payload) }
-            try await waitUntil { wedged.proxy.relayedToServer > baseline + 1024 * 1024 }
-            wedged.proxy.stallUploads()
-            try await Task.sleep(nanoseconds: 500_000_000)
-
-            let start = DispatchTime.now()
-            write.cancel()
-            let result = await write.result
-            let elapsed = start.millisecondsUntilNow
+            let (handle, result, elapsed) = try await giveUpOnHalfSentPacket(wedged, writing: payload, to: remotePath)
 
             #expect(throws: CancellationError.self) { try result.get() }
             #expect(elapsed >= 400, "cancellation took \(elapsed) ms; it should have tried for the grace period")
             #expect(elapsed < 2000, "cancellation took \(elapsed) ms; it should stop after the grace period")
-            #expect(client.withSessionIO { client.peerStoppedResponding })
+            #expect(wedged.client.withSessionIO { wedged.client.peerStoppedResponding })
 
-            // Nothing can be sent on this connection any more; the fixture drops it.
+            // The server never takes the packet; the fixture drops the connection.
             try? await handle.close()
             try? await withClient { try await $0.delete(path: remotePath) }
+        }
+    }
+
+    /// libssh2 sends nothing else until the packet is out, so the client keeps the call that can finish it and goes
+    /// back to it before its next call that sends. Without that, the connection could never send again, and an SFTP
+    /// request on the same channel would be credited with the stale packet's bytes instead of its own.
+    @Test("after giving up on a half-sent packet, the client finishes it once the server takes data again")
+    func halfSentPacketIsFinishedLater() async throws {
+        let payload = offsetStampedPayload(byteCount: 16 * 1024 * 1024 + 5)
+
+        try await withStalledConnection(
+            "write-ahead-half-sent-recovery",
+            megabytes: 1,
+            stallAfterBytes: .max,
+            operationsTimeOut: nil,
+            gracePeriod: 0.5,
+            receiveBufferSize: 64 * 1024
+        ) { wedged in
+            let client = wedged.client
+            let remotePath = wedged.remotePath + "-written"
+            let (handle, result, _) = try await giveUpOnHalfSentPacket(wedged, writing: payload, to: remotePath)
+            #expect(throws: CancellationError.self) { try result.get() }
+
+            // A seek would drop the request whose packet is half sent, so the position moves once the packet is out.
+            handle.offset = 0
+            #expect(handle.offset == 0)
+
+            wedged.proxy.resumeUploads()
+
+            let partial = try await client.stat(path: remotePath)
+            #expect(partial.map { $0.attributes.fileSize ?? 0 < UInt64(payload.count) } == true)
+            #expect(client.withSessionIO { client._interruptedSend == nil && !client.peerStoppedResponding })
+
+            #expect(try await handle.write(payload) == payload.count)
+            #expect(handle.offset == UInt64(payload.count))
+            try await handle.close()
+            #expect(try await client.stat(path: remotePath)?.attributes.fileSize == UInt64(payload.count))
+            #expect(try await remoteContents(remotePath) == payload)
+        }
+    }
+
+    /// Each call that cannot send the packet waits for the socket to take data, under the new call's own budget.
+    @Test("a call behind a half-sent packet times out while the server takes no data, without spinning")
+    func halfSentPacketTimesOutWithoutSpinning() async throws {
+        let payload = offsetStampedPayload(byteCount: 16 * 1024 * 1024 + 5)
+        let operationsTimeOut = 2.0
+
+        try await withStalledConnection(
+            "write-ahead-half-sent-timeout",
+            megabytes: 1,
+            stallAfterBytes: .max,
+            operationsTimeOut: operationsTimeOut,
+            gracePeriod: 0.5,
+            receiveBufferSize: 64 * 1024
+        ) { wedged in
+            let client = wedged.client
+            let remotePath = wedged.remotePath + "-written"
+            let (handle, result, _) = try await giveUpOnHalfSentPacket(wedged, writing: payload, to: remotePath)
+            #expect(throws: CancellationError.self) { try result.get() }
+
+            // A plain blocking call, timed on the thread that runs it.
+            let (outcome, elapsed, cpu) = client.withSessionIO {
+                let start = DispatchTime.now()
+                let cpuStart = threadCPUNanoseconds()
+                let outcome = Result {
+                    try client.runSFTPCall(.stat) {
+                        try SFTPStat(sftp: client.sftp, path: remotePath, statType: .stat)
+                    }
+                }
+                return (outcome, start.millisecondsUntilNow, Int((threadCPUNanoseconds() - cpuStart) / 1_000_000))
+            }
+            #expect(isTimeout(outcome), "expected a timeout, got \(outcome)")
+            #expect(elapsed >= 1900, "the call gave up after \(elapsed) ms, before its own timeout")
+            #expect(elapsed < 4000, "the call took \(elapsed) ms; it should time out after its own timeout")
+            #expect(cpu < elapsed / 4, "the call used \(cpu) ms of CPU in \(elapsed) ms: it spun")
+
+            // A cancellable call, through the slicer.
+            let start = DispatchTime.now()
+            let sliced = await Result { try await handle.stat }
+            #expect(isTimeout(sliced), "expected a timeout, got \(sliced)")
+            #expect(start.millisecondsUntilNow >= 1900)
+
+            wedged.proxy.resumeUploads()
+
+            let position = Int(handle.offset)
+            #expect(try await handle.write(payload[position...]) == payload.count - position)
+            try await handle.close()
+            #expect(try await client.stat(path: remotePath)?.attributes.fileSize == UInt64(payload.count))
+            #expect(try await remoteContents(remotePath) == payload)
         }
     }
 }
@@ -334,6 +409,44 @@ private extension WriteAheadTests {
             try await verifier.delete(path: remotePath)
         }
         return contents
+    }
+
+    /// Starts writing `payload` to `remotePath`, stops the server taking data once the client's socket has filled, and
+    /// cancels the write, which gives up on the packet it had half sent after the grace period.
+    ///
+    /// - Returns: The open handle, the write's outcome, and how long the cancellation took in milliseconds.
+    func giveUpOnHalfSentPacket(
+        _ wedged: StalledConnection,
+        writing payload: Data,
+        to remotePath: String
+    ) async throws -> (handle: any SFTPFileProtocol, result: Result<Int, any Error>, elapsed: Int) {
+        shrinkSendBuffer(of: wedged.client)
+        let handle = try await wedged.client.openFile([.create, .write], path: remotePath, permissions: .serverDefault)
+
+        let baseline = wedged.proxy.relayedToServer
+        let write = Task { try await handle.write(payload) }
+        try await waitUntil { wedged.proxy.relayedToServer > baseline + 1024 * 1024 }
+        wedged.proxy.stallUploads()
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let start = DispatchTime.now()
+        write.cancel()
+        let result = await write.result
+        return (handle, result, start.millisecondsUntilNow)
+    }
+
+    func isTimeout(_ result: Result<some Any, any Error>) -> Bool {
+        guard case let .failure(error) = result, case .timeout = error as? LibSSH2Error else {
+            return false
+        }
+        return true
+    }
+
+    /// CPU time the calling thread has used.
+    func threadCPUNanoseconds() -> UInt64 {
+        var time = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
+        return UInt64(time.tv_sec) * 1_000_000_000 + UInt64(time.tv_nsec)
     }
 
     /// Polls `condition` until it holds, for up to 30 seconds.

@@ -75,11 +75,14 @@ struct CancellationTests {
 
     /// The upload counterpart. A retry that replayed a whole chunk loop instead of the single libssh2 call would
     /// rewrite bytes at an already-advanced remote offset, so this checks content, not just length.
+    ///
+    /// An upload only hears acknowledgements back, far too few bytes to spend a server-to-client budget before it ends,
+    /// so the proxy goes silent on cue instead.
     @Test("an upload survives a stall and lands byte-exact once the server answers")
     func stallDoesNotCorruptAnUpload() async throws {
         try await withStalledConnection(
             "stall-and-recover-upload",
-            stallAfterBytes: 128 * 1024,
+            stallAfterBytes: .max,
             operationsTimeOut: nil
         ) { wedged in
             let source = try temporaryFile(containing: wedged.payload)
@@ -90,13 +93,17 @@ struct CancellationTests {
 
             let upload = Task {
                 try await wedged.client.upload(from: source, to: uploadPath, bufferSize: 32768) { completed, _, _, _ in
-                    progress.record(completed)
+                    await progress.recordHoldingFirstReport(completed)
                     return true
                 }
             }
 
+            // The first report is held, so the upload is still running when the server goes quiet.
+            try await progress.waitUntilStarted()
+            wedged.proxy.stall()
             try await progress.waitUntilStalled()
             try await Task.sleep(nanoseconds: 2_000_000_000)
+            #expect(progress.completed < Int64(wedged.payload.count), "the upload finished without stalling")
             wedged.proxy.resume()
 
             try await upload.value
@@ -245,6 +252,11 @@ final class TransferProgressProbe: @unchecked Sendable {
         let isFirst = !_heldFirstReport
         _heldFirstReport = true
         return isFirst
+    }
+
+    /// Bytes reported so far.
+    var completed: Int64 {
+        snapshot.completed
     }
 
     /// Current progress and how long ago it last moved.

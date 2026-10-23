@@ -38,6 +38,7 @@ extension SFTPClient {
         try withSessionIO {
             try checkClosed()
             _ = try sftp
+            try finishInterruptedSend(slice: nil)
 
             let channel = try ChannelOpen(session: session, channelType: "session")
             defer {
