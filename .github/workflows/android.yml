@@ -25,6 +25,12 @@ jobs:
         with:
           submodules: recursive
 
+      # setup-swift verifies the Swiftly download before Swiftly can import these keys itself.
+      - name: Import Swift signing keys
+        run: |
+          set -o pipefail
+          curl --fail --silent --show-error --location --retry 3 https://www.swift.org/keys/all-keys.asc | gpg --batch --import
+
       - name: Setup Swift
         uses: swift-actions/setup-swift@v3
         with:
