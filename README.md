@@ -232,9 +232,15 @@ consumer test and the optional official MEGA artifact check.
 On a Wi-Fi network, SwiftSFTP uploaded a 100 MiB file 5.3× faster and downloaded it 2.8× faster than
 [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift SFTP library, over a single
 connection. Much of that gap comes from how the two clients use the connection: SwiftSFTP keeps up to
-2 MiB of data in flight per connection, while Citadel waits for each request to be answered before
-sending the next. The numbers below show the difference; the rest of the section explains when it
-matters — and when adding connections does not help.
+2 MiB of data in flight per connection, while the Citadel transfer path used in this benchmark waits
+for each request to be answered before sending the next. The numbers below show the difference; the
+rest of the section explains when it matters — and when adding connections does not help.
+
+Citadel can achieve transfer speeds comparable to SwiftSFTP, but doing so requires substantial
+implementation and tuning effort from the library's consumer. SwiftSFTP provides request pipelining
+and its default 2 MiB read-ahead and write-ahead windows out of the box through `upload` / `download`,
+so consumers get these optimizations without having to implement them themselves. These benchmarks
+compare the transfer paths used here; they do not establish Citadel's maximum achievable throughput.
 
 <p>
   <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 5.05 MiB/s (baseline), SwiftSFTP 1 worker 26.55 MiB/s (+426%), SwiftSFTP 2 workers 25.29 MiB/s (+401%), SwiftSFTP 2 workers resumable 24.96 MiB/s (+394%)" width="49%" />
