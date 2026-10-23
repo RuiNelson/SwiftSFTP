@@ -42,9 +42,6 @@ public final class SFTPClient: SFTPClientProtocol {
     let sessionIOLock = NSRecursiveLock()
     /// Whether the last blocking call gave up waiting for the peer. Guarded by `sessionIOLock`.
     nonisolated(unsafe) var _peerStoppedResponding = false
-    /// Whether the last libssh2 read call ended unfinished, which can leave libssh2's read state, shared by every
-    /// handle, mid-call. Guarded by `sessionIOLock`. See ``recoveringAbandonedRead(_:)``.
-    nonisolated(unsafe) var _readLeftUnfinished = false
     /// Serial queue that owns blocking libssh2 calls made from `async` code, keeping them off the Swift cooperative
     /// pool. See ``withCancellableSessionIO(_:)``.
     let sessionIOQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPClient.SessionIO")

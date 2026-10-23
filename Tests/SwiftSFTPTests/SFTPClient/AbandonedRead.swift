@@ -2,10 +2,11 @@
 import Foundation
 import Testing
 
-/// libssh2 keeps one read state machine per SFTP session, not per handle. A read call given up while it waits for the
-/// server, because the task was cancelled or the timeout budget ran out, leaves that machine mid-call. A seek drops the
-/// abandoned call's requests but not that state, so the next read on a handle with nothing in flight resumed a call
-/// with nothing left to wait for, and failed with `sftp_read() internal error`.
+/// Upstream libssh2 keeps one read state machine per SFTP session, not per handle. A read call given up while it waits
+/// for the server, because the task was cancelled or the timeout budget ran out, leaves that machine mid-call. A seek
+/// drops the abandoned call's requests but not that state, so the next read on a handle with nothing in flight resumed
+/// a call with nothing left to wait for, and failed with `sftp_read() internal error`. The generated
+/// `Sources/libssh2/sftp.c` keeps the state per handle and resets it on seek.
 @Suite("SFTPClient: Abandoned Reads", .serialized)
 struct AbandonedReadTests {
     /// Server-to-client bytes the proxy relays before it goes silent: login plus about a quarter of the file.
