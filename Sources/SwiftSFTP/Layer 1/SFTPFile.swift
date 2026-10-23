@@ -115,7 +115,9 @@ public extension SFTPFile {
 
                 let bytesToRead = min(bytesLeft, Self.size32kB)
 
-                let chunk = try slice { try SFTPRead(handle: handle, maximumLength: bytesToRead) }
+                let chunk = try parent.recoveringAbandonedRead {
+                    try slice { try SFTPRead(handle: handle, maximumLength: bytesToRead) }
+                }
                 guard chunk.isEmpty == false else {
                     break
                 }
