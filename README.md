@@ -194,8 +194,7 @@ For AVFoundation playback, select `SwiftSFTPAVFoundation` as the product; it inc
 
 ### Source distribution
 
-SwiftSFTP includes no precompiled libraries or XCFrameworks. SwiftPM builds libssh2
-and the prepared OpenSSL C sources for the destination platform and architecture.
+SwiftPM builds libssh2 and the prepared OpenSSL C sources for the destination platform and architecture.
 Consumers need neither system OpenSSL nor Perl/Make, build plugins, or an SDK signing
 certificate. Xcode signs the built product as part of the application's normal signing.
 The first build compiles OpenSSL; subsequent builds are incremental.
