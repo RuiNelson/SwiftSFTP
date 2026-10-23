@@ -43,8 +43,9 @@ struct SessionIOSlicer {
     /// Milliseconds a single blocking call may run before control returns here.
     let sliceMilliseconds: Int
 
-    /// When the originally configured `operationsTimeOut` budget runs out, or `nil` for no blocking timeout.
-    let deadline: DispatchTime?
+    /// The originally configured `operationsTimeOut` in milliseconds, which each call gets in full, or `nil` for no
+    /// blocking timeout.
+    let timeoutMilliseconds: Int?
 
     /// Whether the session timeout was short enough that the call is already its own slice.
     let slicingDisabled: Bool
@@ -59,6 +60,10 @@ struct SessionIOSlicer {
         guard !slicingDisabled else {
             return try call()
         }
+
+        // libssh2 gives every call the whole timeout, and so does this: an operation made of many calls that each make
+        // progress is not cut short for taking longer than one timeout in total.
+        let deadline = timeoutMilliseconds.map { DispatchTime.now() + .milliseconds($0) }
 
         while true {
             do {
@@ -93,10 +98,10 @@ extension SFTPClient {
     /// The work runs on the client's serial session-I/O queue, under the same lock as ``withSessionIO(_:)``, so libssh2
     /// still sees one call at a time. For the duration, the session's blocking timeout is lowered to
     /// ``cancellationPollIntervalMilliseconds``; every libssh2 call the operation makes through the supplied
-    /// ``SessionIOSlicer`` is then re-entered slice by slice until it completes, the task is cancelled, or the
-    /// originally configured timeout budget is spent. Nothing about the connection changes: the socket, the SSH
-    /// session, and the SFTP state machine are exactly as libssh2 left them, so an expired slice is indistinguishable
-    /// from a call that simply had not finished yet.
+    /// ``SessionIOSlicer`` is then re-entered slice by slice until it completes, the task is cancelled, or the call has
+    /// waited as long as the originally configured timeout allows. Nothing about the connection changes: the socket,
+    /// the SSH session, and the SFTP state machine are exactly as libssh2 left them, so an expired slice is
+    /// indistinguishable from a call that simply had not finished yet.
     ///
     /// - Parameter operation: Blocking work to run. Every libssh2 call it makes must go through the slicer.
     /// - Returns: The operation's result.
@@ -167,9 +172,7 @@ private extension SFTPClient {
             let slicer = SessionIOSlicer(
                 token: token,
                 sliceMilliseconds: slice,
-                deadline: configuredMilliseconds > 0
-                    ? DispatchTime.now() + .milliseconds(configuredMilliseconds)
-                    : nil,
+                timeoutMilliseconds: configuredMilliseconds > 0 ? configuredMilliseconds : nil,
                 slicingDisabled: slicingDisabled
             )
 

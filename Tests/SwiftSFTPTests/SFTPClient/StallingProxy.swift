@@ -17,7 +17,9 @@ final class StallingProxy: @unchecked Sendable {
     private var _running = true
     private var _openSockets: [Int32] = []
     private var _relayedToClient = 0
+    private var _relayedToServer = 0
     private var _stallAfterBytes: Int
+    private var _uploadsStalled = false
 
     /// Starts listening on an ephemeral loopback port.
     ///
@@ -25,7 +27,9 @@ final class StallingProxy: @unchecked Sendable {
     ///   - targetPort: Port of the real SSH server to relay to on `127.0.0.1`.
     ///   - stallAfterBytes: Total server-to-client bytes to relay before going silent. Must be comfortably larger than
     /// the SSH handshake so the stall lands inside the SFTP transfer.
-    init(forwardingToPort targetPort: Int, stallAfterBytes: Int) throws {
+    ///   - receiveBufferSize: Kernel receive buffer for the client's connection, or `nil` for the system default. A
+    /// small one makes the client's socket fill up soon after ``stallUploads()``.
+    init(forwardingToPort targetPort: Int, stallAfterBytes: Int, receiveBufferSize: Int? = nil) throws {
         self.targetPort = targetPort
         _stallAfterBytes = stallAfterBytes
 
@@ -36,6 +40,12 @@ final class StallingProxy: @unchecked Sendable {
 
         var reuse: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
+        // Accepted connections inherit the listening socket's buffer size.
+        if let receiveBufferSize {
+            var size = Int32(receiveBufferSize)
+            setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        }
 
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
@@ -82,10 +92,39 @@ final class StallingProxy: @unchecked Sendable {
         return _relayedToClient
     }
 
+    /// Client-to-server bytes relayed so far.
+    var relayedToServer: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _relayedToServer
+    }
+
+    /// Goes silent in the server-to-client direction now, as if the server had stopped answering at this point.
+    func stall() {
+        lock.lock()
+        _stallAfterBytes = _relayedToClient
+        lock.unlock()
+    }
+
     /// Lets the relayed data flow again, as if the server had finally answered the pending requests.
     func resume() {
         lock.lock()
         _stallAfterBytes = Int.max
+        lock.unlock()
+    }
+
+    /// Stops reading what the client sends, as if the server had stopped taking data: the client's writes pile up in
+    /// kernel buffers until its socket is full.
+    func stallUploads() {
+        lock.lock()
+        _uploadsStalled = true
+        lock.unlock()
+    }
+
+    /// Relays what the client sends again.
+    func resumeUploads() {
+        lock.lock()
+        _uploadsStalled = false
         lock.unlock()
     }
 
@@ -138,6 +177,12 @@ private extension StallingProxy {
         lock.lock()
         defer { lock.unlock() }
         return _relayedToClient >= _stallAfterBytes
+    }
+
+    var uploadsStalled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _uploadsStalled
     }
 
     func track(_ descriptor: Int32) -> Bool {
@@ -197,12 +242,13 @@ private extension StallingProxy {
     }
 
     /// Relays bytes one way. The stalling direction stops reading once the byte budget is spent, so the peer's data
-    /// piles up in kernel buffers and the client simply never hears anything again.
+    /// piles up in kernel buffers and the client simply never hears anything again. The other direction stops reading
+    /// while uploads are stalled.
     func pump(from source: Int32, to destination: Int32, stalling: Bool) {
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
 
         while running {
-            if stalling, isStalled {
+            if stalling ? isStalled : uploadsStalled {
                 usleep(20000)
                 continue
             }
@@ -212,11 +258,14 @@ private extension StallingProxy {
                 return
             }
 
+            lock.lock()
             if stalling {
-                lock.lock()
                 _relayedToClient += received
-                lock.unlock()
             }
+            else {
+                _relayedToServer += received
+            }
+            lock.unlock()
 
             var sent = 0
             while sent < received {
@@ -261,6 +310,7 @@ func withStalledConnection(
     stallAfterBytes: Int = 512 * 1024,
     operationsTimeOut: TimeInterval?,
     gracePeriod: TimeInterval? = nil,
+    receiveBufferSize: Int? = nil,
     _ body: (StalledConnection) async throws -> Void
 ) async throws {
     let payload = testPayload(megabytes: megabytes)
@@ -280,7 +330,11 @@ func withStalledConnection(
     let (proxy, client): (StallingProxy, SFTPClient)
     do {
         (proxy, client) = try await retryingTransientConnectionFailure {
-            let proxy = try StallingProxy(forwardingToPort: TS.port, stallAfterBytes: stallAfterBytes)
+            let proxy = try StallingProxy(
+                forwardingToPort: TS.port,
+                stallAfterBytes: stallAfterBytes,
+                receiveBufferSize: receiveBufferSize
+            )
             let client = try SFTPClient(
                 openSocketIn: TCPLocation(hostname: "127.0.0.1", port: proxy.port),
                 operationsTimeOut: operationsTimeOut,

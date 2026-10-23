@@ -50,13 +50,16 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Writes data at the current file position.
     ///
-    /// The concrete implementation splits writes into chunks of at most 32 KiB. Because libssh2 may accept short
-    /// writes, the returned value is the number of bytes actually accepted before completion or before a zero-byte
-    /// write makes no forward progress.
+    /// The concrete implementation keeps up to ``SFTPClientProtocol/writeAhead`` bytes on their way to the server and
+    /// returns once the server has acknowledged every byte, so the pipeline empties at the end of each call: larger
+    /// calls keep the connection busier. The returned value is the number of bytes acknowledged; a write that stops
+    /// making progress before acknowledging all of `data` throws ``FileTransferErrors/shortWrite(expected:actual:)``.
     ///
     /// The concrete implementation honors Swift task cancellation even while the server has gone silent, without
-    /// waiting out `operationsTimeOut`. A cancelled write throws `CancellationError` after leaving whatever chunks it
-    /// already sent on the remote file, so the remote size is the resume point.
+    /// waiting out `operationsTimeOut`. A cancelled write throws `CancellationError` after leaving whatever requests it
+    /// already sent on their way to the remote file, so the remote size, rather than ``offset``, is the resume point.
+    /// When cancellation lands while the socket is full, libssh2 first finishes sending the packet it had started, for
+    /// at most ``SFTPClientProtocol/teardownGracePeriod``: any other packet sent before it would corrupt the session.
     ///
     /// - Parameter data: Bytes to write.
     /// - Returns: Number of bytes accepted by libssh2.

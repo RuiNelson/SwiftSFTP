@@ -108,7 +108,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, teardown grace period, read-ahead, logger, and deinitialization behavior.
+    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, logger, and deinitialization
+    /// behavior.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
@@ -171,6 +172,22 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Values are clamped to 128 KiB...8 MiB, the most libssh2 keeps in flight for one handle. A client created by
     /// ``fork(loggedIn:)`` inherits the current value.
     var readAhead: Int { get set }
+
+    /// Bytes a file write keeps on their way to the server ahead of its acknowledgements. Defaults to 2 MiB, what
+    /// OpenSSH's `sftp` keeps in flight (64 requests of 32 KiB).
+    ///
+    /// One connection uploads at most this much per round trip: 2 MiB caps an upload near 70 MB/s at 30 ms of latency
+    /// and 21 MB/s at 100 ms. The SSH channel window the server grants caps it as well, whatever this value: OpenSSH
+    /// grants 2 MiB. ``SFTPFileProtocol/write(_:)`` still returns only once every byte is acknowledged, so the pipeline
+    /// empties at the end of each call: write several times this value per call to keep the connection busy, as the
+    /// upload conveniences do by default.
+    ///
+    /// Requests already sent cannot be taken back. A cancelled write leaves up to this many bytes on their way to the
+    /// remote file, so its size, rather than the handle's position, is the resume point.
+    ///
+    /// Values are clamped to 32 KiB...8 MiB. The lower bound is what a write kept in flight before this setting
+    /// existed. A client created by ``fork(loggedIn:)`` inherits the current value.
+    var writeAhead: Int { get set }
 
     /// Negotiated compression in each direction, or `(.none, .none)` before handshake or after closing the client.
     ///
