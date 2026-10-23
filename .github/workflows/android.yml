@@ -27,9 +27,21 @@ jobs:
 
       # setup-swift verifies the Swiftly download before Swiftly can import these keys itself.
       - name: Import Swift signing keys
+        # swift.org sometimes answers runners with a page that is not the key block, so check what arrived and fall
+        # back to the swift-org-website repository, which publishes the same file.
         run: |
-          set -o pipefail
-          curl --fail --silent --show-error --location --retry 3 https://www.swift.org/keys/all-keys.asc | gpg --batch --import
+          for url in \
+            https://www.swift.org/keys/all-keys.asc \
+            https://raw.githubusercontent.com/swiftlang/swift-org-website/main/keys/all-keys.asc; do
+            if curl --fail --silent --show-error --location --retry 3 --output all-keys.asc "$url" \
+              && grep --quiet -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' all-keys.asc; then
+              gpg --batch --import all-keys.asc
+              rm all-keys.asc
+              exit 0
+            fi
+            echo "::warning::No Swift signing keys at $url"
+          done
+          exit 1
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v3
