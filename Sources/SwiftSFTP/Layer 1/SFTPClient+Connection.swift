@@ -227,6 +227,7 @@ public extension SFTPClient {
             instance.loginTimeOut = loginTimeOut
             instance._teardownGracePeriod = teardownGracePeriod
             instance._readAhead = readAhead
+            instance._writeAhead = writeAhead
         }
 
         guard loggedIn else {

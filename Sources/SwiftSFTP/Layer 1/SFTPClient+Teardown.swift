@@ -142,6 +142,11 @@ extension SFTPClient {
             try? ShutdownSocket(socket)
         }
 
+        // Except after a call gave up halfway through sending a packet: libssh2 then answers every other packet with
+        // `EAGAIN` before touching the socket, and would retry against the dead descriptor until the timeout ran out.
+        // One millisecond ends that, at the cost of leaking what those calls could not free.
+        SessionSetTimeout(session: session, timeoutMilliseconds: 1)
+
         reclaim(resources, sftpSessionAlreadyShutDown: sftpSessionShutDown)
 
         var firstError: Error?

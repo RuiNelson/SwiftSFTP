@@ -74,7 +74,7 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | Parameter | Type | Default | Notes |
 |-----------|------|---------|-------|
 | `openSocketIn` | `TCPLocation` | — | Server address |
-| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout per operation; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
+| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout for each blocking libssh2 call; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
 | `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; must be positive and finite (`.infinity` is rejected) |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
@@ -499,6 +499,26 @@ where your reads stop, pass that offset as `readAheadLimit`, as the transfer con
 `readAhead` per second, closing a handle right after cancelling its read can outlast `teardownGracePeriod`: lower
 `readAhead` or raise `teardownGracePeriod`. Forks inherit the value.
 
+### Write-ahead
+
+Writes keep requests on their way to the server ahead of its acknowledgements, so an upload is not limited to one
+32 KiB request per round trip. `client.writeAhead` sets how many bytes: 2 MiB by default, the same as OpenSSH's `sftp`,
+and anything from 32 KiB to 8 MiB. The SSH channel window the server grants caps it as well; OpenSSH grants 2 MiB.
+
+`write(_:)` still returns only once the server has acknowledged every byte, so each call ends with the pipeline empty.
+Write several times `writeAhead` per call to keep the connection busy. The upload conveniences read 8 MiB per step by
+default for that reason; at 30 ms of latency that is about 40 MB/s on one connection, where a 32 KiB write managed 1.
+
+```swift
+client.writeAhead = 8 * 1024 * 1024        // distant, fast server with a wider window than OpenSSH's
+try await file.write(largeData)            // one call keeps the pipeline full until the last bytes
+```
+
+Requests already sent cannot be taken back: a cancelled write leaves up to `writeAhead` bytes on their way to the
+remote file, so the remote size, not the handle's position, is where to resume. When the cancellation lands while the
+socket is full, the write first finishes sending the packet libssh2 had started, for at most `teardownGracePeriod`,
+because any other packet sent before it would corrupt the session. Forks inherit the value.
+
 ### File attributes
 
 ```swift
@@ -613,7 +633,7 @@ let localFile = URL(filePath: "/Users/alice/Documents/archive.zip")
 try await client.upload(
     from: localFile,
     to: "/home/alice/backups/archive.zip",
-    bufferSize: 512 * 1024
+    bufferSize: 8 * 1024 * 1024    // the default; each step ends with one round trip, so keep it large
 ) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
     let percent = Double(bytesTransferred) * 100 / Double(totalBytes)
     let speed   = Double(lastChunkBytes) / lastChunkInterval    // bytes/sec
@@ -652,7 +672,6 @@ try await client.multiUpload(
     from: localFile,
     to: "/home/alice/backups/archive.zip",
     workers: 4,
-    bufferSize: 1024 * 1024,
     resume: .ifPossible
 ) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
     return true
@@ -690,7 +709,6 @@ try await client.multiUpload(
     from: localFile,
     to: "/home/alice/backups/archive.zip",
     workers: 4,
-    bufferSize: 1024 * 1024,
     resume: .ifPossible
 ) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
     let percent = Double(bytesTransferred) * 100 / Double(totalBytes)
@@ -843,7 +861,7 @@ What a cancelled transfer leaves behind:
 | | |
 |---|---|
 | Downloads | Chunks already received are flushed to the local file before the error surfaces. |
-| Uploads | Chunks already sent stay on the remote file; its size is the resume point for `resume: true`. |
+| Uploads | Requests already sent still reach the remote file; its size is the resume point for `resume: true`. A write cut short with a packet half sent first finishes sending it, for at most `teardownGracePeriod`. |
 | Remote file position | Advanced by whatever was actually transferred, so the handle stays consistent. |
 | The session | Untouched. If the server recovers, the connection is still usable. |
 

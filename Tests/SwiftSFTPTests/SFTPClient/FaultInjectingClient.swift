@@ -115,6 +115,11 @@ final class FaultInjectingClient: SFTPClientProtocol {
         set { base.readAhead = newValue }
     }
 
+    var writeAhead: Int {
+        get { base.writeAhead }
+        set { base.writeAhead = newValue }
+    }
+
     var compression: (clientToServer: CompressionAlgorithm, serverToClient: CompressionAlgorithm) {
         base.compression
     }

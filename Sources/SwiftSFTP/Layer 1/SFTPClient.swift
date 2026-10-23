@@ -37,6 +37,8 @@ public final class SFTPClient: SFTPClientProtocol {
     nonisolated(unsafe) var _teardownGracePeriod: TimeInterval = 1.0
     /// Backing storage for ``readAhead``. Protected by `internalStateQueue`.
     nonisolated(unsafe) var _readAhead: Int = SFTPClient.defaultReadAhead
+    /// Backing storage for ``writeAhead``. Protected by `internalStateQueue`.
+    nonisolated(unsafe) var _writeAhead: Int = SFTPClient.defaultWriteAhead
 
     // MARK: Concurrency
 

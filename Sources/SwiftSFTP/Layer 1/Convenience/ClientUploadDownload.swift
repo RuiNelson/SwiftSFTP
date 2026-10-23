@@ -19,7 +19,9 @@ public extension SFTPClientProtocol {
     ///   - remotePath: Remote file path to create.
     ///   - resume: When `true`, resume an interrupted upload by continuing from the existing remote file's size, if one
     /// exists.
-    ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
+    ///   - bufferSize: Maximum local read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the remote file.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
     /// - Throws: `CancellationError` when the calling task is cancelled; ``FileTransferErrors`` for invalid local
@@ -29,7 +31,7 @@ public extension SFTPClientProtocol {
         from localURL: URL,
         to remotePath: String,
         resume: Bool = false,
-        bufferSize: Int = 512 * 1024,
+        bufferSize: Int = 8 * 1024 * 1024,
         permissions: POSIXPermissions = [.serverDefault],
         continuation: @escaping TransferProgress
     ) async throws {

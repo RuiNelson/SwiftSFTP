@@ -186,7 +186,9 @@ extension SFTPClientProtocol {
     ///   - localURL: Local file URL to upload.
     ///   - remotePath: Remote file path to create.
     ///   - workers: Maximum number of parallel connections. Values below one use one worker.
-    ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
+    ///   - bufferSize: Maximum local read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the temporary file.
     ///   - doNotResume: When `true`, any existing partial file is deleted before it is read, and the upload starts from
     /// zero.
@@ -205,7 +207,7 @@ extension SFTPClientProtocol {
         from localURL: URL,
         to remotePath: String,
         workers: Int = 2,
-        bufferSize: Int = 1024 * 1024,
+        bufferSize: Int = 8 * 1024 * 1024,
         permissions: POSIXPermissions = [.serverDefault],
         doNotResume: Bool = false,
         continuation: @escaping TransferProgress
