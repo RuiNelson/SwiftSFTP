@@ -243,6 +243,73 @@
             #expect(file.closeCount == 1)
         }
 
+        @Test(
+            "a finished or cancelled demand releases its worker for a distant read",
+            .timeLimit(.minutes(1)),
+            arguments: [true, false]
+        )
+        func cancelledDemandReleasesWorker(cancelWhileWaiting: Bool) async throws {
+            let data = mediaTestData(count: 16 * stripeBytes)
+            let blockedStart = cancelWhileWaiting ? 0 : pieceBytes
+            let file = StubMediaFile(data: data, blockedOffsets: blockedStart ..< stripeBytes)
+            let source = makeSource([StubOpener(file)], readAheadSize: 0)
+            let first = Task { try await source.read(at: 0, upTo: 2, reader: 1) }
+            try await waitForMedia("the first demand did not start") { file.blockedReadCount == 1 }
+            if cancelWhileWaiting {
+                first.cancel()
+                await #expect(throws: CancellationError.self) { try await first.value }
+            }
+            else {
+                #expect(try await first.value == data.prefix(2))
+            }
+
+            let offset = 12 * stripeBytes
+            let distant = Task { try await source.read(at: Int64(offset), upTo: 2, reader: 2) }
+            do {
+                try await waitForMedia("the cancelled demand still owns the worker") {
+                    file.readStarts.contains(offset)
+                }
+                #expect(try await distant.value == data[offset ..< offset + 2])
+                #expect(file.cancelledReadCount == 1)
+            }
+            catch {
+                await source.close()
+                _ = await distant.result
+                throw error
+            }
+            await source.close()
+        }
+
+        @Test("zero read-ahead stops at the end of the stripe being read")
+        func zeroReadAheadStopsAtStripeBoundary() async throws {
+            let data = mediaTestData(count: 16 * stripeBytes)
+            let file = StubMediaFile(data: data)
+            let source = makeSource([StubOpener(file)], readAheadSize: 0, chunkSize: stripeBytes)
+
+            #expect(try await source.read(at: 0, upTo: stripeBytes, reader: 1) == data.prefix(stripeBytes))
+            try await waitForMedia("the source did not settle") { await source.busyWorkerCount == 0 }
+            let bytesRead = file.bytesRead
+            await source.close()
+            #expect(bytesRead == stripeBytes, "Zero read-ahead must not fetch the following stripe")
+        }
+
+        @Test("demand-only seeks keep the stripe cache within its budget")
+        func demandOnlySeeksKeepCacheBounded() async throws {
+            let data = mediaTestData(count: 32 * stripeBytes)
+            let file = StubMediaFile(data: data)
+            let source = makeSource([StubOpener(file)], readAheadSize: 0)
+
+            for index in 0 ..< 12 {
+                // Stop inside each stripe: crossing its end would also schedule the next stripe's prefetch.
+                let offset = index * stripeBytes + 1
+                let received = try await source.read(at: Int64(offset), upTo: 2, reader: UInt64(index + 1))
+                #expect(received == data[offset ..< offset + 2])
+                try await waitForMedia("the source did not settle") { await source.busyWorkerCount == 0 }
+                #expect(await source.reservedByteCount <= Int64(stripeBytes))
+            }
+            await source.close()
+        }
+
         @Test("a failed stat closes its handle and a later request retries opening")
         func failedPreparationRetries() async throws {
             let failed = StubMediaFile(data: Data(), statError: LibSSH2Error.sftp(status: .failure))

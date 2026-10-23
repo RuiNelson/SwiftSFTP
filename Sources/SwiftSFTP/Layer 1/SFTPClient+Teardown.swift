@@ -51,8 +51,8 @@ extension SFTPClient {
 
     /// Records a file handle whose `SSH_FXP_CLOSE` gave up waiting for the server.
     ///
-    /// libssh2 only unlinks and frees a handle once the `SSH_FXP_STATUS` reply arrives, so a timed-out close leaves
-    /// the handle — and the read requests still queued on it — owned by libssh2 with nothing left pointing at them.
+    /// libssh2 only unlinks and frees a handle once the `SSH_FXP_STATUS` reply arrives, so a timed-out close leaves the
+    /// handle — and the read requests still queued on it — owned by libssh2 with nothing left pointing at them.
     /// ``close()`` reclaims them after it drops the socket; see `reclaim(_:sftpSessionAlreadyShutDown:)`.
     ///
     /// - Parameter handle: The handle ``SFTPFile/close()`` could not close.
@@ -123,9 +123,6 @@ extension SFTPClient {
                 try finishInterruptedSend(slice: nil)
             }
         }
-        // Nothing may finish it once the socket is down, and the handle it writes to may be reclaimed below.
-        _interruptedSend = nil
-
         // `SFTPShutdown` frees the SFTP session, and reclaiming an abandoned handle needs it: do the shutdown after
         // the reclamation below, never here, when there is anything left to reclaim.
         var sftpSessionShutDown = false
@@ -151,10 +148,13 @@ extension SFTPClient {
             try? ShutdownSocket(socket)
         }
 
-        // Except after a call gave up halfway through sending a packet: libssh2 then answers every other packet with
-        // `EAGAIN` before touching the socket, and would retry against the dead descriptor until the timeout ran out.
-        // One millisecond ends that, at the cost of leaking what those calls could not free.
-        SessionSetTimeout(session: session, timeoutMilliseconds: 1)
+        // Re-enter the call that owns a half-sent packet once against the dead socket. The transport adapter drops that
+        // packet on the fatal send, so later close/free calls can reach their local cleanup paths instead of returning
+        // EAGAIN because their packets differ. No server response is needed after shutdown.
+        if let interrupted = _interruptedSend {
+            _ = try? interrupted.resume()
+            _interruptedSend = nil
+        }
 
         reclaim(resources, sftpSessionAlreadyShutDown: sftpSessionShutDown)
 
@@ -186,13 +186,13 @@ private extension SFTPClient {
     /// - Retrying `SSH_FXP_CLOSE` on an abandoned handle now fails immediately instead of returning `EAGAIN`, and
     /// libssh2 runs the rest of `sftp_close_handle()` on that failure path: it unlinks the handle, flushes the read
     /// requests still queued on it, and frees it.
-    /// - Flushing those requests turns each one into a zombie record, and only the SFTP shutdown's packet flush
-    /// frees those. The channel-close callback `SessionFree` reaches does not, so the shutdown is worth asking for
-    /// even against a peer that will never answer.
+    /// - Flushing those requests turns each one into a zombie record, and only the SFTP shutdown's packet flush frees
+    /// those. The channel-close callback `SessionFree` reaches does not, so the shutdown is worth asking for even
+    /// against a peer that will never answer.
     ///
-    /// Measured on a stalled-download fixture over 60 cycles: without this, ~5.7 KB leaks per abandoned handle;
-    /// with it, `leaks --atExit` reports none. The shutdown on a dead socket measured 0 ms, so the teardown budget
-    /// is unaffected.
+    /// Measured on a stalled-download fixture over 60 cycles: without this, ~5.7 KB leaks per abandoned handle; with
+    /// it, `leaks --atExit` reports none. The shutdown on a dead socket measured 0 ms, so the teardown budget is
+    /// unaffected.
     func reclaim(_ resources: TeardownResources, sftpSessionAlreadyShutDown: Bool) {
         for handle in resources.abandonedHandles {
             do {

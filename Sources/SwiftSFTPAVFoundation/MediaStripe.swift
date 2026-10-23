@@ -13,8 +13,6 @@
         var fetch: UInt64?
         /// Reads waiting for bytes that have not arrived yet, oldest first.
         var waiters: [UInt64]
-        /// Set once a read waits here. The fetch then runs to the end even if the read-ahead window moves away.
-        var isDemanded = false
         /// When a read last used the stripe, for least-recently-used eviction.
         var lastUse: UInt64
 

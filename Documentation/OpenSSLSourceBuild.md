@@ -72,6 +72,22 @@ verifies the exact source and adjustment in CI. The generator also accepts an up
 the correction. `Tests/SwiftSFTPTests/SFTPClient/Compression.swift` exercises preference order, all four directional
 combinations, file transfers, and fork inheritance against the Docker test server.
 
+## Interrupted sends during teardown
+
+The transport adapter also clears a pending outgoing packet when retrying it fails with a fatal socket-send error.
+Upstream retains that packet, so every call with a different packet returns `EAGAIN` before touching the socket,
+including the channel-close calls needed to free the session.
+
+After shutting down the socket, `SFTPClient` re-enters an interrupted write once. The fatal send releases the pending
+transport packet; the normal handle, SFTP, and session cleanup paths can then free their resources locally. A short
+timeout alone would return without freeing them. `WriteAheadTests.closeWithHalfSentPacket` keeps the peer blocked
+throughout cancellation and teardown and checks that closing succeeds within its budget, including when
+`operationsTimeOut` is infinite.
+
+The generator verifies the exact fatal-send patch site as well as the decompression correction. If upstream changes
+that code, review the remaining corrections before dropping the transport adapter. Regenerate it with
+`python3 Scripts/generate-libssh2-backend.py` and verify it with `--check`.
+
 ## Per-handle SFTP read state
 
 `Sources/libssh2/sftp.c` and `Sources/libssh2/sftp.h` are generated from the pinned libssh2 sources by the same script.

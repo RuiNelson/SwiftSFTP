@@ -306,6 +306,32 @@ struct WriteAheadTests {
         }
     }
 
+    @Test("closing a connection with a half-sent packet frees the session", .timeLimit(.minutes(1)))
+    func closeWithHalfSentPacket() async throws {
+        let payload = offsetStampedPayload(byteCount: 16 * 1024 * 1024 + 5)
+
+        try await withStalledConnection(
+            "close-half-sent",
+            megabytes: 1,
+            stallAfterBytes: .max,
+            operationsTimeOut: nil,
+            gracePeriod: 0.5,
+            receiveBufferSize: 64 * 1024
+        ) { wedged in
+            let (handle, result, _) = try await giveUpOnHalfSentPacket(wedged, writing: payload, to: wedged.remotePath)
+            #expect(throws: CancellationError.self) { try result.get() }
+            #expect(wedged.client.withSessionIO { wedged.client._interruptedSend != nil })
+
+            // Leave the peer blocked throughout cleanup: closing must free locally, without waiting for it to recover.
+            try? await handle.close()
+            let start = DispatchTime.now()
+            try await wedged.client.close()
+            #expect(start.millisecondsUntilNow < 2000)
+            #expect(wedged.client.closed)
+            try await wedged.client.close()
+        }
+    }
+
     /// libssh2 sends nothing else until the packet is out, so the client keeps the call that can finish it and goes
     /// back to it before its next call that sends. Without that, the connection could never send again, and an SFTP
     /// request on the same channel would be credited with the stale packet's bytes instead of its own.

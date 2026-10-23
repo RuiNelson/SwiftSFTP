@@ -32,6 +32,7 @@
             let offset: Int64
             let count: Int
             let stripe: Int
+            let reader: MediaReaderID
             let continuation: CheckedContinuation<Data, any Error>
         }
 
@@ -46,6 +47,9 @@
         /// Where the newest reader's last read ended. The read-ahead window starts here.
         private var anchor: Int64?
         private var anchorReader: MediaReaderID = 0
+        /// The newest reader's current stripe finishes even when read-ahead is disabled. Older stripes only keep their
+        /// workers while a read still waits on them or they remain in the window.
+        private var demandedStripe: Int?
         /// Set by a failure, so the window is not refilled through a broken client before a reader asks again.
         private var isSuspended = false
         private var closed = false
@@ -127,7 +131,10 @@
 
             isSuspended = false
             follow(reader, to: offset)
-            let data = try await bytes(at: offset, upTo: count)
+            if reader == anchorReader {
+                demandedStripe = stripeIndex(of: offset)
+            }
+            let data = try await bytes(at: offset, upTo: count, reader: reader)
             follow(reader, to: offset + Int64(data.count))
             schedule()
             return data
@@ -179,7 +186,7 @@
     // MARK: - Reading
 
     private extension MediaSource {
-        func bytes(at offset: Int64, upTo count: Int) async throws -> Data {
+        func bytes(at offset: Int64, upTo count: Int, reader: MediaReaderID) async throws -> Data {
             let index = stripeIndex(of: offset)
             if let stripe = stripes[index], stripe.start <= offset, offset < stripe.received {
                 touch(index)
@@ -190,12 +197,16 @@
             if stripes[index].map({ $0.start > offset }) ?? true {
                 replaceStripe(index, from: offset)
             }
-            stripes[index]?.isDemanded = true
-
             let id = nextID()
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    waiters[id] = Waiter(offset: offset, count: count, stripe: index, continuation: continuation)
+                    waiters[id] = Waiter(
+                        offset: offset,
+                        count: count,
+                        stripe: index,
+                        reader: reader,
+                        continuation: continuation
+                    )
                     stripes[index]?.waiters.append(id)
                     if Task.isCancelled {
                         cancelWaiter(id)
@@ -260,6 +271,11 @@
             }
             stripes[waiter.stripe]?.waiters.removeAll { $0 == id }
             waiter.continuation.resume(throwing: CancellationError())
+            if waiter.reader == anchorReader, !waiters.values.contains(where: { $0.reader == anchorReader }) {
+                demandedStripe = nil
+                anchor = nil
+            }
+            schedule()
         }
     }
 
@@ -277,10 +293,13 @@
                 guard let fetch = workers[index].fetch, !fetch.isCancelled, let stripe = stripes[fetch.stripe] else {
                     continue
                 }
-                if !stripe.isDemanded, window?.contains(fetch.stripe) != true {
+                if stripe.waiters.isEmpty, fetch.stripe != demandedStripe, window?.contains(fetch.stripe) != true {
                     cancel(worker: index)
                 }
             }
+            // Demand reads allocate stripes before scheduling. Trim even when no new prefetch needs room, including
+            // when read-ahead is disabled and every stripe came from a seek.
+            _ = makeRoom(for: 0, keeping: window)
             guard !isSuspended else {
                 return
             }
@@ -310,10 +329,10 @@
             assign(candidates)
         }
 
-        /// The stripes from the anchor's to the last one `readAheadSize` reaches, or `nil` before the first read and
-        /// once the anchor reaches the end of the file.
+        /// The stripes from the anchor's to the last one `readAheadSize` reaches, or `nil` when read-ahead is disabled,
+        /// before the first read, and once the anchor reaches the end of the file.
         func readAheadWindow(size: Int64) -> ClosedRange<Int>? {
-            guard let anchor, anchor < size else {
+            guard readAheadSize > 0, let anchor, anchor < size else {
                 return nil
             }
             let end = readAheadSize < size - anchor ? anchor + readAheadSize : size
@@ -321,12 +340,12 @@
         }
 
         /// Evicts the least recently used idle stripes outside `window` until `length` more bytes fit the budget.
-        func makeRoom(for length: Int64, keeping window: ClosedRange<Int>) -> Bool {
+        func makeRoom(for length: Int64, keeping window: ClosedRange<Int>?) -> Bool {
             let budget = readAheadSize > .max - stripeSize ? .max : readAheadSize + stripeSize
             var reserved = reservedByteCount
             while reserved > budget - length {
                 let victim = stripes
-                    .filter { $0.value.fetch == nil && $0.value.waiters.isEmpty && !window.contains($0.key) }
+                    .filter { $0.value.fetch == nil && $0.value.waiters.isEmpty && window?.contains($0.key) != true }
                     .min { $0.value.lastUse < $1.value.lastUse }
                 guard let victim else {
                     return false
