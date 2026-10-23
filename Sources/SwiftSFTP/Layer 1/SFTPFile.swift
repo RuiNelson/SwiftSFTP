@@ -16,6 +16,9 @@ public final class SFTPFile: SFTPFileProtocol {
 
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
     private nonisolated(unsafe) var _closed: Bool = false
+    /// Whether a read may have left requests in flight ahead of the position. Accessed under the parent's session I/O
+    /// lock.
+    private nonisolated(unsafe) var readAheadPending = false
 
     // MARK: Initialization
 
@@ -43,6 +46,25 @@ private extension SFTPFile {
         if closed || parent.closed {
             throw AlreadyClosed()
         }
+    }
+
+    /// Bytes to hand libssh2 for one read call. libssh2 keeps four times that many requested ahead of the position.
+    ///
+    /// - Parameters:
+    ///   - remaining: Bytes the read still needs.
+    ///   - readAhead: The parent's ``SFTPClientProtocol/readAhead``.
+    ///   - readAheadLimit: Offset where reading ahead stops, or `nil`.
+    func readLength(remaining: Int, readAhead: Int, readAheadLimit: UInt64?) -> Int {
+        let length = min(remaining, readAhead / 4)
+        guard let readAheadLimit else {
+            return length
+        }
+
+        // The limit only stops requests past what the caller asked for; it never shortens the read itself.
+        let position = SFTPTell(handle: handle)
+        let (requestEnd, overflow) = position.addingReportingOverflow(UInt64(remaining))
+        let end = max(readAheadLimit, overflow ? .max : requestEnd)
+        return min(length, max(Int(clamping: (end - position) / 4), 1))
     }
 
     /// Blocking timeout for `SSH_FXP_CLOSE`, given the session's currently configured one.
@@ -87,11 +109,16 @@ public extension SFTPFile {
                 internalStateQueue.sync {
                     SFTPSeek(handle: handle, offset: newValue)
                 }
+                readAheadPending = false
             }
         }
     }
 
     func read(upTo: Int) async throws -> Data? {
+        try await read(upTo: upTo, readAheadLimit: nil)
+    }
+
+    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data? {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
 
@@ -99,39 +126,59 @@ public extension SFTPFile {
                 return nil
             }
 
-            var buffer = Data(capacity: upTo)
+            let readAhead = parent.readAhead
+            var buffer = Data(count: upTo)
+            var filled = 0
 
-            var bytesLeft = upTo
-
-            while bytesLeft > 0 {
+            while filled < upTo {
                 // Bytes already read have advanced the remote offset, so hand them back as a short read rather than
                 // dropping them; the caller observes cancellation on its next loop iteration.
                 if slice.token.isCancelled {
-                    guard buffer.isEmpty else {
-                        return buffer
+                    guard filled == 0 else {
+                        break
                     }
                     throw CancellationError()
                 }
 
-                let bytesToRead = min(bytesLeft, Self.size32kB)
+                let length = readLength(remaining: upTo - filled, readAhead: readAhead, readAheadLimit: readAheadLimit)
+                readAheadPending = true
 
-                let chunk = try slice { try SFTPRead(handle: handle, maximumLength: bytesToRead) }
-                guard chunk.isEmpty == false else {
+                let count: Int
+                do {
+                    count = try buffer.withUnsafeMutableBytes { bytes in
+                        let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[filled ..< filled + length])
+                        return try slice { try SFTPRead(handle: handle, into: destination) }
+                    }
+                }
+                catch is CancellationError where filled > 0 {
+                    // Cancellation can also land while a call waits out a slice: the same short read applies.
                     break
                 }
 
-                buffer.append(chunk)
+                guard count > 0 else {
+                    break
+                }
 
-                bytesLeft -= chunk.count
+                filled += count
             }
 
-            return buffer.isEmpty ? nil : buffer
+            buffer.count = filled
+            return filled == 0 ? nil : buffer
         }
     }
 
     @discardableResult func write(_ data: Data) async throws -> Int {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
+
+            // libssh2 counts `offset_sent - offset` as its own unacknowledged writes, so requests a read left in flight
+            // would make it skip that many bytes of `data`. Seeking to the position drops them first.
+            if readAheadPending {
+                internalStateQueue.sync {
+                    SFTPSeek(handle: handle, offset: SFTPTell(handle: handle))
+                }
+                readAheadPending = false
+            }
 
             var bytesWritten = 0
 

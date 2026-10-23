@@ -15,8 +15,12 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Reads up to `upTo` bytes from the current file position.
     ///
-    /// The concrete implementation reads in chunks of at most 32 KiB and returns early at EOF. A positive request that
-    /// reaches EOF before reading any bytes returns `nil`; requesting `0` bytes returns `nil`.
+    /// The concrete implementation returns early at EOF. A positive request that reaches EOF before reading any bytes
+    /// returns `nil`; requesting `0` bytes returns `nil`.
+    ///
+    /// The concrete implementation keeps requesting data ahead of the position, so consecutive reads overlap their
+    /// round trips: up to four times `upTo`, capped at ``SFTPClientProtocol/readAhead``. Seeking discards what was
+    /// requested ahead. A caller that knows where its reads stop can say so with ``read(upTo:readAheadLimit:)``.
     ///
     /// The concrete implementation honors Swift task cancellation even while the server has gone silent, without
     /// waiting out `operationsTimeOut`. Bytes already read are returned as a short read, because they have already
@@ -26,6 +30,23 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
     /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
     func read(upTo: Int) async throws -> Data?
+
+    /// Reads up to `upTo` bytes from the current file position without reading ahead past `readAheadLimit`.
+    ///
+    /// Behaves like ``read(upTo:)``, except that the concrete implementation stops requesting data ahead once it
+    /// reaches `readAheadLimit`, give or take libssh2's last request of up to 30 000 bytes. Pass the end of the range
+    /// being read: whatever is requested past it is transferred only to be dropped by the next seek or close. The limit
+    /// never shortens the read itself, and `nil` behaves exactly like ``read(upTo:)``.
+    ///
+    /// The default implementation ignores the limit and calls ``read(upTo:)``.
+    ///
+    /// - Parameters:
+    ///   - upTo: Maximum number of bytes to read. Must be greater than zero.
+    ///   - readAheadLimit: File offset where reading ahead stops, usually the end of the range being read, or `nil` for
+    /// no limit.
+    /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
+    /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
+    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data?
 
     /// Writes data at the current file position.
     ///
@@ -130,4 +151,10 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors, including unsupported-operation on servers without the
     /// extension.
     var statFilesystem: FilesystemStat { get async throws }
+}
+
+public extension SFTPFileProtocol {
+    func read(upTo: Int, readAheadLimit _: UInt64?) async throws -> Data? {
+        try await read(upTo: upTo)
+    }
 }

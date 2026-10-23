@@ -35,6 +35,8 @@ public final class SFTPClient: SFTPClientProtocol {
     nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
     /// Backing storage for ``teardownGracePeriod``. Protected by `internalStateQueue`.
     nonisolated(unsafe) var _teardownGracePeriod: TimeInterval = 1.0
+    /// Backing storage for ``readAhead``. Protected by `internalStateQueue`.
+    nonisolated(unsafe) var _readAhead: Int = SFTPClient.defaultReadAhead
 
     // MARK: Concurrency
 

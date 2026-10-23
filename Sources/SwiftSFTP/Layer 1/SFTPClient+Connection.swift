@@ -226,6 +226,7 @@ public extension SFTPClient {
         instance.internalStateQueue.sync {
             instance.loginTimeOut = loginTimeOut
             instance._teardownGracePeriod = teardownGracePeriod
+            instance._readAhead = readAhead
         }
 
         guard loggedIn else {

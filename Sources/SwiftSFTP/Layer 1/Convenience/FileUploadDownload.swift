@@ -236,13 +236,15 @@ public extension SFTPFileProtocol {
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
+        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             while remainingBytes > 0 {
                 try Task.checkCancellation()
 
                 let chunkSize = Int(min(Int64(bufferSize), remainingBytes))
-                guard let data = try await read(upTo: chunkSize), data.isEmpty == false else {
+                let data = try await read(upTo: chunkSize, readAheadLimit: readAheadLimit)
+                guard let data, data.isEmpty == false else {
                     break
                 }
 
@@ -346,13 +348,15 @@ public extension SFTPFileProtocol {
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
+        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
 
         while remainingBytes > 0 {
             try Task.checkCancellation()
 
             let bytesToRead = Int(min(UInt64(chunkSize), UInt64(clamping: remainingBytes)))
 
-            guard let data = try await source.read(upTo: bytesToRead), data.isEmpty == false else {
+            let data = try await source.read(upTo: bytesToRead, readAheadLimit: readAheadLimit)
+            guard let data, data.isEmpty == false else {
                 break
             }
 

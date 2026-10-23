@@ -108,7 +108,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, logger, and deinitialization behavior.
+    /// preferences in both directions, teardown grace period, read-ahead, logger, and deinitialization behavior.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
@@ -154,6 +154,23 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// inside libssh2; it waits for it. Combined with an `operationsTimeOut` of `nil` that means `close()` can block
     /// for as long as the peer stays silent.
     var teardownGracePeriod: TimeInterval { get set }
+
+    /// Bytes a file read keeps requested ahead of its position. Defaults to 2 MiB, what OpenSSH's `sftp` keeps in
+    /// flight (64 requests of 32 KiB).
+    ///
+    /// One connection fetches at most this much per round trip: 2 MiB caps a download near 70 MB/s at 30 ms of latency
+    /// and 21 MB/s at 100 ms. A read keeps up to four times its own size ahead, so ask
+    /// ``SFTPFileProtocol/read(upTo:)`` for at least a quarter of this value to use all of it.
+    ///
+    /// Requests sent ahead cannot be taken back. After a seek, a cancelled read, or a close, the next exchange on the
+    /// connection waits for up to this many bytes to arrive and be dropped. On links slower than about this value per
+    /// second, closing a handle right after cancelling its read can outlast ``teardownGracePeriod``: lower this or
+    /// raise that. Reads that know where they stop say so with ``SFTPFileProtocol/read(upTo:readAheadLimit:)``, as the
+    /// transfer conveniences do.
+    ///
+    /// Values are clamped to 128 KiB...8 MiB, the most libssh2 keeps in flight for one handle. A client created by
+    /// ``fork(loggedIn:)`` inherits the current value.
+    var readAhead: Int { get set }
 
     /// Negotiated compression in each direction, or `(.none, .none)` before handshake or after closing the client.
     ///
