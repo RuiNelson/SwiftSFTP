@@ -75,8 +75,8 @@ public extension SFTPFileProtocol {
     /// chunk is in flight on the network, the next chunk is read from disk concurrently. Returning `false` from
     /// `continuation` cancels the transfer after the current chunk is written.
     ///
-    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server
-    /// has stopped answering; whatever was already written stays on the remote file. Close the handle afterwards.
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server has
+    /// stopped answering; whatever was already written stays on the remote file. Close the handle afterwards.
     ///
     /// - Parameters:
     ///   - file: Local file URL to read.
@@ -172,8 +172,8 @@ public extension SFTPFileProtocol {
     /// from the network, and every received chunk is flushed to disk before the method returns or throws. Returning
     /// `false` from `continuation` cancels the transfer after the current chunk is written.
     ///
-    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server
-    /// has stopped answering; chunks already received are still flushed to `file`. Close the handle afterwards.
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server has
+    /// stopped answering; chunks already received are still flushed to `file`. Close the handle afterwards.
     ///
     /// - Parameters:
     ///   - file: Local file URL to create or append to.

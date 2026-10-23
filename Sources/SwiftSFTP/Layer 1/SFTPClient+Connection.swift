@@ -61,8 +61,8 @@ public extension SFTPClient {
     ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
-    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to
-    /// data sent to the server; `serverToClient` applies to data received from it.
+    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
+    /// sent to the server; `serverToClient` applies to data received from it.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, trap if the returned client is deallocated before ``close()``.
     /// - Returns: A connected and authenticated SFTP client.
@@ -188,8 +188,8 @@ public extension SFTPClient {
 
         resources.keepAliveTask?.cancel()
 
-        // The state queue already made this closure the sole owner of `resources` (the ivars were nilled out
-        // above), so handing it across the queue hop is safe despite the Layer 0 handles not being Sendable.
+        // The state queue already made this closure the sole owner of `resources` (the ivars were nilled out above), so
+        // handing it across the queue hop is safe despite the Layer 0 handles not being Sendable.
         let box = UncheckedSendableBox(resources)
 
         // Not the session-I/O queue: a transfer still blocked in libssh2 owns that queue, and the teardown below is

@@ -50,8 +50,7 @@ struct ED25519Tests {
     }
 }
 
-/// Calls into the deprecated API through a protocol requirement, so the tests exercise it without deprecation
-/// warnings.
+/// Calls into the deprecated API through a protocol requirement, so the tests exercise it without deprecation warnings.
 private protocol LegacyCurve25519 {
     func generateKeyPair() -> (privateKey: String, publicKey: String)?
     func publicKey(fromPrivateKey privateKey: String) -> String?

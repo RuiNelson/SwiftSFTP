@@ -38,8 +38,8 @@ public enum AsymmetricKeyType: String, CaseIterable, Codable, Sendable {
 
     /// Whether the linked OpenSSL can generate and parse keys of this type.
     ///
-    /// Every type is available with the bundled Apple XCFrameworks. ML-DSA and SLH-DSA need OpenSSL 3.5 or later,
-    /// which a system OpenSSL on Linux may not provide.
+    /// Every type is available with the bundled Apple XCFrameworks. ML-DSA and SLH-DSA need OpenSSL 3.5 or later, which
+    /// a system OpenSSL on Linux may not provide.
     public var isAvailable: Bool {
         OpenSSLKey.isAvailable(self)
     }

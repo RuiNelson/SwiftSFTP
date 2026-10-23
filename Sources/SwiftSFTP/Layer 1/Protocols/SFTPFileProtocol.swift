@@ -128,8 +128,8 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Updates selected attributes on the open file handle, applying only the non-nil parameters.
     ///
-    /// When `size` is provided and the current position is beyond the new size, the position is moved to the new end
-    /// of the file (`size`) before the request is sent. Calling with all parameters `nil` is a no-op.
+    /// When `size` is provided and the current position is beyond the new size, the position is moved to the new end of
+    /// the file (`size`) before the request is sent. Calling with all parameters `nil` is a no-op.
     ///
     /// - Parameters:
     ///   - size: New file size in bytes.

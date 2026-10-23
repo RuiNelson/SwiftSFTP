@@ -46,14 +46,14 @@ extension Data {
         return digest
     }
 
-    /// MD5 digest of the receiver, as 16 raw bytes. Broken for collision resistance; use only for
-    /// non-adversarial checksums (e.g. matching legacy systems), never for integrity or security purposes.
+    /// MD5 digest of the receiver, as 16 raw bytes. Broken for collision resistance; use only for non-adversarial
+    /// checksums (e.g. matching legacy systems), never for integrity or security purposes.
     var md5: Data {
         digest(EVP_md5(), length: md5DigestLength)
     }
 
-    /// SHA-1 digest of the receiver, as 20 raw bytes. Broken for collision resistance; use only for
-    /// interoperability with legacy systems, never for integrity or security purposes.
+    /// SHA-1 digest of the receiver, as 20 raw bytes. Broken for collision resistance; use only for interoperability
+    /// with legacy systems, never for integrity or security purposes.
     var sha1: Data {
         digest(EVP_sha1(), length: sha1DigestLength)
     }

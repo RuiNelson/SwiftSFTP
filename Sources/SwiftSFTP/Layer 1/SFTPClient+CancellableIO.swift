@@ -33,9 +33,9 @@ final class SessionIOCancellationToken: @unchecked Sendable {
 
 /// Re-enters one blocking libssh2 call until it finishes, the task is cancelled, or the timeout budget is spent.
 ///
-/// The retry unit has to be a single libssh2 call. libssh2's SFTP entry points are resumable state machines that
-/// resume exactly where an expired slice left them, but a Swift loop wrapped around several of them is not: retrying
-/// such a loop would replay calls whose bytes already moved the remote file position.
+/// The retry unit has to be a single libssh2 call. libssh2's SFTP entry points are resumable state machines that resume
+/// exactly where an expired slice left them, but a Swift loop wrapped around several of them is not: retrying such a
+/// loop would replay calls whose bytes already moved the remote file position.
 struct SessionIOSlicer {
     /// Cancellation flag for the owning Swift task, for operations that loop over several calls.
     let token: SessionIOCancellationToken
@@ -54,8 +54,8 @@ struct SessionIOSlicer {
     ///
     /// - Parameter call: Exactly one libssh2 entry point, invoked again unchanged after an expired slice.
     /// - Returns: The call's result.
-    /// - Throws: `CancellationError` when the task is cancelled, ``LibSSH2Error/timeout(_:)`` once the budget is
-    /// spent, or whatever `call` throws.
+    /// - Throws: `CancellationError` when the task is cancelled, ``LibSSH2Error/timeout(_:)`` once the budget is spent,
+    /// or whatever `call` throws.
     func callAsFunction<T>(_ call: () throws -> T) throws -> T {
         guard !slicingDisabled else {
             return try call()

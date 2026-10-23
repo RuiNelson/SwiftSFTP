@@ -67,9 +67,9 @@ public func SFTPOpen(
     mode: LibSSH2SFTPPOSIXPermissions,
     openType: LibSSH2SFTPOpenType
 ) throws -> LibSSH2SFTPHandle {
-    // Only a create sends permissions. The serverDefault sentinel (-1) must not reach the wire: libssh2 would
-    // serialize it as 0xffffffff, and the server would create the file with every mode bit set. Omitting the
-    // permissions attribute is how SFTP asks for the server's default mode instead.
+    // Only a create sends permissions. The serverDefault sentinel (-1) must not reach the wire: libssh2 would serialize
+    // it as 0xffffffff, and the server would create the file with every mode bit set. Omitting the permissions
+    // attribute is how SFTP asks for the server's default mode instead.
     let sendsPermissions = flags.contains(.create) && mode != .serverDefault
     var attributes = LIBSSH2_SFTP_ATTRIBUTES()
     attributes.flags = sendsPermissions ? CUnsignedLong(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS) : 0

@@ -11,9 +11,8 @@ import Foundation
 ///
 /// `SFTPClient` records each abandoned call with its arguments and finishes it, discarding the answer, before the next
 /// SFTP call other than a read or a write. That costs nothing when the answer has already arrived, and otherwise waits
-/// for it under the new call's
-/// own budget; a server that still does not answer fails the new call with the same timeout or cancellation instead of
-/// handing it the wrong answer.
+/// for it under the new call's own budget; a server that still does not answer fails the new call with the same timeout
+/// or cancellation instead of handing it the wrong answer.
 extension SFTPClient {
     /// Runs `call`, one libssh2 SFTP call of `kind`, after finishing a packet an interrupted write left half sent and
     /// the calls abandoned before it. Callers must hold the session I/O lock.

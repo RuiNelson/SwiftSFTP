@@ -6,10 +6,10 @@ import Logging
 /// `SFTPClientProtocol` models an SSH session plus an initialized SFTP subsystem. The initializer validates and stores
 /// configuration only; call ``login(timeOut:)`` before performing remote filesystem operations.
 ///
-/// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in
-/// remote names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation.
-/// Operations throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP
-/// subsystem that has not been initialized.
+/// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in remote
+/// names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation. Operations
+/// throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP subsystem that
+/// has not been initialized.
 public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     // MARK: Initialization
 
@@ -19,10 +19,10 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// authentication payload, and configures blocking mode. It does not open a socket, perform the SSH handshake, or
     /// initialize SFTP; those steps happen in ``login(timeOut:)``.
     ///
-    /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their
-    /// first occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed
-    /// fallback. If the preferences cannot be configured, initialization continues without compression in either
-    /// direction. Check both members of ``compression`` after login when compression is required.
+    /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their first
+    /// occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed fallback. If
+    /// the preferences cannot be configured, initialization continues without compression in either direction. Check
+    /// both members of ``compression`` after login when compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
@@ -30,8 +30,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// blocking timeout (libssh2 default).
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
-    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to
-    /// data sent to the server; `serverToClient` applies to data received from it.
+    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
+    /// sent to the server; `serverToClient` applies to data received from it.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, the concrete client traps if it is deallocated before ``close()``;
     /// file handles opened from the client inherit the same behavior.
@@ -91,10 +91,10 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Once the socket is gone, the server tears down its side of the channel, including file handles opened on it.
     /// Closing handles individually first is tidier, but it is not what makes the cleanup correct.
     ///
-    /// Failures of the graceful phase are logged rather than thrown; a successful return means every libssh2 and
-    /// socket resource was released. That includes file handles whose ``SFTPFileProtocol/close()`` timed out against
-    /// an unresponsive peer: once the socket is down, their close is retried — which now fails fast, letting libssh2
-    /// free them — and the SFTP session is shut down so the requests queued on those handles are released too.
+    /// Failures of the graceful phase are logged rather than thrown; a successful return means every libssh2 and socket
+    /// resource was released. That includes file handles whose ``SFTPFileProtocol/close()`` timed out against an
+    /// unresponsive peer: once the socket is down, their close is retried — which now fails fast, letting libssh2 free
+    /// them — and the SFTP session is shut down so the requests queued on those handles are released too.
     ///
     /// - Throws: libssh2/socket errors encountered while releasing resources.
     func close() async throws
@@ -141,11 +141,11 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Seconds the polite SSH/SFTP goodbye may take before ``close()`` drops the connection outright. Defaults to one
     /// second.
     ///
-    /// A graceful shutdown needs the peer to answer, and a peer that stopped answering reads and writes will not
-    /// answer that either. This caps how long ``close()`` and ``SFTPFileProtocol/close()`` wait for it, so teardown
-    /// stays bounded on a wedged connection instead of spending one `operationsTimeOut` per step. Cutting the goodbye
-    /// short costs nothing: dropping the socket is what releases the connection, and the server tears down its side of
-    /// the channel when it does.
+    /// A graceful shutdown needs the peer to answer, and a peer that stopped answering reads and writes will not answer
+    /// that either. This caps how long ``close()`` and ``SFTPFileProtocol/close()`` wait for it, so teardown stays
+    /// bounded on a wedged connection instead of spending one `operationsTimeOut` per step. Cutting the goodbye short
+    /// costs nothing: dropping the socket is what releases the connection, and the server tears down its side of the
+    /// channel when it does.
     ///
     /// Raise it for links slow enough that a legitimate goodbye needs longer, or set it to `.infinity` to switch the
     /// cap off entirely and let the goodbye run under `operationsTimeOut` alone, as it did before the cap existed.

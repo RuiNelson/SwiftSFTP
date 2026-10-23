@@ -70,9 +70,8 @@ private actor FlushRecorder {
     /// The budget is counted in polls, not in wall-clock time. A full parallel run can hold every thread of the shared
     /// concurrency pool for seconds at a time, and a wall-clock deadline keeps running through that stall, so it can
     /// expire before the flush loop was ever scheduled. A poll only happens when this waiter gets a thread from the
-    /// same
-    /// pool the flush loop runs on, so a machine busy enough to starve the loop delays the test instead of failing it,
-    /// and a loop that genuinely never writes still fails rather than hanging.
+    /// same pool the flush loop runs on, so a machine busy enough to starve the loop delays the test instead of failing
+    /// it, and a loop that genuinely never writes still fails rather than hanging.
     func waitForWrites(
         atLeast count: Int,
         polls: Int = 1000,

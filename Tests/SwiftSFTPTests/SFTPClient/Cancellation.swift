@@ -39,8 +39,8 @@ struct CancellationTests {
         }
     }
 
-    /// The slicing driver returns control to Swift by letting libssh2's own blocking timeout expire, so it has to
-    /// leave the connection exactly as it found it: same socket, same session, same resumable SFTP state machine.
+    /// The slicing driver returns control to Swift by letting libssh2's own blocking timeout expire, so it has to leave
+    /// the connection exactly as it found it: same socket, same session, same resumable SFTP state machine.
     @Test("a download survives a stall long enough to expire many slices, and finishes once the server answers")
     func stallDoesNotBreakTheSession() async throws {
         // No blocking timeout, so only the slicing loop decides when to come back.

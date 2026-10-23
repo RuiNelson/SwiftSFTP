@@ -80,8 +80,8 @@ final class StallingProxy: @unchecked Sendable {
         listenSocket = descriptor
         port = Int(UInt16(bigEndian: assigned.sin_port))
 
-        // Dedicated threads, not a dispatch queue: every one of these blocks in `accept()` or `read()` for the life
-        // of the proxy, and parking dispatch workers there starves unrelated work elsewhere in the test run.
+        // Dedicated threads, not a dispatch queue: every one of these blocks in `accept()` or `read()` for the life of
+        // the proxy, and parking dispatch workers there starves unrelated work elsewhere in the test run.
         Thread.detachNewThread { [self] in acceptLoop() }
     }
 
@@ -324,9 +324,9 @@ func withStalledConnection(
 
     let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 
-    // Each retry gets a fresh proxy: `StallingProxy` counts relayed bytes for the whole login+transfer
-    // sequence, so reusing one across a failed and a retried connection would let bytes from the discarded
-    // attempt count toward this attempt's `stallAfterBytes` budget.
+    // Each retry gets a fresh proxy: `StallingProxy` counts relayed bytes for the whole login+transfer sequence, so
+    // reusing one across a failed and a retried connection would let bytes from the discarded attempt count toward this
+    // attempt's `stallAfterBytes` budget.
     let (proxy, client): (StallingProxy, SFTPClient)
     do {
         (proxy, client) = try await retryingTransientConnectionFailure {

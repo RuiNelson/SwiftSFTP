@@ -31,8 +31,7 @@ public struct PublicKey: Sendable, Hashable, Codable {
     init(importing key: OpenSSLKey) throws {
         let type = try key.keyType()
         // OpenSSL's RSA check enforces SP 800-56B, which rejects the small public exponents (such as 3 or 35) that
-        // valid
-        // older keys use, so RSA keys are only checked for structure, which importing them already did.
+        // valid older keys use, so RSA keys are only checked for structure, which importing them already did.
         if type != .rsa {
             try key.checkPublicKey()
         }
