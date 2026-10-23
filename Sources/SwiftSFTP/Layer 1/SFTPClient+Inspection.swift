@@ -8,7 +8,8 @@ public extension SFTPClient {
         get async throws {
             try withSessionIO {
                 try checkClosed()
-                return try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) ?? "."
+                let sftp = try sftp
+                return try runSFTPCall(.symlink) { try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) } ?? "."
             }
         }
     }
@@ -66,7 +67,8 @@ public extension SFTPClient {
     func filesystemStat(path: String) async throws -> FilesystemStat {
         try withSessionIO {
             try checkClosed()
-            return try SFTPStatVFS(sftp: sftp, path: path.sanitizePath)
+            let sftp = try sftp
+            return try runSFTPCall(.statvfs) { try SFTPStatVFS(sftp: sftp, path: path.sanitizePath) }
         }
     }
 }
@@ -78,8 +80,12 @@ private extension SFTPClient {
         try withSessionIO {
             try checkClosed()
 
+            let sftp = try sftp
+
             do {
-                return try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
+                return try runSFTPCall(.stat) {
+                    try SFTPStat(sftp: sftp, path: sanitizedPath, statType: followLink ? .stat : .linkStat)
+                }
             }
             catch let error as LibSSH2Error {
                 switch error {
@@ -115,7 +121,7 @@ private extension SFTPClient {
         let handle = try openHandle(path: sanitizedPath, flags: .read, mode: [], openType: .directory)
         defer {
             do {
-                try SFTPCloseHandle(handle: handle)
+                try closeHandle(handle)
             }
             catch {
                 logger?.error("Failed to close directory handle for \(sanitizedPath): \(String(describing: error))")
@@ -127,7 +133,9 @@ private extension SFTPClient {
         openedDirectories.insert(sanitizedPath)
 
         while true {
-            let entry = try SFTPReadDir(handle: handle, maximumNameLength: 8 * 1024)
+            let entry = try runSFTPCall(.readdir, on: handle) {
+                try SFTPReadDir(handle: handle, maximumNameLength: 8 * 1024)
+            }
             guard entry.name.isEmpty == false else {
                 break
             }
