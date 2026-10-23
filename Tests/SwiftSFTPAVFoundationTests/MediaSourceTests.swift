@@ -93,6 +93,27 @@
             await source.close()
         }
 
+        @Test("every read stops reading ahead at the end of its stripe")
+        func readAheadStopsAtStripeEnd() async throws {
+            let data = mediaTestData(count: 10 * stripeBytes + 123)
+            let files = (0 ..< 3).map { _ in StubMediaFile(data: data) }
+            let source = makeSource(files.map { StubOpener($0) }, readAheadSize: 3 * stripeBytes)
+
+            #expect(try await readAll(source, count: data.count, reader: 1) == data)
+            // A stripe fetched from mid-way still stops at its own end.
+            let offset = 3 * stripeBytes + 100
+            #expect(try await source.read(at: Int64(offset), upTo: 10, reader: 2) == data[offset ..< offset + 10])
+            try await waitForMedia("the fetches did not finish") { await source.busyWorkerCount == 0 }
+            await source.close()
+
+            let reads = files.flatMap(\.readAheadLimits)
+            #expect(reads.count >= data.count / pieceBytes)
+            for read in reads {
+                let stripeEnd = min((read.start / stripeBytes + 1) * stripeBytes, data.count)
+                #expect(read.limit == UInt64(stripeEnd), "The read from \(read.start) must stop at \(stripeEnd)")
+            }
+        }
+
         @Test("a stripe first asked for mid-way starts at the requested byte")
         func midStripeRequest() async throws {
             let data = mediaTestData(count: 4 * stripeBytes)
@@ -396,6 +417,7 @@
         private var cancelledReads = 0
         private var blockedReads = 0
         private var starts: [Int] = []
+        private var limits: [UInt64?] = []
         private var delivered = 0
 
         init(
@@ -460,6 +482,11 @@
             lock.withLock { starts }
         }
 
+        /// Where each read started and the offset it allowed reading ahead to, in order.
+        var readAheadLimits: [(start: Int, limit: UInt64?)] {
+            lock.withLock { Array(zip(starts, limits)) }
+        }
+
         var bytesRead: Int {
             lock.withLock { delivered }
         }
@@ -482,9 +509,14 @@
         }
 
         func read(upTo count: Int) async throws -> Data? {
+            try await read(upTo: count, readAheadLimit: nil)
+        }
+
+        func read(upTo count: Int, readAheadLimit: UInt64?) async throws -> Data? {
             let (delay, blocked) = lock.withLock {
                 reads += 1
                 starts.append(Int(position))
+                limits.append(readAheadLimit)
                 let blocked = blockedOffsets?.contains(Int(position)) == true
                 if blocked {
                     blockedReads += 1

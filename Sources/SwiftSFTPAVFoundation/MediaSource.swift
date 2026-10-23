@@ -468,7 +468,9 @@
                 while position < range.upperBound {
                     try Task.checkCancellation()
                     let count = Int(min(Int64(chunkSize), range.upperBound - position))
-                    guard let data = try await file.read(upTo: count), !data.isEmpty else {
+                    // Requests past the stripe would be dropped by the seek to this worker's next stripe.
+                    let read = try await file.read(upTo: count, readAheadLimit: UInt64(range.upperBound))
+                    guard let data = read, !data.isEmpty else {
                         // The file ended before the size it had when the asset opened it.
                         throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
                     }
