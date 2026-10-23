@@ -22,6 +22,10 @@ public final class SFTPFile: SFTPFileProtocol {
     /// Whether a write that did not run to completion may have left requests in flight past the position. Accessed
     /// under the parent's session I/O lock.
     private nonisolated(unsafe) var writesPending = false
+    /// The position while a write's half-sent packet keeps the handle's queued requests, which a seek would drop: where
+    /// that write gave up, or where ``offset`` was set since. The next read or write moves there once the packet is
+    /// out. Accessed under the parent's session I/O lock.
+    private nonisolated(unsafe) var requestedOffset: UInt64?
 
     // MARK: Initialization
 
@@ -92,33 +96,43 @@ private extension SFTPFile {
     /// A call cut short while the socket was full leaves an SSH packet half sent, and libssh2 refuses to send any other
     /// packet on the session until that same call completes it. Re-entering the call does; once nothing waits to go
     /// out, the call is only waiting for acknowledgements and can be left. The wait is capped like ``close()``'s, and a
-    /// peer that does not take the packet in time is noted as unresponsive.
+    /// peer that does not take the packet in time is noted as unresponsive. The parent then keeps the call, and
+    /// finishes it before the next call that may send.
     ///
     /// - Parameters:
     ///   - call: The interrupted libssh2 call, invoked again unchanged.
     ///   - timeoutMilliseconds: The session's configured timeout, or `nil` for none.
-    func finishSending(_ call: () throws -> Int, timeoutMilliseconds: Int?) {
+    func finishSending(_ call: @escaping () throws -> Int, timeoutMilliseconds: Int?) {
         let cap = teardownTimeoutMilliseconds(configured: timeoutMilliseconds ?? 0)
-        let deadline = cap > 0 ? DispatchTime.now() + .milliseconds(cap) : nil
+        parent.noteInterruptedSend(on: handle, call, budgetMilliseconds: cap > 0 ? cap : nil)
 
-        while SessionBlockDirections(session: parent.session).contains(.outbound) {
-            do {
-                _ = try call()
-                return
-            }
-            catch let error as LibSSH2Error {
-                guard case .timeout = error else {
-                    return
-                }
+        // Finishing the call later also collects acknowledgements, which would move the position under a caller that
+        // has already read it to resume from.
+        if parent.hasInterruptedSend(on: handle) {
+            requestedOffset = SFTPTell(handle: handle)
+        }
+    }
 
-                if let deadline, DispatchTime.now() >= deadline {
-                    parent.notePeerResponded(false)
-                    return
-                }
+    /// Moves the position to where ``offset`` was last set, if a half-sent packet kept it from moving then, or else
+    /// drops the requests left in flight past the position. Callers must hold the parent's session I/O lock, after the
+    /// packet is out.
+    ///
+    /// - Parameter droppingReadAhead: Whether reads requested ahead go too, not only writes left in flight.
+    func settlePosition(droppingReadAhead: Bool) {
+        if let requestedOffset {
+            internalStateQueue.sync {
+                SFTPSeek(handle: handle, offset: requestedOffset)
             }
-            catch {
-                return
+            self.requestedOffset = nil
+            readAheadPending = false
+            writesPending = false
+        }
+        else if writesPending || (droppingReadAhead && readAheadPending) {
+            internalStateQueue.sync {
+                SFTPSeek(handle: handle, offset: SFTPTell(handle: handle))
             }
+            readAheadPending = false
+            writesPending = false
         }
     }
 
@@ -196,7 +210,7 @@ public extension SFTPFile {
                 guard !closed, !parent.closed else {
                     return 0
                 }
-                return internalStateQueue.sync {
+                return requestedOffset ?? internalStateQueue.sync {
                     SFTPTell(handle: handle)
                 }
             }
@@ -206,6 +220,15 @@ public extension SFTPFile {
                 guard !closed, !parent.closed else {
                     return
                 }
+
+                // A seek drops the requests queued on the handle, the one libssh2 has half sent among them, and the
+                // next request on the channel would then be handed that packet instead of its own.
+                guard !parent.hasInterruptedSend(on: handle) else {
+                    requestedOffset = newValue
+                    return
+                }
+
+                requestedOffset = nil
                 internalStateQueue.sync {
                     SFTPSeek(handle: handle, offset: newValue)
                 }
@@ -229,12 +252,7 @@ public extension SFTPFile {
 
             // libssh2 keeps write and read requests in the same queue, and would take the acknowledgements of writes an
             // interrupted write left in flight for answers to reads. Seeking to the position drops them first.
-            if writesPending {
-                internalStateQueue.sync {
-                    SFTPSeek(handle: handle, offset: SFTPTell(handle: handle))
-                }
-                writesPending = false
-            }
+            settlePosition(droppingReadAhead: false)
 
             let readAhead = parent.readAhead
             var buffer = Data(count: upTo)
@@ -284,13 +302,7 @@ public extension SFTPFile {
             // libssh2 counts `offset_sent - offset` as its own unacknowledged writes, so requests a read, or a write
             // that did not run to completion, left in flight would make it skip that many bytes of `data`. Seeking to
             // the position drops them first.
-            if readAheadPending || writesPending {
-                internalStateQueue.sync {
-                    SFTPSeek(handle: handle, offset: SFTPTell(handle: handle))
-                }
-                readAheadPending = false
-                writesPending = false
-            }
+            settlePosition(droppingReadAhead: true)
 
             // A write call interrupted while waiting for an acknowledgement, on this handle or another, leaves libssh2
             // expecting that acknowledgement: its next call would skip sending and return 0. With nothing queued on
@@ -325,7 +337,9 @@ public extension SFTPFile {
                 // `data` may be a slice, so index from `startIndex` rather than zero.
                 let start = data.startIndex + written
                 let bytes = data[start ..< start + pending + fresh]
-                let call = { try SFTPWrite(handle: self.handle, data: bytes) }
+                // The parent may keep the call past this write; capture the handle, not the file.
+                let handle = handle
+                let call = { try SFTPWrite(handle: handle, data: bytes) }
 
                 let acknowledged: Int
                 do {

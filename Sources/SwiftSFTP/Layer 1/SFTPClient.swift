@@ -49,6 +49,9 @@ public final class SFTPClient: SFTPClientProtocol {
     /// SFTP calls given up mid-wait, by the libssh2 state machine they hold. Guarded by `sessionIOLock`. See
     /// ``runSFTPCall(_:on:slice:discarding:_:)``.
     nonisolated(unsafe) var _abandonedCalls: [SFTPCallKind: AbandonedSFTPCall] = [:]
+    /// The write call holding a half-sent packet, if any. Guarded by `sessionIOLock`. See
+    /// ``finishInterruptedSend(slice:)``.
+    nonisolated(unsafe) var _interruptedSend: InterruptedSend?
     /// Serial queue that owns blocking libssh2 calls made from `async` code, keeping them off the Swift cooperative
     /// pool. See ``withCancellableSessionIO(_:)``.
     let sessionIOQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPClient.SessionIO")

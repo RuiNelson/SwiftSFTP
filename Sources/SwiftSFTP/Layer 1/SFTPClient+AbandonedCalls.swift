@@ -15,8 +15,8 @@ import Foundation
 /// own budget; a server that still does not answer fails the new call with the same timeout or cancellation instead of
 /// handing it the wrong answer.
 extension SFTPClient {
-    /// Runs `call`, one libssh2 SFTP call of `kind`, after finishing the calls abandoned before it. Callers must hold
-    /// the session I/O lock.
+    /// Runs `call`, one libssh2 SFTP call of `kind`, after finishing a packet an interrupted write left half sent and
+    /// the calls abandoned before it. Callers must hold the session I/O lock.
     ///
     /// - Parameters:
     ///   - kind: The libssh2 state machine `call` uses.
@@ -34,6 +34,7 @@ extension SFTPClient {
         discarding discard: @escaping (R, SessionIOSlicer?) -> Void = { _, _ in },
         _ call: @escaping () throws -> R
     ) throws -> R {
+        try finishInterruptedSend(slice: slice)
         try finishAbandonedCalls(slice: slice)
 
         do {
@@ -78,6 +79,7 @@ extension SFTPClient {
     /// so it goes to ``noteAbandonedHandle(_:)``.
     func closeHandle(_ handle: LibSSH2SFTPHandle) throws {
         do {
+            try finishInterruptedSend(slice: nil)
             try finishAbandonedCalls(on: handle, slice: nil)
             try SFTPCloseHandle(handle: handle)
             notePeerResponded(true)

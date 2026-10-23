@@ -117,6 +117,15 @@ extension SFTPClient {
             }
         }
 
+        // The goodbye cannot go out behind a packet an interrupted write left half sent.
+        if politely, _interruptedSend != nil {
+            politely = attemptGracefully(before: deadline, "the interrupted write") {
+                try finishInterruptedSend(slice: nil)
+            }
+        }
+        // Nothing may finish it once the socket is down, and the handle it writes to may be reclaimed below.
+        _interruptedSend = nil
+
         // `SFTPShutdown` frees the SFTP session, and reclaiming an abandoned handle needs it: do the shutdown after
         // the reclamation below, never here, when there is anything left to reclaim.
         var sftpSessionShutDown = false

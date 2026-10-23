@@ -176,14 +176,18 @@ private extension SFTPClient {
                 slicingDisabled: slicingDisabled
             )
 
+            // A packet an earlier write left half sent goes out first, under this operation's budget: libssh2 sends
+            // nothing else until it has.
             do {
                 let result: R
                 if slicingDisabled {
+                    try finishInterruptedSend(slice: slicer)
                     result = try operation(slicer)
                 }
                 else {
                     SessionSetTimeout(session: session, timeoutMilliseconds: slice)
                     defer { SessionSetTimeout(session: session, timeoutMilliseconds: configuredMilliseconds) }
+                    try finishInterruptedSend(slice: slicer)
                     result = try operation(slicer)
                 }
                 notePeerResponded(true)

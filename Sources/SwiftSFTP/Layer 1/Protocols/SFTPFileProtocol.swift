@@ -59,7 +59,11 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// waiting out `operationsTimeOut`. A cancelled write throws `CancellationError` after leaving whatever requests it
     /// already sent on their way to the remote file, so the remote size, rather than ``offset``, is the resume point.
     /// When cancellation lands while the socket is full, libssh2 first finishes sending the packet it had started, for
-    /// at most ``SFTPClientProtocol/teardownGracePeriod``: any other packet sent before it would corrupt the session.
+    /// at most ``SFTPClientProtocol/teardownGracePeriod``: any other packet sent before it would corrupt the session. A
+    /// packet the server does not take in that time stays with the client, which finishes sending it before its next
+    /// call that sends, within that call's own timeout and cancellation. While the server still takes no data, those
+    /// calls fail with the timeout; once it does, the connection carries on. Until then, ``offset`` stays where the
+    /// write gave up, and setting it takes effect with the next read or write.
     ///
     /// - Parameter data: Bytes to write.
     /// - Returns: Number of bytes accepted by libssh2.

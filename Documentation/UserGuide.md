@@ -517,7 +517,10 @@ try await file.write(largeData)            // one call keeps the pipeline full u
 Requests already sent cannot be taken back: a cancelled write leaves up to `writeAhead` bytes on their way to the
 remote file, so the remote size, not the handle's position, is where to resume. When the cancellation lands while the
 socket is full, the write first finishes sending the packet libssh2 had started, for at most `teardownGracePeriod`,
-because any other packet sent before it would corrupt the session. Forks inherit the value.
+because any other packet sent before it would corrupt the session. If the server takes nothing in that time, the client
+keeps the packet and sends it before its next call that sends anything, within that call's own `operationsTimeOut` and
+cancellation: calls fail with the timeout while the server still takes no data, and the connection carries on once it
+does. Forks inherit the value.
 
 ### File attributes
 
@@ -861,7 +864,7 @@ What a cancelled transfer leaves behind:
 | | |
 |---|---|
 | Downloads | Chunks already received are flushed to the local file before the error surfaces. |
-| Uploads | Requests already sent still reach the remote file; its size is the resume point for `resume: true`. A write cut short with a packet half sent first finishes sending it, for at most `teardownGracePeriod`. |
+| Uploads | Requests already sent still reach the remote file; its size is the resume point for `resume: true`. A write cut short with a packet half sent first finishes sending it, for at most `teardownGracePeriod`, and otherwise before the next call that sends. |
 | Remote file position | Advanced by whatever was actually transferred, so the handle stays consistent. |
 | The session | Untouched. If the server recovers, the connection is still usable. |
 
