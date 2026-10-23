@@ -17,6 +17,8 @@
         #expect(asset.url.lastPathComponent == "holiday.mp4")
         let item = source.makePlayerItem(at: "/Audio/extensionless", contentType: .mp3)
         #expect(item.asset is AVURLAsset)
+        let striped = [client].makeAsset(at: "/Videos/holiday.mp4", readAheadSize: 4 * 1024 * 1024)
+        #expect(striped.url.lastPathComponent == "holiday.mp4")
         try await client.close()
     }
 #endif

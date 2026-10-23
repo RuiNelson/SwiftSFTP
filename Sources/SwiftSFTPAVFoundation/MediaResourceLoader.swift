@@ -13,10 +13,21 @@
         private let server: RequestServer
         private let lock = NSLock()
         private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+        private var lastReader: MediaReaderID = 0
 
-        convenience init(client: any SFTPClientProtocol, path: String, contentType: UTType) {
+        /// Creates a loader with one worker per client, each opening `path` read-only on its own connection.
+        convenience init(
+            clients: [any SFTPClientProtocol],
+            path: String,
+            contentType: UTType,
+            readAheadSize: Int,
+            stripeSize: Int
+        ) {
+            let openers = clients.map { client -> @Sendable () async throws -> any SFTPFileProtocol in
+                { try await client.openFile(.read, path: path, permissions: []) }
+            }
             self.init(
-                source: MediaSource { try await client.openFile(.read, path: path, permissions: []) },
+                source: MediaSource(openers: openers, readAheadSize: readAheadSize, stripeSize: stripeSize),
                 contentType: contentType
             )
         }
@@ -30,6 +41,10 @@
                 contentType: contentType,
                 queue: queue
             )
+        }
+
+        var source: MediaSource {
+            server.source
         }
 
         var servingRequestCount: Int {
@@ -55,8 +70,10 @@
             // Register the task before it can remove itself. It retains the server, while referencing the loader
             // weakly.
             lock.withLock {
+                lastReader += 1
+                let reader = lastReader
                 tasks[id] = Task { [weak self] in
-                    await server.serve(request, range: range)
+                    await server.serve(request, range: range, reader: reader)
                     self?.removeTask(id)
                 }
             }
@@ -79,7 +96,7 @@
         let contentType: UTType
         let queue: DispatchQueue
 
-        func serve(_ request: LoadingRequest, range: RequestedRange?) async {
+        func serve(_ request: LoadingRequest, range: RequestedRange?, reader: MediaReaderID) async {
             do {
                 let size = try await source.size()
                 let contentType = contentType
@@ -96,13 +113,8 @@
                     let end = range.toEnd ? size : min(range.end, size)
                     while offset < end {
                         try Task.checkCancellation()
-                        let data = try await source.read(
-                            upTo: Int(min(64 * 1024, end - offset)),
-                            atOffset: UInt64(offset)
-                        )
-                        guard let data, !data.isEmpty else {
-                            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
-                        }
+                        // Hands over whatever has arrived, so playback can start before a whole stripe is in.
+                        let data = try await source.read(at: offset, upTo: Int(clamping: end - offset), reader: reader)
                         guard await onQueue(request, { $0.dataRequest?.respond(with: data) }) else { return }
                         offset += Int64(data.count)
                     }

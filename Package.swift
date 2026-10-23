@@ -216,6 +216,7 @@ let libssh2ExcludedPaths = [
 
 let libssh2Sources = [
     "Sources/libssh2/server_sign_algorithms.c",
+    "Sources/libssh2/sftp.c",
     "Sources/libssh2/swiftsftp_bcrypt_pbkdf.c",
     "Sources/libssh2/transport.c",
     "Vendor/libssh2/src/agent.c",
@@ -242,7 +243,6 @@ let libssh2Sources = [
     "Vendor/libssh2/src/publickey.c",
     "Vendor/libssh2/src/scp.c",
     "Vendor/libssh2/src/session.c",
-    "Vendor/libssh2/src/sftp.c",
     "Vendor/libssh2/src/userauth.c",
     "Vendor/libssh2/src/userauth_kbd_packet.c",
     "Vendor/libssh2/src/version.c",

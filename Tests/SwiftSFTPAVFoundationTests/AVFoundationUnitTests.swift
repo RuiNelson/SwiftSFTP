@@ -11,11 +11,9 @@
         @MainActor
         func lazyAssetsAndContentTypes() async throws {
             guard #available(macOS 11, iOS 14, tvOS 14, macCatalyst 14, visionOS 1, *) else { return }
-            let client = try SFTPClient(
-                openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                authentication: UserAuthentication(name: "unused", auth: .password("unused"))
-            )
-            // No login: creating either convenience must neither open a file nor connect to the server.
+            let client = try makeUnconnectedClient()
+            let fork = try makeUnconnectedClient()
+            // No login: creating any of the conveniences must neither open a file nor connect to the server.
             let protocolClient: any SFTPClientProtocol = client
             let cases: [(String, UTType)] = [
                 ("Videos/holiday.MP4", .mpeg4Movie),
@@ -27,13 +25,39 @@
                 let asset = try #require(protocolClient.makeAsset(at: path) as? SFTPMediaAsset)
                 #expect(asset.loader.contentType == expected)
                 #expect(asset.loader.servingRequestCount == 0)
+                #expect(await asset.loader.source.workerCount == 1)
+                let striped = try #require([client, fork].makeAsset(at: path) as? SFTPMediaAsset)
+                #expect(striped.loader.contentType == expected)
+                #expect(await striped.loader.source.workerCount == 2)
             }
             let explicit = try #require(client.makeAsset(at: "movie", contentType: .mpeg4Movie) as? SFTPMediaAsset)
             #expect(explicit.loader.contentType == .mpeg4Movie)
             let item = client.makePlayerItem(at: "movie", contentType: .mpeg4Movie)
             #expect(try #require(item.asset as? SFTPMediaAsset).loader.contentType == .mpeg4Movie)
+            let stripedItem = [client, fork].makePlayerItem(at: "movie", contentType: .mpeg4Movie)
+            let stripedLoader = try #require(stripedItem.asset as? SFTPMediaAsset).loader
+            #expect(stripedLoader.contentType == .mpeg4Movie)
+            #expect(await stripedLoader.source.workerCount == 2)
             try await client.close()
+            try await fork.close()
         }
+
+        #if os(macOS)
+            @Test("an empty client collection fails its precondition")
+            func emptyClientCollection() async {
+                await #expect(processExitsWith: .failure) {
+                    _ = [SFTPClient]().makeAsset(at: "movie.mp4")
+                }
+            }
+
+            @Test("a client passed twice fails the precondition")
+            func repeatedClient() async {
+                await #expect(processExitsWith: .failure) {
+                    let client = try makeUnconnectedClient()
+                    _ = [client, client].makePlayerItem(at: "movie.mp4")
+                }
+            }
+        #endif
 
         @Test("custom URLs preserve unusual filenames and are unique per asset")
         func customURLs() {
@@ -72,5 +96,13 @@
             let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(EOVERFLOW))
             #expect(MediaLoadingError.make(posix) === posix)
         }
+    }
+
+    /// A client that is never logged in. Creating assets with it must not touch the network.
+    private func makeUnconnectedClient() throws -> SFTPClient {
+        try SFTPClient(
+            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            authentication: UserAuthentication(name: "unused", auth: .password("unused"))
+        )
     }
 #endif

@@ -29,7 +29,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
-- **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer`, with seeking and on-demand byte-range reads; see [AVFoundation Playback](#avfoundation-playback).
+- **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
 
@@ -131,20 +131,24 @@ import AVFoundation
 import SwiftSFTP
 import SwiftSFTPAVFoundation
 
-// Use an authenticated client and keep it open throughout playback.
-let item = client.makePlayerItem(at: "/Videos/holiday.mp4")
+// Use authenticated clients and keep them open throughout playback. Each fork is another connection,
+// and the connections read different stripes of the file at the same time.
+let clients = [client, try await client.fork(), try await client.fork(), try await client.fork()]
+let item = clients.makePlayerItem(at: "/Videos/holiday.mp4")
 let player = AVPlayer(playerItem: item)
 player.play()
 
-// For metadata, asset options, or custom AVFoundation workflows:
+// A single connection works too. Use an asset for metadata, asset options, or custom AVFoundation workflows:
 let asset = client.makeAsset(at: "/Videos/holiday.mp4")
 ```
 
-Files are opened read-only when AVFoundation loads them. Playback and seeking read the requested ranges without
-creating a local copy. Releasing an asset or its player item cancels its pending reads and closes its file handle.
-The caller still owns and closes the SFTP client. The media type is inferred from the filename; pass
-`contentType: .mpeg4Movie` for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
-See the [User's Guide](Documentation/UserGuide.md#avfoundation-playback) for lifetime and error handling details.
+Each client opens the file read-only when AVFoundation loads it. The clients fetch 2 MiB stripes in parallel and read
+8 MiB ahead of playback; pass `stripeSize:` and `readAheadSize:` to change either. Playback and seeking never create a
+local copy. Releasing an asset or its player item cancels its pending reads and closes its file handles. The caller
+still owns and closes the SFTP clients. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
+for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
+See the [User's Guide](Documentation/UserGuide.md#avfoundation-playback) for read-ahead, lifetime, and error handling
+details.
 
 The [sample app](SampleApp/README.md) includes a SwiftUI player for macOS, iOS, and visionOS, using this checkout's
 local package. Open `SampleApp/SFTP+AV/MediaPlayerOverSFTP.xcodeproj` in Xcode to run it.
