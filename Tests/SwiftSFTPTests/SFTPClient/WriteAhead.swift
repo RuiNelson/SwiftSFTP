@@ -407,7 +407,13 @@ struct WriteAheadTests {
 
             // A cancellable call, through the slicer.
             let start = DispatchTime.now()
-            let sliced = await Result { try await handle.stat }
+            let sliced: Result<FileAttributes, any Error>
+            do {
+                sliced = try await .success(handle.stat)
+            }
+            catch {
+                sliced = .failure(error)
+            }
             #expect(isTimeout(sliced), "expected a timeout, got \(sliced)")
             #expect(start.millisecondsUntilNow >= 1900)
 

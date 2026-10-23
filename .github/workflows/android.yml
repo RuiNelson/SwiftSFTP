@@ -16,16 +16,32 @@ env:
 jobs:
   android:
     name: Android (aarch64)
-    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@0.0.11
-    with:
-      enable_linux_checks: false
-      enable_macos_checks: false
-      enable_windows_checks: false
-      enable_android_sdk_build: true
-      enable_android_sdk_checks: false
-      android_sdk_versions: '["6.3"]'
-      android_ndk_versions: '["r27d"]'
-      android_sdk_triples: '["aarch64-unknown-linux-android28"]'
-      android_sdk_pre_build_command: |
-        git submodule update --init --recursive --depth 1 Vendor/libssh2 Vendor/SwiftSFTP-OpenSSL
-      android_sdk_build_command: swift build --scratch-path /tmp/swift-android-build
+    # Swift 6.3 toolchains are available for Ubuntu 24.04; ubuntu-latest can move beyond it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.3.3"
+
+      - name: Checkout Swift SDK build scripts
+        uses: actions/checkout@v5
+        with:
+          repository: swiftlang/github-workflows
+          ref: "0.0.11"
+          path: github-workflows
+
+      - name: Install Swift SDK for Android and build
+        run: |
+          github-workflows/.github/workflows/scripts/install-and-build-with-sdk.sh \
+            --android \
+            --android-sdk-triple=aarch64-unknown-linux-android28 \
+            --android-ndk-version=r27d \
+            --build-command="swift build --scratch-path /tmp/swift-android-build" \
+            6.3.3
