@@ -230,16 +230,17 @@
             }
         }
 
-        @Test("cancelling a waiting read leaves the source able to close")
+        @Test("cancelling a waiting read leaves the source able to close", .timeLimit(.minutes(1)))
         func cancelledRead() async throws {
-            let file = StubMediaFile(data: Data(repeating: 1, count: 1024), readDelay: 5_000_000_000)
+            let file = StubMediaFile(data: Data(repeating: 1, count: 1024), blockedOffsets: 0 ..< 1024)
             let source = makeSource([StubOpener(file)], readAheadSize: 0, stripeSize: 1024)
             let read = Task { try await source.read(at: 0, upTo: 512, reader: 1) }
-            try await waitForMedia("the read did not start") { file.readCount > 0 }
+            await file.waitForReadStart()
             read.cancel()
             let result = await read.result
             #expect(throws: CancellationError.self) { try result.get() }
             await source.close()
+            #expect(file.cancelledReadCount == 1)
             #expect(file.closeCount == 1)
         }
 
@@ -479,6 +480,7 @@
         private var position: UInt64 = 0
         private var closes = 0
         private var reads = 0
+        private var readStartWaiters: [CheckedContinuation<Void, Never>] = []
         private var seeks = 0
         private var redundantSeeks = 0
         private var cancelledReads = 0
@@ -524,6 +526,22 @@
 
         var readCount: Int {
             lock.withLock { reads }
+        }
+
+        /// Waits for a read to enter the stub, including when it started before this call.
+        func waitForReadStart() async {
+            await withCheckedContinuation { continuation in
+                let started = lock.withLock {
+                    if reads > 0 {
+                        return true
+                    }
+                    readStartWaiters.append(continuation)
+                    return false
+                }
+                if started {
+                    continuation.resume()
+                }
+            }
         }
 
         var seekCount: Int {
@@ -580,15 +598,20 @@
         }
 
         func read(upTo count: Int, readAheadLimit: UInt64?) async throws -> Data? {
-            let (delay, blocked) = lock.withLock {
+            let (delay, blocked, started) = lock.withLock {
                 reads += 1
+                let started = readStartWaiters
+                readStartWaiters.removeAll()
                 starts.append(Int(position))
                 limits.append(readAheadLimit)
                 let blocked = blockedOffsets?.contains(Int(position)) == true
                 if blocked {
                     blockedReads += 1
                 }
-                return (blocked ? 60_000_000_000 : readDelay, blocked)
+                return (blocked ? 60_000_000_000 : readDelay, blocked, started)
+            }
+            for continuation in started {
+                continuation.resume()
             }
             do {
                 if delay > 0 {

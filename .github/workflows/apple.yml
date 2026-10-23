@@ -59,7 +59,17 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|AVFoundationUnitTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+
+      # Crypto validation can occupy the cooperative executor long enough to starve media timing checks.
+      - name: Test AVFoundation (offline)
+        run: |
+          set -o pipefail
+          swift test --scratch-path /tmp/swift-test --filter AVFoundationUnitTests 2>&1 | tee /tmp/swift-test-media.log
+          if grep -qE 'No matching test cases were run|Test run with 0 tests' /tmp/swift-test-media.log; then
+            echo "::error::AVFoundation test filter executed zero tests" >&2
+            exit 1
+          fi
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation
