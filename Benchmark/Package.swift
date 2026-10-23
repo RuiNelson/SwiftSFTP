@@ -25,7 +25,7 @@ let package = Package(
         .executableTarget(
             name: "SwiftSFTPBenchmark",
             dependencies: [
-                .product(name: "SwiftSFTP", package: "SwiftSFTP"),
+                .product(name: "SwiftSFTPStatic", package: "SwiftSFTP"),
                 .product(name: "Citadel", package: "Citadel"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
@@ -33,7 +33,7 @@ let package = Package(
         .executableTarget(
             name: "SwiftSFTPMultiTune",
             dependencies: [
-                .product(name: "SwiftSFTP", package: "SwiftSFTP"),
+                .product(name: "SwiftSFTPStatic", package: "SwiftSFTP"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ]

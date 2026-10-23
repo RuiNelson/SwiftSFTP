@@ -359,7 +359,7 @@ struct WriteAheadTests {
             wedged.proxy.resumeUploads()
 
             let partial = try await client.stat(path: remotePath)
-            #expect(partial.map { $0.attributes.fileSize ?? 0 < UInt64(payload.count) } == true)
+            #expect(partial.map { $0.attributes.fileSize < UInt64(payload.count) } == true)
             #expect(client.withSessionIO { client._interruptedSend == nil && !client.peerStoppedResponding })
 
             #expect(try await handle.write(payload) == payload.count)

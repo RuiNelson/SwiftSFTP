@@ -327,6 +327,13 @@ let package = Package(
             targets: ["SwiftSFTP"]
         ),
         .library(
+            name: "SwiftSFTPStatic",
+            // Consumers sharing static dependencies (for example swift-log with
+            // Citadel) need one final link step to avoid duplicate library code.
+            type: .static,
+            targets: ["SwiftSFTP"]
+        ),
+        .library(
             name: "SwiftSFTPAVFoundation",
             type: .dynamic,
             // Supply both modules through one product: linking the SwiftSFTP target
@@ -339,8 +346,12 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
     targets: [
-        opensslTarget, libssh2Target, swiftSFTPTarget, swiftSFTPAVFoundationTarget,
-        swiftSFTPTestsTarget, swiftSFTPAVFoundationTestsTarget,
+        opensslTarget,
+        libssh2Target,
+        swiftSFTPTarget,
+        swiftSFTPAVFoundationTarget,
+        swiftSFTPTestsTarget,
+        swiftSFTPAVFoundationTestsTarget,
     ],
     swiftLanguageModes: [.v6]
 )

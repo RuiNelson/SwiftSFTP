@@ -103,7 +103,7 @@ struct SFTPClientResumeBehavior {
             try payload.write(to: sourceURL)
 
             let modified = try FileManager.default.attributesOfItem(atPath: sourceURL.path)[.modificationDate] as? Date
-            var trailer = try ResumableTrailer(
+            var trailer = ResumableTrailer(
                 fileName: "payload.bin",
                 fileSize: UInt64(payload.count),
                 sourceModificationTime: UInt64(modified?.secondSince1970 ?? 0),

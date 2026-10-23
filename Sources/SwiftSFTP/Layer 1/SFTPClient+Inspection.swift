@@ -94,7 +94,7 @@ private extension SFTPClient {
                     return nil
 
                 case .sftpProtocol:
-                    switch try SFTPLastError(sftp: sftp) {
+                    switch SFTPLastError(sftp: sftp) {
                     case .noSuchFile, .noSuchPath:
                         return nil
 
