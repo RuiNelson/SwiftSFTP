@@ -482,6 +482,23 @@ try await handle.close()
 
 > **Chunk limit:** The SSH protocol transfers at most **32 KiB** per packet. Both the standard `read`/`write` methods and the convenience methods (see [Uploading and Downloading](#uploading-and-downloading)) handle chunking automatically.
 
+### Read-ahead
+
+Reads keep requests in flight ahead of the file position, so one connection is not limited to one request per round
+trip. `client.readAhead` sets how many bytes: 2 MiB by default, the same as OpenSSH's `sftp`, and anything from 128 KiB
+to 8 MiB. A read keeps at most four times its own size ahead, so ask for at least `readAhead / 4` bytes at a time to use
+all of it.
+
+```swift
+client.readAhead = 8 * 1024 * 1024   // distant, fast server: keep libssh2's maximum in flight
+let chunk = try await file.read(upTo: 1024 * 1024, readAheadLimit: rangeEnd)
+```
+
+What was requested ahead is still transferred after a seek, a cancelled read or a close, and then dropped. When you know
+where your reads stop, pass that offset as `readAheadLimit`, as the transfer conveniences do. On links slower than about
+`readAhead` per second, closing a handle right after cancelling its read can outlast `teardownGracePeriod`: lower
+`readAhead` or raise `teardownGracePeriod`. Forks inherit the value.
+
 ### File attributes
 
 ```swift

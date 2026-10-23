@@ -14,13 +14,15 @@ extension SFTPFileProtocol {
 
     /// Reads the entire remaining contents from the current file position to EOF.
     ///
-    /// Reads in 32 KiB chunks until EOF. If the file position is already at or past EOF, returns `nil`.
+    /// Reads in chunks of up to 2 MiB until EOF, large enough for any ``SFTPClientProtocol/readAhead``. If the file
+    /// position is already at or past EOF, returns `nil`.
     ///
     /// - Returns: All remaining data, or `nil` if there is nothing left to read.
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
     func readAll() async throws -> Data? {
         var buffer = Data()
-        while let chunk = try await read() {
+        // A read keeps up to four times its size in flight, so 2 MiB reaches the 8 MiB most libssh2 allows.
+        while let chunk = try await read(upTo: 2 * 1024 * 1024) {
             buffer.append(chunk)
         }
 

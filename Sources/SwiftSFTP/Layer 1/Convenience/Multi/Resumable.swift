@@ -527,6 +527,8 @@ private extension SFTPClientProtocol {
             while case let .run(blocks, range) = await synchronizer.nextAssignment() {
                 try await localIO.seek(toOffset: range.offset)
                 handle.offset = range.offset
+                // The next run starts with a seek, which would drop anything read ahead past this one.
+                let runEnd = range.offset + range.length
                 var moved = UInt64()
                 var pending = blocks.lowerBound
                 var stopped = false
@@ -534,7 +536,7 @@ private extension SFTPClientProtocol {
                 while moved < range.length, !stopped {
                     try Task.checkCancellation()
                     let wanted = Int(min(UInt64(bufferSize), range.length - moved))
-                    guard let chunk = try await handle.read(upTo: wanted), !chunk.isEmpty else {
+                    guard let chunk = try await handle.read(upTo: wanted, readAheadLimit: runEnd), !chunk.isEmpty else {
                         throw FileTransferErrors.shortRead(expected: wanted, actual: 0)
                     }
 

@@ -411,7 +411,8 @@ private extension SFTPClientProtocol {
             while completed < range.length {
                 try Task.checkCancellation()
                 let expected = Int(min(UInt64(bufferSize), range.length - completed))
-                let data = try await handle.read(upTo: expected) ?? Data()
+                // Read ahead no further than the range: what lies past it belongs to another worker.
+                let data = try await handle.read(upTo: expected, readAheadLimit: range.offset + range.length) ?? Data()
                 guard !data.isEmpty else {
                     throw FileTransferErrors.shortRead(expected: expected, actual: 0)
                 }

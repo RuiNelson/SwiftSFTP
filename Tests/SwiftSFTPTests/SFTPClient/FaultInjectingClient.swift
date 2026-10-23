@@ -110,6 +110,11 @@ final class FaultInjectingClient: SFTPClientProtocol {
         set { base.teardownGracePeriod = newValue }
     }
 
+    var readAhead: Int {
+        get { base.readAhead }
+        set { base.readAhead = newValue }
+    }
+
     var compression: (clientToServer: CompressionAlgorithm, serverToClient: CompressionAlgorithm) {
         base.compression
     }
