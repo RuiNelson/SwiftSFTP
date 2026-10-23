@@ -67,10 +67,40 @@ client-to-server preference. The pinned upstream source checks the local endpoin
 SFTP initialization when only incoming traffic is compressed.
 
 `Scripts/generate-libssh2-backend.py` prepares and verifies this transport adapter alongside the qualified OpenSSL
-header. The upstream license is preserved. Regenerate both adapters after changing the libssh2 pin; `--check`
+header. The upstream license is preserved. Regenerate the adapters after changing the libssh2 pin; `--check`
 verifies the exact source and adjustment in CI. The generator also accepts an upstream source that already contains
 the correction. `Tests/SwiftSFTPTests/SFTPClient/Compression.swift` exercises preference order, all four directional
 combinations, file transfers, and fork inheritance against the Docker test server.
+
+## Interrupted sends during teardown
+
+The transport adapter also clears a pending outgoing packet when retrying it fails with a fatal socket-send error.
+Upstream retains that packet, so every call with a different packet returns `EAGAIN` before touching the socket,
+including the channel-close calls needed to free the session.
+
+After shutting down the socket, `SFTPClient` re-enters an interrupted write once. The fatal send releases the pending
+transport packet; the normal handle, SFTP, and session cleanup paths can then free their resources locally. A short
+timeout alone would return without freeing them. `WriteAheadTests.closeWithHalfSentPacket` keeps the peer blocked
+throughout cancellation and teardown and checks that closing succeeds within its budget, including when
+`operationsTimeOut` is infinite.
+
+The generator verifies the exact fatal-send patch site as well as the decompression correction. If upstream changes
+that code, review the remaining corrections before dropping the transport adapter. Regenerate it with
+`python3 Scripts/generate-libssh2-backend.py` and verify it with `--check`.
+
+## Per-handle SFTP read state
+
+`Sources/libssh2/sftp.c` and `Sources/libssh2/sftp.h` are generated from the pinned libssh2 sources by the same script.
+Upstream, `sftp_read()` keeps the state of an interrupted call in the SFTP session, shared by every handle. A read
+that is cancelled or times out while waiting for responses leaves that state mid-call, and `libssh2_sftp_seek64()` does
+not reset it. The next read on a handle with nothing in flight then failed with `sftp_read() internal error`. That
+handle is either the same one after a seek or another handle of the client. The adapter keeps the state in each file
+handle and resets it when a seek discards the pending requests.
+
+The generator stops if the pinned source changes around the patched lines, or if upstream already keeps the state per
+handle. In that case, drop the adapter and compile `Vendor/libssh2/src/sftp.c` again.
+`Tests/SwiftSFTPTests/SFTPClient/AbandonedRead.swift` cancels or times out a read on a stalled connection, then reads
+after a seek, on another handle, and on the same handle from its position.
 
 ## Updating the pin
 

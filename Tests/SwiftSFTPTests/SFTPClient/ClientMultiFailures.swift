@@ -695,8 +695,7 @@ struct SFTPClientMultiTransferFailures {
         func downloadPreallocationFails() async throws {
             try await withDownloadFixture("multi-fail-download-allocation") { client, remotePath, destination in
                 // No disk refuses a few megabytes on demand, so the source claims a size no file can be truncated to.
-                // On
-                // Darwin that reaches `ftruncate` as a negative length; Linux's Foundation would trap converting it.
+                // On Darwin that reaches `ftruncate` as a negative length; Linux's Foundation would trap converting it.
                 let faulty = FaultInjectingClient(wrapping: client, faults: InjectedFaults(afterStat: { metadata in
                     guard let metadata else {
                         return nil

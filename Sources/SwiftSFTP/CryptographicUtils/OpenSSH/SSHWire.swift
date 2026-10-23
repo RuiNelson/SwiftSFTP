@@ -2,8 +2,8 @@ import Foundation
 
 /// Reader for the SSH binary encoding (RFC 4251 §5) used by OpenSSH key blobs and key files.
 ///
-/// Every read returns `nil` instead of trapping when the input is too short or malformed, so untrusted input is safe
-/// to parse, including on 32-bit platforms where a length field can exceed `Int`.
+/// Every read returns `nil` instead of trapping when the input is too short or malformed, so untrusted input is safe to
+/// parse, including on 32-bit platforms where a length field can exceed `Int`.
 struct SSHWireReader {
     private let bytes: Data
     private var offset: Int

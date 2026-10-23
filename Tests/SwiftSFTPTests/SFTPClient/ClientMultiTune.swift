@@ -179,14 +179,8 @@ struct SFTPClientMultiTuning {
             }
 
             try await client.createDirectory(path: directory, makePath: true, mode: .serverDefault)
-            do {
-                await #expect(throws: FileTransferErrors.self) {
-                    try await client.multiTune(testDirection: .download, testFilePath: directory)
-                }
-            }
-            catch {
-                try? await client.delete(path: directory)
-                throw error
+            await #expect(throws: FileTransferErrors.self) {
+                try await client.multiTune(testDirection: .download, testFilePath: directory)
             }
 
             try await client.delete(path: directory)

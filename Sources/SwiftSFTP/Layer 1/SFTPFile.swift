@@ -16,6 +16,16 @@ public final class SFTPFile: SFTPFileProtocol {
 
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPFile.InternalState")
     private nonisolated(unsafe) var _closed: Bool = false
+    /// Whether a read may have left requests in flight ahead of the position. Accessed under the parent's session I/O
+    /// lock.
+    private nonisolated(unsafe) var readAheadPending = false
+    /// Whether a write that did not run to completion may have left requests in flight past the position. Accessed
+    /// under the parent's session I/O lock.
+    private nonisolated(unsafe) var writesPending = false
+    /// The position while a write's half-sent packet keeps the handle's queued requests, which a seek would drop: where
+    /// that write gave up, or where ``offset`` was set since. The next read or write moves there once the packet is
+    /// out. Accessed under the parent's session I/O lock.
+    private nonisolated(unsafe) var requestedOffset: UInt64?
 
     // MARK: Initialization
 
@@ -37,7 +47,24 @@ public final class SFTPFile: SFTPFileProtocol {
 // MARK: Private helpers
 
 private extension SFTPFile {
-    private static let size32kB = 32 * 1024
+    /// Most bytes one write call hands libssh2 that it has not sent before: four requests, about what the send buffer
+    /// of an idle socket takes without blocking.
+    ///
+    /// libssh2 returns from a write call after one acknowledgement, so four requests a call fill
+    /// ``SFTPClientProtocol/writeAhead`` within a couple of round trips, while an interrupted call never has much left
+    /// to finish sending.
+    static let maximumFreshWriteLength = 4 * writeRequestSize
+
+    /// Consecutive write calls without an acknowledgement after which a write gives up as making no progress.
+    static let maximumIdleWriteCalls = 64
+
+    /// Whether `error` is libssh2 giving up on a blocking call.
+    static func isTimeout(_ error: any Error) -> Bool {
+        guard let error = error as? LibSSH2Error, case .timeout = error else {
+            return false
+        }
+        return true
+    }
 
     func checkClosed() throws(AlreadyClosed) {
         if closed || parent.closed {
@@ -45,12 +72,77 @@ private extension SFTPFile {
         }
     }
 
-    /// Blocking timeout for `SSH_FXP_CLOSE`, given the session's currently configured one.
+    /// Bytes to hand libssh2 for one read call. libssh2 keeps four times that many requested ahead of the position.
     ///
-    /// An infinite ``SFTPClientProtocol/teardownGracePeriod`` switches the cap off, leaving the close bounded only by
+    /// - Parameters:
+    ///   - remaining: Bytes the read still needs.
+    ///   - readAhead: The parent's ``SFTPClientProtocol/readAhead``.
+    ///   - readAheadLimit: Offset where reading ahead stops, or `nil`.
+    func readLength(remaining: Int, readAhead: Int, readAheadLimit: UInt64?) -> Int {
+        let length = min(remaining, readAhead / 4)
+        guard let readAheadLimit else {
+            return length
+        }
+
+        // The limit only stops requests past what the caller asked for; it never shortens the read itself.
+        let position = SFTPTell(handle: handle)
+        let (requestEnd, overflow) = position.addingReportingOverflow(UInt64(remaining))
+        let end = max(readAheadLimit, overflow ? .max : requestEnd)
+        return min(length, max(Int(clamping: (end - position) / 4), 1))
+    }
+
+    /// Lets libssh2 finish sending a packet that an interrupted write call had started to send.
+    ///
+    /// A call cut short while the socket was full leaves an SSH packet half sent, and libssh2 refuses to send any other
+    /// packet on the session until that same call completes it. Re-entering the call does; once nothing waits to go
+    /// out, the call is only waiting for acknowledgements and can be left. The wait is capped like ``close()``'s, and a
+    /// peer that does not take the packet in time is noted as unresponsive. The parent then keeps the call, and
+    /// finishes it before the next call that may send.
+    ///
+    /// - Parameters:
+    ///   - call: The interrupted libssh2 call, invoked again unchanged.
+    ///   - timeoutMilliseconds: The session's configured timeout, or `nil` for none.
+    func finishSending(_ call: @escaping () throws -> Int, timeoutMilliseconds: Int?) {
+        let cap = teardownTimeoutMilliseconds(configured: timeoutMilliseconds ?? 0)
+        parent.noteInterruptedSend(on: handle, call, budgetMilliseconds: cap > 0 ? cap : nil)
+
+        // Finishing the call later also collects acknowledgements, which would move the position under a caller that
+        // has already read it to resume from.
+        if parent.hasInterruptedSend(on: handle) {
+            requestedOffset = SFTPTell(handle: handle)
+        }
+    }
+
+    /// Moves the position to where ``offset`` was last set, if a half-sent packet kept it from moving then, or else
+    /// drops the requests left in flight past the position. Callers must hold the parent's session I/O lock, after the
+    /// packet is out.
+    ///
+    /// - Parameter droppingReadAhead: Whether reads requested ahead go too, not only writes left in flight.
+    func settlePosition(droppingReadAhead: Bool) {
+        if let requestedOffset {
+            internalStateQueue.sync {
+                SFTPSeek(handle: handle, offset: requestedOffset)
+            }
+            self.requestedOffset = nil
+            readAheadPending = false
+            writesPending = false
+        }
+        else if writesPending || (droppingReadAhead && readAheadPending) {
+            internalStateQueue.sync {
+                SFTPSeek(handle: handle, offset: SFTPTell(handle: handle))
+            }
+            readAheadPending = false
+            writesPending = false
+        }
+    }
+
+    /// Longest teardown work may block — an `SSH_FXP_CLOSE`, or finishing an interrupted write — given the session's
+    /// configured timeout, where `0` means none.
+    ///
+    /// An infinite ``SFTPClientProtocol/teardownGracePeriod`` switches the cap off, leaving the work bounded only by
     /// `operationsTimeOut`. Otherwise the wait is capped at the grace period, and skipped near enough entirely once
     /// another call has already given up on the peer.
-    func closeTimeoutMilliseconds(configured: Int) -> Int {
+    func teardownTimeoutMilliseconds(configured: Int) -> Int {
         let grace = parent.teardownGracePeriod
 
         guard grace.isFinite else {
@@ -65,6 +157,50 @@ private extension SFTPFile {
     }
 }
 
+// MARK: Write pacing
+
+extension SFTPFile {
+    /// Largest payload libssh2 puts in one `SSH_FXP_WRITE` request (`MAX_SFTP_OUTGOING_SIZE`).
+    static let writeRequestSize = 30000
+
+    /// Most a `SSH_FXP_WRITE` request adds to its payload on the channel: 25 bytes of fields and a handle of up to 256
+    /// bytes.
+    static let writeRequestOverhead = 25 + 256
+
+    /// Bytes of a write not handed to libssh2 yet that the next call may hand it.
+    ///
+    /// libssh2 sends whatever it is handed straight away, in requests of up to ``writeRequestSize`` bytes. The result
+    /// keeps the bytes in flight within `writeAhead` and every request within the SSH channel window, so libssh2 never
+    /// sends part of a request and leaves the rest for a later call that may never come: any other packet sent in
+    /// between would land in the middle of that request on the server.
+    ///
+    /// - Parameters:
+    ///   - remaining: Bytes not handed to libssh2 yet.
+    ///   - pending: Bytes handed to libssh2 that the server has not acknowledged yet.
+    ///   - writeAhead: The parent's ``SFTPClientProtocol/writeAhead``.
+    ///   - window: Bytes the SSH channel window still takes.
+    static func freshWriteLength(remaining: Int, pending: Int, writeAhead: Int, window: Int) -> Int {
+        let wanted = min(remaining, writeAhead - pending, maximumFreshWriteLength)
+        guard wanted > 0 else {
+            return 0
+        }
+
+        // Whole requests that fit the window, then one shorter request in what is left of it.
+        let requestCost = writeRequestSize + writeRequestOverhead
+        let wholeRequests = window / requestCost
+        let leftover = window - wholeRequests * requestCost
+        let fitting = wholeRequests * writeRequestSize + max(leftover - writeRequestOverhead, 0)
+
+        guard fitting == 0, pending == 0 else {
+            return min(wanted, fitting)
+        }
+
+        // Nothing in flight means no acknowledgement is coming to widen the window: hand libssh2 one request and let it
+        // wait for the window, as it always has.
+        return min(remaining, writeRequestSize)
+    }
+}
+
 // MARK: SFTPFileProtocol + Position and I/O
 
 public extension SFTPFile {
@@ -74,7 +210,7 @@ public extension SFTPFile {
                 guard !closed, !parent.closed else {
                     return 0
                 }
-                return internalStateQueue.sync {
+                return requestedOffset ?? internalStateQueue.sync {
                     SFTPTell(handle: handle)
                 }
             }
@@ -84,14 +220,29 @@ public extension SFTPFile {
                 guard !closed, !parent.closed else {
                     return
                 }
+
+                // A seek drops the requests queued on the handle, the one libssh2 has half sent among them, and the
+                // next request on the channel would then be handed that packet instead of its own.
+                guard !parent.hasInterruptedSend(on: handle) else {
+                    requestedOffset = newValue
+                    return
+                }
+
+                requestedOffset = nil
                 internalStateQueue.sync {
                     SFTPSeek(handle: handle, offset: newValue)
                 }
+                readAheadPending = false
+                writesPending = false
             }
         }
     }
 
     func read(upTo: Int) async throws -> Data? {
+        try await read(upTo: upTo, readAheadLimit: nil)
+    }
+
+    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data? {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
 
@@ -99,33 +250,48 @@ public extension SFTPFile {
                 return nil
             }
 
-            var buffer = Data(capacity: upTo)
+            // libssh2 keeps write and read requests in the same queue, and would take the acknowledgements of writes an
+            // interrupted write left in flight for answers to reads. Seeking to the position drops them first.
+            settlePosition(droppingReadAhead: false)
 
-            var bytesLeft = upTo
+            let readAhead = parent.readAhead
+            var buffer = Data(count: upTo)
+            var filled = 0
 
-            while bytesLeft > 0 {
+            while filled < upTo {
                 // Bytes already read have advanced the remote offset, so hand them back as a short read rather than
                 // dropping them; the caller observes cancellation on its next loop iteration.
                 if slice.token.isCancelled {
-                    guard buffer.isEmpty else {
-                        return buffer
+                    guard filled == 0 else {
+                        break
                     }
                     throw CancellationError()
                 }
 
-                let bytesToRead = min(bytesLeft, Self.size32kB)
+                let length = readLength(remaining: upTo - filled, readAhead: readAhead, readAheadLimit: readAheadLimit)
+                readAheadPending = true
 
-                let chunk = try slice { try SFTPRead(handle: handle, maximumLength: bytesToRead) }
-                guard chunk.isEmpty == false else {
+                let count: Int
+                do {
+                    count = try buffer.withUnsafeMutableBytes { bytes in
+                        let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[filled ..< filled + length])
+                        return try slice { try SFTPRead(handle: handle, into: destination) }
+                    }
+                }
+                catch is CancellationError where filled > 0 {
+                    // Cancellation can also land while a call waits out a slice: the same short read applies.
                     break
                 }
 
-                buffer.append(chunk)
+                guard count > 0 else {
+                    break
+                }
 
-                bytesLeft -= chunk.count
+                filled += count
             }
 
-            return buffer.isEmpty ? nil : buffer
+            buffer.count = filled
+            return filled == 0 ? nil : buffer
         }
     }
 
@@ -133,35 +299,93 @@ public extension SFTPFile {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
 
-            var bytesWritten = 0
+            // libssh2 counts `offset_sent - offset` as its own unacknowledged writes, so requests a read, or a write
+            // that did not run to completion, left in flight would make it skip that many bytes of `data`. Seeking to
+            // the position drops them first.
+            settlePosition(droppingReadAhead: true)
 
-            while bytesWritten < data.count {
-                try slice.token.check()
+            // A write call interrupted while waiting for an acknowledgement, on this handle or another, leaves libssh2
+            // expecting that acknowledgement: its next call would skip sending and return 0. With nothing queued on
+            // this handle, an empty call clears that state without touching the network.
+            _ = try slice { try SFTPWrite(handle: handle, data: Data()) }
 
-                // `data` may be a slice, so index from `startIndex` rather than zero.
-                let start = data.startIndex + bytesWritten
-                let end = min(start + Self.size32kB, data.endIndex)
-                let written = try slice { try SFTPWrite(handle: handle, data: data[start ..< end]) }
+            let writeAhead = parent.writeAhead
+            let channel = try SFTPGetChannel(sftp: parent.sftp)
 
-                guard written > 0 else {
-                    break
+            // Bytes the server has acknowledged, and bytes handed to libssh2, which sends them at once.
+            var written = 0
+            var queued = 0
+            var idleCalls = 0
+
+            while written < data.count {
+                // Requests already sent stay on their way to the remote file: its size is the resume point.
+                if slice.token.isCancelled {
+                    writesPending = queued > written
+                    throw CancellationError()
                 }
 
-                bytesWritten += written
+                let pending = queued - written
+                let window = channel.map { Int(clamping: ChannelWindowWrite(channel: $0).windowSize) } ?? .max
+                let fresh = Self.freshWriteLength(
+                    remaining: data.count - queued,
+                    pending: pending,
+                    writeAhead: writeAhead,
+                    window: window
+                )
+
+                // Every call starts at the first unacknowledged byte; libssh2 skips the `pending` ones it already sent.
+                // `data` may be a slice, so index from `startIndex` rather than zero.
+                let start = data.startIndex + written
+                let bytes = data[start ..< start + pending + fresh]
+                // The parent may keep the call past this write; capture the handle, not the file.
+                let handle = handle
+                let call = { try SFTPWrite(handle: handle, data: bytes) }
+
+                let acknowledged: Int
+                do {
+                    acknowledged = try slice(call)
+                }
+                catch {
+                    writesPending = true
+
+                    // Cancellation or the timeout can cut a call short with a packet half sent, which libssh2 would
+                    // hold against every other packet on the session.
+                    if error is CancellationError || Self.isTimeout(error) {
+                        finishSending(call, timeoutMilliseconds: slice.timeoutMilliseconds)
+                    }
+                    throw error
+                }
+
+                queued += fresh
+                written += acknowledged
+
+                // libssh2 returns 0 while the first request in its queue is still partly unsent; calling again sends
+                // more of it. A run of calls that acknowledge nothing means no progress is being made.
+                if acknowledged == 0 {
+                    idleCalls += 1
+                    guard idleCalls < Self.maximumIdleWriteCalls else {
+                        break
+                    }
+                }
+                else {
+                    idleCalls = 0
+                }
             }
 
-            guard bytesWritten == data.count else {
-                throw FileTransferErrors.shortWrite(expected: data.count, actual: bytesWritten)
+            guard written == data.count else {
+                writesPending = queued > written
+                throw FileTransferErrors.shortWrite(expected: data.count, actual: written)
             }
 
-            return bytesWritten
+            return written
         }
     }
 
     func fsync() async throws {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
-            try slice { try SFTPFSync(handle: handle) }
+            let handle = handle
+            try parent.runSFTPCall(.fsync, on: handle, slice: slice) { try SFTPFSync(handle: handle) }
         }
     }
 }
@@ -185,26 +409,14 @@ public extension SFTPFile {
                 try parent.checkOpenForFileOperation()
 
                 // `SSH_FXP_CLOSE` needs an answer the server may never send. Cap the wait: closing a handle is not
-                // worth one whole `operationsTimeOut` when the connection has stopped responding. A close that gives
-                // up leaves the handle owned by libssh2, so hand it to the parent, which reclaims it once the socket
-                // is down.
+                // worth one whole `operationsTimeOut` when the connection has stopped responding. A close that gives up
+                // leaves the handle owned by libssh2, and the parent reclaims it once the socket is down.
                 let configured = SessionGetTimeout(session: parent.session)
-                let capped = closeTimeoutMilliseconds(configured: configured)
+                let capped = teardownTimeoutMilliseconds(configured: configured)
                 SessionSetTimeout(session: parent.session, timeoutMilliseconds: capped)
                 defer { SessionSetTimeout(session: parent.session, timeoutMilliseconds: configured) }
 
-                do {
-                    try SFTPCloseHandle(handle: self.handle)
-                    parent.notePeerResponded(true)
-                }
-                catch let error as LibSSH2Error {
-                    if case .timeout = error {
-                        parent.notePeerResponded(false)
-                        // Only a timeout leaves the handle alive: libssh2 frees it on every other failure path.
-                        parent.noteAbandonedHandle(handle)
-                    }
-                    throw error
-                }
+                try parent.closeHandle(handle)
             }
         }
     }
@@ -222,7 +434,10 @@ public extension SFTPFile {
     func set(_ attributes: FileAttributes) async throws {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
-            try slice { try SFTPFSetStat(handle: handle, attributes: attributes) }
+            let handle = handle
+            try parent.runSFTPCall(.fstat, on: handle, slice: slice) {
+                try SFTPFSetStat(handle: handle, attributes: attributes)
+            }
         }
     }
 
@@ -230,7 +445,8 @@ public extension SFTPFile {
         get async throws {
             try await parent.withCancellableSessionIO { [self] slice in
                 try checkClosed()
-                return try slice { try SFTPFStat(handle: handle) }
+                let handle = handle
+                return try parent.runSFTPCall(.fstat, on: handle, slice: slice) { try SFTPFStat(handle: handle) }
             }
         }
     }
@@ -239,7 +455,8 @@ public extension SFTPFile {
         get async throws {
             try await parent.withCancellableSessionIO { [self] slice in
                 try checkClosed()
-                return try slice { try SFTPFStatVFS(handle: handle) }
+                let handle = handle
+                return try parent.runSFTPCall(.fstatvfs, on: handle, slice: slice) { try SFTPFStatVFS(handle: handle) }
             }
         }
     }

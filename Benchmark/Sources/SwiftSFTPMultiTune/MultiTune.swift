@@ -4,7 +4,8 @@ import Logging
 private import SwiftSFTP
 
 enum Direction: String, ExpressibleByArgument {
-    case upload, download
+    case upload
+    case download
 }
 
 @main

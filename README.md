@@ -26,9 +26,10 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
 - **Solid Base**: Built on top of `libssh2` and OpenSSL, compiled from pinned C sources by SwiftPM on every supported platform.
-- **Fast**: Outperforms other Swift SFTP clients, with multi-worker transfers further increasing throughput; see [Benchmarks](#benchmarks).
+- **Fast**: Outperforms other Swift SFTP clients — 5.3× upload and 2.8× download over one connection, keeping up to 2 MiB in flight per connection; `multiUpload` / `multiDownload` add connections when a link has headroom; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
+- **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
 
@@ -121,6 +122,37 @@ For complete details, see:
   - [Host Key Validation](Documentation/CryptographicUtils.md#host-key-validation-known_hosts)
   - [Asymmetric Key Generation, Import, and Export](Documentation/CryptographicUtils.md#asymmetric-keys-asymmetriccryptography)
 
+## AVFoundation Playback
+
+Add the `SwiftSFTPAVFoundation` product to play remote audio or video on macOS, iOS, tvOS, visionOS, and Mac Catalyst:
+
+```swift
+import AVFoundation
+import SwiftSFTP
+import SwiftSFTPAVFoundation
+
+// Use authenticated clients and keep them open throughout playback. Each fork is another connection,
+// and the connections read different stripes of the file at the same time.
+let clients = [client, try await client.fork(), try await client.fork(), try await client.fork()]
+let item = clients.makePlayerItem(at: "/Videos/holiday.mp4")
+let player = AVPlayer(playerItem: item)
+player.play()
+
+// A single connection works too. Use an asset for metadata, asset options, or custom AVFoundation workflows:
+let asset = client.makeAsset(at: "/Videos/holiday.mp4")
+```
+
+Each client opens the file read-only when AVFoundation loads it. The clients fetch 2 MiB stripes in parallel and read
+8 MiB ahead of playback; pass `stripeSize:` and `readAheadSize:` to change either. Playback and seeking never create a
+local copy. Releasing an asset or its player item cancels its pending reads and closes its file handles. The caller
+still owns and closes the SFTP clients. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
+for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
+See the [User's Guide](Documentation/UserGuide.md#avfoundation-playback) for read-ahead, lifetime, and error handling
+details.
+
+The [sample app](SampleApp/README.md) includes a SwiftUI player for macOS, iOS, and visionOS, using this checkout's
+local package. Open `SampleApp/SFTP+AV/MediaPlayerOverSFTP.xcodeproj` in Xcode to run it.
+
 ## Adding SwiftSFTP to your Project
 
 ### Swift Package Manager
@@ -146,6 +178,9 @@ targets: [
 ]
 ```
 
+For AVFoundation playback, use `.product(name: "SwiftSFTPAVFoundation", package: "SwiftSFTP")` as your target's
+dependency. This product supplies both the `SwiftSFTP` and `SwiftSFTPAVFoundation` modules in one dynamic library.
+
 ### Xcode
 
 If you are using Xcode, you can directly add this repository as a Swift Package dependency in your project settings:
@@ -155,10 +190,11 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 3. Choose the version rule you prefer (e.g., "Up to Next Major Version") and click **Add Package**.
 4. Make sure the `SwiftSFTP` product is added to your app target.
 
+For AVFoundation playback, select `SwiftSFTPAVFoundation` as the product; it includes the `SwiftSFTP` module too.
+
 ### Source distribution
 
-SwiftSFTP includes no precompiled libraries or XCFrameworks. SwiftPM builds libssh2
-and the prepared OpenSSL C sources for the destination platform and architecture.
+SwiftPM builds libssh2 and the prepared OpenSSL C sources for the destination platform and architecture.
 Consumers need neither system OpenSSL nor Perl/Make, build plugins, or an SDK signing
 certificate. Xcode signs the built product as part of the application's normal signing.
 The first build compiles OpenSSL; subsequent builds are incremental.
@@ -193,32 +229,118 @@ consumer test and the optional official MEGA artifact check.
 
 ## Benchmarks
 
-These measurements used the previous precompiled OpenSSL builds. They have not been
-repeated with the portable C configuration now compiled by SwiftPM.
+On a Wi-Fi network, SwiftSFTP uploaded a 100 MiB file 5.3× faster and downloaded it 2.8× faster than
+[Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift SFTP library, over a single
+connection. Much of that gap comes from how the two clients use the connection: SwiftSFTP keeps up to
+2 MiB of data in flight per connection, while the Citadel transfer path used in this benchmark waits
+for each request to be answered before sending the next. The numbers below show the difference; the
+rest of the section explains when it matters — and when adding connections does not help.
 
-Measured with the [`Benchmark`](Benchmark) executable against a real world Wi-Fi connected SFTP server and client (Client ↔ Wi-Fi AP ↔ Server), comparing SwiftSFTP to [Citadel 0.12.1](https://github.com/orlandos-nl/Citadel), another Swift library. Each figure is the best of 3 runs. The test file is 100 MiB in size and contains random data.
+Citadel can achieve transfer speeds comparable to SwiftSFTP, but doing so requires substantial
+implementation and tuning effort from the library's consumer. SwiftSFTP provides request pipelining
+and its default 2 MiB read-ahead and write-ahead windows out of the box through `upload` / `download`,
+so consumers get these optimizations without having to implement them themselves. These benchmarks
+compare the transfer paths used here; they do not establish Citadel's maximum achievable throughput.
 
 <p>
-  <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 4.87 MiB/s (baseline), SwiftSFTP 1 worker 4.98 MiB/s (+2%), SwiftSFTP 5 workers 11.69 MiB/s (+140%), SwiftSFTP 5 workers resumable 11.69 MiB/s (+140%)" width="49%" />
-  <img src="Documentation/benchmark-download.svg" alt="Download throughput: Citadel 7.21 MiB/s (baseline), SwiftSFTP 1 worker 10.23 MiB/s (+42%), SwiftSFTP 2 workers 13.22 MiB/s (+83%), SwiftSFTP 2 workers resumable 12.78 MiB/s (+77%)" width="49%" />
+  <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 5.05 MiB/s (baseline), SwiftSFTP 1 worker 26.55 MiB/s (+426%), SwiftSFTP 2 workers 25.29 MiB/s (+401%), SwiftSFTP 2 workers resumable 24.96 MiB/s (+394%)" width="49%" />
+  <img src="Documentation/benchmark-download.svg" alt="Download throughput: Citadel 7.94 MiB/s (baseline), SwiftSFTP 1 worker 22.36 MiB/s (+182%), SwiftSFTP 2 workers 20.97 MiB/s (+164%), SwiftSFTP 2 workers resumable 20.74 MiB/s (+161%)" width="49%" />
 </p>
 
-With a single connection, SwiftSFTP and Citadel upload at a comparable rate, but SwiftSFTP is already 42% faster at download (10.23 vs. 7.21 MiB/s) before any additional workers are involved.
+### How the test was run
 
-That single-connection download gap comes down to how each client issues read requests. Citadel's SFTP client sends one read request and awaits its reply before sending the next, so its throughput is limited by how much data the server returns per round trip. libssh2 (the C library SwiftSFTP is built on) reads ahead instead: it keeps several read requests outstanding at once rather than waiting on each one, so more data stays in flight on the same connection. Over a real network, where every round trip has a cost, that difference alone accounts for SwiftSFTP's download lead before `multiDownload` is even used.
+The [`Benchmark`](Benchmark) executable transferred a 100 MiB file of random data between a Mac and an
+SFTP server on the same Wi-Fi network (client ↔ access point ↔ server). Both libraries used the same
+server, credentials, file, and network, and each was driven through its public API, with the exact
+buffer sizes and options in the benchmark source. Every configuration ran three times; the fastest run
+is reported, so an unrelated Wi-Fi hiccup is less likely to decide the result. Each transfer was
+verified to have the expected 100 MiB size.
 
-SwiftSFTP's advantage grows further when transferring with multiple workers (`multiUpload` / `multiDownload`), which distribute a transfer across several independent TCP connections rather than one.
+SwiftSFTP used its default 2 MiB read-ahead and write-ahead windows and was built with the portable
+OpenSSL configuration SwiftPM produces (see [Source distribution](#source-distribution)). Random data
+keeps compression from affecting the result.
 
-A single TCP connection's throughput is bounded by its own congestion window: the sender grows it gradually and retreats at the first sign of loss or congestion, which limits how much data one connection can keep in flight at a time, particularly over Wi-Fi, where variable latency and loss trigger that retreat frequently. SFTP's 32 KiB per-packet limit compounds this: libssh2 pipelines writes ahead of the server's acknowledgment, but each outstanding unit is still only 32 KiB, so filling the same congestion window over a higher-latency link takes many more packets than it would with a larger block size. Each `multiUpload` / `multiDownload` worker opens its own TCP connection (with its own congestion window and its own stream of 32 KiB packets), so the transfer as a whole keeps far more data in flight than a single connection allows. This is why five workers more than double upload throughput above (4.98 → 11.69 MiB/s) and two workers produce a smaller gain on download (10.23 → 13.22 MiB/s), which was already closer to what a single connection could sustain on this link.
+### Results
 
-Resuming is close to free. A resumable upload matched the plain one exactly (11.69 MiB/s in both), and a resumable download gave up about 3% (13.22 → 12.78 MiB/s).
+The charts use the API's term, **worker**, for one parallel transfer; each worker normally uses its own
+connection. The one-connection bars use plain `upload` / `download`; the two-worker bars use
+`multiUpload` / `multiDownload`. The time under each bar is for the full 100 MiB file.
 
-This throughput is not free:
+Over one connection, SwiftSFTP uploads 5.3× and downloads 2.8× as fast as Citadel. Two workers were
+slightly slower than one on this link, and resumability cost about 1%. The charts express improvement as
+a percentage increase over Citadel; +426% is the same as 5.3× faster.
 
-- **Additional server load.** Each worker holds its own connection and session open for the duration of the transfer, which some servers rate-limit or cap.
-- **Diminishing, link-dependent returns.** The gain from additional workers depends on the link and on the remote server's capacity to service concurrent requests, and will vary across networks; it should not be assumed from the figures above.
+### Why one connection is faster
 
-Because that last point makes the right worker count a property of the link rather than a constant, `multiTune` measures it: it transfers a test file at increasing parallelism and returns the count that reached the highest throughput. The [`Benchmark`](Benchmark) package ships it as the `swift-sftp-multitune` executable, and the [User's Guide](Documentation/UserGuide.md#choosing-a-worker-count) covers the API.
+A **round trip** is the time between sending a request and receiving its reply. A client that sends one
+request at a time can move roughly one request's worth of data per round trip. Send 512 KiB per round
+trip over a link with 20 ms round trips and you get about 25 MiB/s, even if the link could carry much
+more: the connection sits idle while each reply is in transit. Larger requests help, but only up to the
+server's limits and SSH's flow-control window. Citadel's 0.12.1 upload path also splits each write into
+32,000-byte requests, so it makes more round trips than its download path does; that helps explain why
+the upload gap is larger than the download gap.
+
+SwiftSFTP keeps a window of requests in flight instead:
+
+- [`writeAhead`](Documentation/UserGuide.md#write-ahead) (2 MiB by default) sends write requests before
+  earlier writes are acknowledged.
+- [`readAhead`](Documentation/UserGuide.md#read-ahead) (2 MiB by default) requests bytes ahead of the
+  position being read.
+
+The server works on later requests while earlier replies travel back, so the round trip carries data
+instead of leaving the link empty. The 2 MiB default is about what
+[OpenSSH's `sftp`](https://man.openbsd.org/sftp.1) keeps outstanding (64 requests of up to 32 KiB).
+Pipelining does not make the link itself faster; it keeps the link busy. On a short, fast connection the
+gain is small. Over Wi-Fi or a long-distance link it can be the difference between a few MiB/s and tens
+of MiB/s.
+
+### When more connections help
+
+`multiUpload` and `multiDownload` split a file across workers, each an independent connection with its
+own in-flight window and TCP congestion window. One connection's throughput is capped by its window:
+
+    throughput ≈ window size ÷ round-trip time
+
+At the 2 MiB default, one connection cannot exceed about 67 MiB/s on a 30 ms link or 20 MiB/s on a
+100 ms link, however much bandwidth the link offers. The actual rate is the lower of that window limit
+and the link's own capacity. Workers add windows, so they help when round trips are long, when a server
+limits a single session, or when the link has more bandwidth than one window can keep busy.
+
+On this Wi-Fi network, the link, not the 2 MiB window, was the limit, so a second connection had little
+to add. It shared the same radio and added handshake and coordination work, and the transfer finished
+4.7% slower on upload and 6.2% slower on download. That is a result for this link, not a rule: on a
+high-latency or per-session-limited link, extra workers can be substantially faster. The right count is
+worth measuring rather than assuming.
+
+### What resumability costs
+
+A resumable multi-transfer appends a small trailer past the payload, recording which blocks have
+arrived, so a later call can skip the completed parts. The trailer is removed before the file is put in
+place. Compared with the non-resumable two-worker runs, that bookkeeping cost 1.3% on upload and 1.1% on
+download. A resumable upload opens one extra connection for its trailer; a resumable download writes its
+trailer locally and uses no extra connection. You pay this cost only when you ask
+`multiUpload` / `multiDownload` to be resumable.
+
+### Measure your own link
+
+The best worker count depends on the network, so `multiTune` measures it: it transfers a test file at
+increasing parallelism and returns the count with the highest throughput. On a link that one connection
+already saturates, it reports 1. The [`Benchmark`](Benchmark) package builds the harness used above and
+ships it as the `swift-sftp-benchmark` and `swift-sftp-multitune` executables:
+
+```sh
+swift build --package-path Benchmark -c release
+swift run --package-path Benchmark -c release swift-sftp-benchmark --help
+swift run --package-path Benchmark -c release swift-sftp-multitune --help
+```
+
+Use release builds for throughput measurements. See
+[Choosing a worker count](Documentation/UserGuide.md#choosing-a-worker-count) for the `multiTune` API and
+[the Benchmark README](Benchmark/README.md) for server setup and options.
+
+These figures describe one Wi-Fi network, one server, and one moment in October 2026. Interference,
+round-trip time, server disk speed, SSH cipher, and other traffic all move them, so treat them as a
+demonstration of the mechanism rather than a promise for your deployment.
 
 ## License
 

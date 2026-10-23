@@ -64,8 +64,8 @@ struct ShellResponseParser {
     }
 
     private mutating func handleLine(_ rawLine: String) {
-        // cmd.exe may prefix output with a prompt (`C:\path>`). Match markers with `contains` of the full
-        // nonce-bearing token so unrelated output cannot spoof completion.
+        // cmd.exe may prefix output with a prompt (`C:\path>`). Match markers with `contains` of the full nonce-bearing
+        // token so unrelated output cannot spoof completion.
         let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if let rcRange = trimmed.range(of: rcPrefix) {
             let code = trimmed[rcRange.upperBound...]
@@ -87,8 +87,8 @@ struct ShellResponseParser {
         guard !trimmed.isEmpty else {
             return
         }
-        // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such
-        // prompt, and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
+        // Drop `C:\path>` cmd prompts so hash parsers see bare hex / verbose lines. Unix hosts print no such prompt,
+        // and their output may legitimately open with `x:` and contain `>`, so leave those lines whole.
         let payload = shellType.iKnowThis ? trimmed : ShellAgentSupport.stripWindowsCmdPrompt(trimmed)
         guard !payload.isEmpty else {
             return

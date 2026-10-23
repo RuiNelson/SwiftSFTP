@@ -40,11 +40,18 @@ extension SFTPClient {
         mode: POSIXPermissions,
         openType: LibSSH2SFTPOpenType
     ) throws -> LibSSH2SFTPHandle {
-        do {
-            return try SFTPOpen(sftp: sftp, filename: path, flags: flags, mode: mode, openType: openType)
-        }
-        catch LibSSH2Error.sftp(status: .ok) {
-            throw session.lastError
+        let sftp = try sftp
+        let session = session
+
+        return try runSFTPCall(.open, discarding: { [unowned self] handle, slice in
+            closeDiscardedHandle(handle, slice: slice)
+        }) {
+            do {
+                return try SFTPOpen(sftp: sftp, filename: path, flags: flags, mode: mode, openType: openType)
+            }
+            catch LibSSH2Error.sftp(status: .ok) {
+                throw session.lastError
+            }
         }
     }
 }

@@ -563,8 +563,8 @@ struct SFTPClientFilesystemOps {
     @Test("path sanitization preserves significant whitespace")
     func pathSanitizationPreservesWhitespace() async throws {
         try await withClient { client in
-            // Leading/trailing whitespace is part of the path, not trimmed away, so a padded spelling of a
-            // real directory no longer resolves to it.
+            // Leading/trailing whitespace is part of the path, not trimmed away, so a padded spelling of a real
+            // directory no longer resolves to it.
             let padded = "  \(TS.testHome)  "
             let meta = try await client.statDirectory(path: padded, followLink: false)
             #expect(meta == nil)
@@ -579,8 +579,7 @@ struct SFTPClientFilesystemOps {
         try await withClient { client in
             let statEmpty = try await client.stat(path: "", followLink: false)
             let statDot = try await client.stat(path: ".", followLink: false)
-            // A whitespace-only path is preserved as a literal (non-existent) name rather than collapsed to
-            // empty/CWD.
+            // A whitespace-only path is preserved as a literal (non-existent) name rather than collapsed to empty/CWD.
             let statWhitespace = try await client.stat(path: "  ", followLink: false)
 
             #expect(statEmpty != nil)

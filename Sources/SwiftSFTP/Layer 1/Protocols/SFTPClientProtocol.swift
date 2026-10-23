@@ -6,10 +6,10 @@ import Logging
 /// `SFTPClientProtocol` models an SSH session plus an initialized SFTP subsystem. The initializer validates and stores
 /// configuration only; call ``login(timeOut:)`` before performing remote filesystem operations.
 ///
-/// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in
-/// remote names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation.
-/// Operations throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP
-/// subsystem that has not been initialized.
+/// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in remote
+/// names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation. Operations
+/// throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP subsystem that
+/// has not been initialized.
 public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     // MARK: Initialization
 
@@ -19,10 +19,10 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// authentication payload, and configures blocking mode. It does not open a socket, perform the SSH handshake, or
     /// initialize SFTP; those steps happen in ``login(timeOut:)``.
     ///
-    /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their
-    /// first occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed
-    /// fallback. If the preferences cannot be configured, initialization continues without compression in either
-    /// direction. Check both members of ``compression`` after login when compression is required.
+    /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their first
+    /// occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed fallback. If
+    /// the preferences cannot be configured, initialization continues without compression in either direction. Check
+    /// both members of ``compression`` after login when compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
@@ -30,8 +30,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// blocking timeout (libssh2 default).
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
-    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to
-    /// data sent to the server; `serverToClient` applies to data received from it.
+    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
+    /// sent to the server; `serverToClient` applies to data received from it.
     ///   - logger: Optional logger used for close/deinit diagnostics.
     ///   - trapOnDeInitWithoutClose: When `true`, the concrete client traps if it is deallocated before ``close()``;
     /// file handles opened from the client inherit the same behavior.
@@ -91,10 +91,10 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Once the socket is gone, the server tears down its side of the channel, including file handles opened on it.
     /// Closing handles individually first is tidier, but it is not what makes the cleanup correct.
     ///
-    /// Failures of the graceful phase are logged rather than thrown; a successful return means every libssh2 and
-    /// socket resource was released. That includes file handles whose ``SFTPFileProtocol/close()`` timed out against
-    /// an unresponsive peer: once the socket is down, their close is retried — which now fails fast, letting libssh2
-    /// free them — and the SFTP session is shut down so the requests queued on those handles are released too.
+    /// Failures of the graceful phase are logged rather than thrown; a successful return means every libssh2 and socket
+    /// resource was released. That includes file handles whose ``SFTPFileProtocol/close()`` timed out against an
+    /// unresponsive peer: once the socket is down, their close is retried — which now fails fast, letting libssh2 free
+    /// them — and the SFTP session is shut down so the requests queued on those handles are released too.
     ///
     /// - Throws: libssh2/socket errors encountered while releasing resources.
     func close() async throws
@@ -108,7 +108,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, logger, and deinitialization behavior.
+    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, logger, and deinitialization
+    /// behavior.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
@@ -140,11 +141,11 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Seconds the polite SSH/SFTP goodbye may take before ``close()`` drops the connection outright. Defaults to one
     /// second.
     ///
-    /// A graceful shutdown needs the peer to answer, and a peer that stopped answering reads and writes will not
-    /// answer that either. This caps how long ``close()`` and ``SFTPFileProtocol/close()`` wait for it, so teardown
-    /// stays bounded on a wedged connection instead of spending one `operationsTimeOut` per step. Cutting the goodbye
-    /// short costs nothing: dropping the socket is what releases the connection, and the server tears down its side of
-    /// the channel when it does.
+    /// A graceful shutdown needs the peer to answer, and a peer that stopped answering reads and writes will not answer
+    /// that either. This caps how long ``close()`` and ``SFTPFileProtocol/close()`` wait for it, so teardown stays
+    /// bounded on a wedged connection instead of spending one `operationsTimeOut` per step. Cutting the goodbye short
+    /// costs nothing: dropping the socket is what releases the connection, and the server tears down its side of the
+    /// channel when it does.
     ///
     /// Raise it for links slow enough that a legitimate goodbye needs longer, or set it to `.infinity` to switch the
     /// cap off entirely and let the goodbye run under `operationsTimeOut` alone, as it did before the cap existed.
@@ -154,6 +155,39 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// inside libssh2; it waits for it. Combined with an `operationsTimeOut` of `nil` that means `close()` can block
     /// for as long as the peer stays silent.
     var teardownGracePeriod: TimeInterval { get set }
+
+    /// Bytes a file read keeps requested ahead of its position. Defaults to 2 MiB, what OpenSSH's `sftp` keeps in
+    /// flight (64 requests of 32 KiB).
+    ///
+    /// One connection fetches at most this much per round trip: 2 MiB caps a download near 70 MB/s at 30 ms of latency
+    /// and 21 MB/s at 100 ms. A read keeps up to four times its own size ahead, so ask
+    /// ``SFTPFileProtocol/read(upTo:)`` for at least a quarter of this value to use all of it.
+    ///
+    /// Requests sent ahead cannot be taken back. After a seek, a cancelled read, or a close, the next exchange on the
+    /// connection waits for up to this many bytes to arrive and be dropped. On links slower than about this value per
+    /// second, closing a handle right after cancelling its read can outlast ``teardownGracePeriod``: lower this or
+    /// raise that. Reads that know where they stop say so with ``SFTPFileProtocol/read(upTo:readAheadLimit:)``, as the
+    /// transfer conveniences do.
+    ///
+    /// Values are clamped to 128 KiB...8 MiB, the most libssh2 keeps in flight for one handle. A client created by
+    /// ``fork(loggedIn:)`` inherits the current value.
+    var readAhead: Int { get set }
+
+    /// Bytes a file write keeps on their way to the server ahead of its acknowledgements. Defaults to 2 MiB, what
+    /// OpenSSH's `sftp` keeps in flight (64 requests of 32 KiB).
+    ///
+    /// One connection uploads at most this much per round trip: 2 MiB caps an upload near 70 MB/s at 30 ms of latency
+    /// and 21 MB/s at 100 ms. The SSH channel window the server grants caps it as well, whatever this value: OpenSSH
+    /// grants 2 MiB. ``SFTPFileProtocol/write(_:)`` still returns only once every byte is acknowledged, so the pipeline
+    /// empties at the end of each call: write several times this value per call to keep the connection busy, as the
+    /// upload conveniences do by default.
+    ///
+    /// Requests already sent cannot be taken back. A cancelled write leaves up to this many bytes on their way to the
+    /// remote file, so its size, rather than the handle's position, is the resume point.
+    ///
+    /// Values are clamped to 32 KiB...8 MiB. The lower bound is what a write kept in flight before this setting
+    /// existed. A client created by ``fork(loggedIn:)`` inherits the current value.
+    var writeAhead: Int { get set }
 
     /// Negotiated compression in each direction, or `(.none, .none)` before handshake or after closing the client.
     ///

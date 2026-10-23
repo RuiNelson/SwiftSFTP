@@ -15,8 +15,12 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Reads up to `upTo` bytes from the current file position.
     ///
-    /// The concrete implementation reads in chunks of at most 32 KiB and returns early at EOF. A positive request that
-    /// reaches EOF before reading any bytes returns `nil`; requesting `0` bytes returns `nil`.
+    /// The concrete implementation returns early at EOF. A positive request that reaches EOF before reading any bytes
+    /// returns `nil`; requesting `0` bytes returns `nil`.
+    ///
+    /// The concrete implementation keeps requesting data ahead of the position, so consecutive reads overlap their
+    /// round trips: up to four times `upTo`, capped at ``SFTPClientProtocol/readAhead``. Seeking discards what was
+    /// requested ahead. A caller that knows where its reads stop can say so with ``read(upTo:readAheadLimit:)``.
     ///
     /// The concrete implementation honors Swift task cancellation even while the server has gone silent, without
     /// waiting out `operationsTimeOut`. Bytes already read are returned as a short read, because they have already
@@ -27,15 +31,39 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
     func read(upTo: Int) async throws -> Data?
 
+    /// Reads up to `upTo` bytes from the current file position without reading ahead past `readAheadLimit`.
+    ///
+    /// Behaves like ``read(upTo:)``, except that the concrete implementation stops requesting data ahead once it
+    /// reaches `readAheadLimit`, give or take libssh2's last request of up to 30 000 bytes. Pass the end of the range
+    /// being read: whatever is requested past it is transferred only to be dropped by the next seek or close. The limit
+    /// never shortens the read itself, and `nil` behaves exactly like ``read(upTo:)``.
+    ///
+    /// The default implementation ignores the limit and calls ``read(upTo:)``.
+    ///
+    /// - Parameters:
+    ///   - upTo: Maximum number of bytes to read. Must be greater than zero.
+    ///   - readAheadLimit: File offset where reading ahead stops, usually the end of the range being read, or `nil` for
+    /// no limit.
+    /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
+    /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
+    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data?
+
     /// Writes data at the current file position.
     ///
-    /// The concrete implementation splits writes into chunks of at most 32 KiB. Because libssh2 may accept short
-    /// writes, the returned value is the number of bytes actually accepted before completion or before a zero-byte
-    /// write makes no forward progress.
+    /// The concrete implementation keeps up to ``SFTPClientProtocol/writeAhead`` bytes on their way to the server and
+    /// returns once the server has acknowledged every byte, so the pipeline empties at the end of each call: larger
+    /// calls keep the connection busier. The returned value is the number of bytes acknowledged; a write that stops
+    /// making progress before acknowledging all of `data` throws ``FileTransferErrors/shortWrite(expected:actual:)``.
     ///
     /// The concrete implementation honors Swift task cancellation even while the server has gone silent, without
-    /// waiting out `operationsTimeOut`. A cancelled write throws `CancellationError` after leaving whatever chunks it
-    /// already sent on the remote file, so the remote size is the resume point.
+    /// waiting out `operationsTimeOut`. A cancelled write throws `CancellationError` after leaving whatever requests it
+    /// already sent on their way to the remote file, so the remote size, rather than ``offset``, is the resume point.
+    /// When cancellation lands while the socket is full, libssh2 first finishes sending the packet it had started, for
+    /// at most ``SFTPClientProtocol/teardownGracePeriod``: any other packet sent before it would corrupt the session. A
+    /// packet the server does not take in that time stays with the client, which finishes sending it before its next
+    /// call that sends, within that call's own timeout and cancellation. While the server still takes no data, those
+    /// calls fail with the timeout; once it does, the connection carries on. Until then, ``offset`` stays where the
+    /// write gave up, and setting it takes effect with the next read or write.
     ///
     /// - Parameter data: Bytes to write.
     /// - Returns: Number of bytes accepted by libssh2.
@@ -100,8 +128,8 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 
     /// Updates selected attributes on the open file handle, applying only the non-nil parameters.
     ///
-    /// When `size` is provided and the current position is beyond the new size, the position is moved to the new end
-    /// of the file (`size`) before the request is sent. Calling with all parameters `nil` is a no-op.
+    /// When `size` is provided and the current position is beyond the new size, the position is moved to the new end of
+    /// the file (`size`) before the request is sent. Calling with all parameters `nil` is a no-op.
     ///
     /// - Parameters:
     ///   - size: New file size in bytes.
@@ -130,4 +158,10 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors, including unsupported-operation on servers without the
     /// extension.
     var statFilesystem: FilesystemStat { get async throws }
+}
+
+public extension SFTPFileProtocol {
+    func read(upTo: Int, readAheadLimit _: UInt64?) async throws -> Data? {
+        try await read(upTo: upTo)
+    }
 }

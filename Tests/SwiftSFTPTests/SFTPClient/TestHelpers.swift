@@ -41,11 +41,10 @@ func makeLoggedInClient(
     }
 }
 
-/// Logs in on a freshly constructed client, retrying up to 3 times when the handshake fails for a
-/// transient connection-level reason (observed as intermittent KEX/socket/channel failures through
-/// Docker Desktop's port forwarding on macOS). Non-transient errors (authentication or host-key
-/// rejections) are rethrown immediately without retrying, so tests asserting a specific failure reason
-/// still see it.
+/// Logs in on a freshly constructed client, retrying up to 3 times when the handshake fails for a transient
+/// connection-level reason (observed as intermittent KEX/socket/channel failures through Docker Desktop's port
+/// forwarding on macOS). Non-transient errors (authentication or host-key rejections) are rethrown immediately without
+/// retrying, so tests asserting a specific failure reason still see it.
 func loginWithRetry(
     timeOut: TimeInterval = 15.0,
     makeClient: () throws -> SFTPClient
@@ -63,9 +62,9 @@ func loginWithRetry(
     }
 }
 
-/// Retries `operation` up to 3 times when it throws a transient connection-level failure (observed as
-/// intermittent KEX/socket/channel failures through Docker Desktop's port forwarding on macOS).
-/// Non-transient errors are rethrown immediately.
+/// Retries `operation` up to 3 times when it throws a transient connection-level failure (observed as intermittent
+/// KEX/socket/channel failures through Docker Desktop's port forwarding on macOS). Non-transient errors are rethrown
+/// immediately.
 func retryingTransientConnectionFailure<T>(
     _ operation: () async throws -> T
 ) async throws -> T {
@@ -85,8 +84,8 @@ func retryingTransientConnectionFailure<T>(
     throw lastError ?? LibSSH2Error.badSocket("Could not connect to test server")
 }
 
-/// Whether `error` is a transient connection-level failure from the handshake (as opposed to an
-/// authentication or host-key rejection) worth retrying against a fresh connection.
+/// Whether `error` is a transient connection-level failure from the handshake (as opposed to an authentication or
+/// host-key rejection) worth retrying against a fresh connection.
 func isTransientConnectionFailure(_ error: any Error) -> Bool {
     guard let sshError = error as? LibSSH2Error else { return false }
     switch sshError {
@@ -98,11 +97,11 @@ func isTransientConnectionFailure(_ error: any Error) -> Bool {
     }
 }
 
-/// Asserts that `operation` fails with `expectedError`, retrying up to 3 times when it fails first for
-/// a transient connection-level reason (observed as intermittent KEX/socket/channel failures through
-/// Docker Desktop's port forwarding on macOS). Records an issue (test failure) if `operation` succeeds
-/// or fails with a different error. Each retry re-invokes `operation` from scratch, so callers whose
-/// attempt needs fresh state (a new client) should construct it inside the closure.
+/// Asserts that `operation` fails with `expectedError`, retrying up to 3 times when it fails first for a transient
+/// connection-level reason (observed as intermittent KEX/socket/channel failures through Docker Desktop's port
+/// forwarding on macOS). Records an issue (test failure) if `operation` succeeds or fails with a different error. Each
+/// retry re-invokes `operation` from scratch, so callers whose attempt needs fresh state (a new client) should
+/// construct it inside the closure.
 func expectRejects<E: Error & Equatable>(
     _ expectedError: E,
     _ operation: () async throws -> Void
@@ -129,8 +128,8 @@ func expectRejects<E: Error & Equatable>(
     }
 }
 
-/// Asserts that logging in on a freshly constructed client fails with `expectedError`, retrying up to
-/// 3 times when the handshake itself fails first for a transient connection-level reason.
+/// Asserts that logging in on a freshly constructed client fails with `expectedError`, retrying up to 3 times when the
+/// handshake itself fails first for a transient connection-level reason.
 func expectLoginRejects(
     _ expectedError: some Error & Equatable,
     timeOut: TimeInterval = 10.0,

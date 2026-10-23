@@ -39,8 +39,8 @@ struct CancellationTests {
         }
     }
 
-    /// The slicing driver returns control to Swift by letting libssh2's own blocking timeout expire, so it has to
-    /// leave the connection exactly as it found it: same socket, same session, same resumable SFTP state machine.
+    /// The slicing driver returns control to Swift by letting libssh2's own blocking timeout expire, so it has to leave
+    /// the connection exactly as it found it: same socket, same session, same resumable SFTP state machine.
     @Test("a download survives a stall long enough to expire many slices, and finishes once the server answers")
     func stallDoesNotBreakTheSession() async throws {
         // No blocking timeout, so only the slicing loop decides when to come back.
@@ -75,11 +75,14 @@ struct CancellationTests {
 
     /// The upload counterpart. A retry that replayed a whole chunk loop instead of the single libssh2 call would
     /// rewrite bytes at an already-advanced remote offset, so this checks content, not just length.
+    ///
+    /// An upload only hears acknowledgements back, far too few bytes to spend a server-to-client budget before it ends,
+    /// so the proxy goes silent on cue instead.
     @Test("an upload survives a stall and lands byte-exact once the server answers")
     func stallDoesNotCorruptAnUpload() async throws {
         try await withStalledConnection(
             "stall-and-recover-upload",
-            stallAfterBytes: 128 * 1024,
+            stallAfterBytes: .max,
             operationsTimeOut: nil
         ) { wedged in
             let source = try temporaryFile(containing: wedged.payload)
@@ -90,13 +93,17 @@ struct CancellationTests {
 
             let upload = Task {
                 try await wedged.client.upload(from: source, to: uploadPath, bufferSize: 32768) { completed, _, _, _ in
-                    progress.record(completed)
+                    await progress.recordHoldingFirstReport(completed)
                     return true
                 }
             }
 
+            // The first report is held, so the upload is still running when the server goes quiet.
+            try await progress.waitUntilStarted()
+            wedged.proxy.stall()
             try await progress.waitUntilStalled()
             try await Task.sleep(nanoseconds: 2_000_000_000)
+            #expect(progress.completed < Int64(wedged.payload.count), "the upload finished without stalling")
             wedged.proxy.resume()
 
             try await upload.value
@@ -109,6 +116,41 @@ struct CancellationTests {
             }
 
             #expect(try Data(contentsOf: readback) == wedged.payload)
+        }
+    }
+
+    /// A cancellation that lands while libssh2 waits out a slice used to throw `CancellationError` and drop the bytes
+    /// the same read had already collected, although they had advanced the remote position.
+    @Test("cancelling a read that stalled partway returns the bytes it already has")
+    func stalledReadReturnsShortRead() async throws {
+        let stallAfterBytes = 1024 * 1024
+
+        try await withStalledConnection(
+            "stalled-short-read",
+            megabytes: 4,
+            stallAfterBytes: stallAfterBytes,
+            operationsTimeOut: nil
+        ) { wedged in
+            let handle = try await wedged.client.openFile(.read, path: wedged.remotePath, permissions: [])
+            let read = Task { try await handle.read(upTo: wedged.payload.count) }
+
+            // Wait for the proxy to go silent, then for the read to be stuck in libssh2 for a few slices.
+            let deadline = DispatchTime.now() + .seconds(30)
+            while wedged.proxy.relayedToClient < stallAfterBytes, DispatchTime.now() < deadline {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+
+            read.cancel()
+            let data = try #require(try await read.value)
+            let offset = handle.offset
+
+            wedged.proxy.stop()
+            try? await handle.close()
+
+            #expect(data.count > 0 && data.count < wedged.payload.count)
+            #expect(data == wedged.payload.prefix(data.count))
+            #expect(offset == UInt64(data.count))
         }
     }
 
@@ -210,6 +252,11 @@ final class TransferProgressProbe: @unchecked Sendable {
         let isFirst = !_heldFirstReport
         _heldFirstReport = true
         return isFirst
+    }
+
+    /// Bytes reported so far.
+    var completed: Int64 {
+        snapshot.completed
     }
 
     /// Current progress and how long ago it last moved.

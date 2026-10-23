@@ -240,8 +240,8 @@ enum OpenSSLPassphrase {
         }
     }
 
-    /// Calls `body` with the bytes and length of `passphrase`, as the `kstr` and `klen` arguments OpenSSL's PEM
-    /// writers take, or with `nil` and 0 when there is none.
+    /// Calls `body` with the bytes and length of `passphrase`, as the `kstr` and `klen` arguments OpenSSL's PEM writers
+    /// take, or with `nil` and 0 when there is none.
     static func withBytes<Result>(
         _ passphrase: String?,
         _ body: (UnsafePointer<UInt8>?, Int32) throws -> Result
@@ -253,8 +253,8 @@ enum OpenSSLPassphrase {
     }
 }
 
-/// OpenSSL password callback: copies the passphrase whose ``OpenSSLPassphrase/Source`` `userData` points to, or
-/// refuses (-1) when there is none or it does not fit.
+/// OpenSSL password callback: copies the passphrase whose ``OpenSSLPassphrase/Source`` `userData` points to, or refuses
+/// (-1) when there is none or it does not fit.
 func openSSLPassphraseCallback(
     _ buffer: UnsafeMutablePointer<CChar>?,
     _ size: Int32,

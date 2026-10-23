@@ -186,7 +186,9 @@ extension SFTPClientProtocol {
     ///   - localURL: Local file URL to upload.
     ///   - remotePath: Remote file path to create.
     ///   - workers: Maximum number of parallel connections. Values below one use one worker.
-    ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
+    ///   - bufferSize: Maximum local read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - permissions: POSIX permissions to request when creating the temporary file.
     ///   - doNotResume: When `true`, any existing partial file is deleted before it is read, and the upload starts from
     /// zero.
@@ -205,7 +207,7 @@ extension SFTPClientProtocol {
         from localURL: URL,
         to remotePath: String,
         workers: Int = 2,
-        bufferSize: Int = 1024 * 1024,
+        bufferSize: Int = 8 * 1024 * 1024,
         permissions: POSIXPermissions = [.serverDefault],
         doNotResume: Bool = false,
         continuation: @escaping TransferProgress
@@ -527,6 +529,8 @@ private extension SFTPClientProtocol {
             while case let .run(blocks, range) = await synchronizer.nextAssignment() {
                 try await localIO.seek(toOffset: range.offset)
                 handle.offset = range.offset
+                // The next run starts with a seek, which would drop anything read ahead past this one.
+                let runEnd = range.offset + range.length
                 var moved = UInt64()
                 var pending = blocks.lowerBound
                 var stopped = false
@@ -534,7 +538,7 @@ private extension SFTPClientProtocol {
                 while moved < range.length, !stopped {
                     try Task.checkCancellation()
                     let wanted = Int(min(UInt64(bufferSize), range.length - moved))
-                    guard let chunk = try await handle.read(upTo: wanted), !chunk.isEmpty else {
+                    guard let chunk = try await handle.read(upTo: wanted, readAheadLimit: runEnd), !chunk.isEmpty else {
                         throw FileTransferErrors.shortRead(expected: wanted, actual: 0)
                     }
 

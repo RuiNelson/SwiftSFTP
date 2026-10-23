@@ -11,7 +11,9 @@ public extension SFTPClientProtocol {
     ///   - source: Existing remote regular-file path to copy from.
     ///   - destination: Remote file path to create.
     ///   - permissions: POSIX permissions to request when creating the destination file.
-    ///   - chunkSize: Maximum read size per transfer step. Must be greater than zero.
+    ///   - chunkSize: Maximum read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
     /// - Throws: ``FileTransferErrors`` for missing source files, existing destination files, remote directory targets,
     /// cancellation, invalid chunk sizes, or short writes; otherwise forwards SFTP errors.
@@ -19,7 +21,7 @@ public extension SFTPClientProtocol {
         from source: String,
         to destination: String,
         permissions: POSIXPermissions,
-        chunkSize: Int = 512 * 1024,
+        chunkSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
         if destination.pathComponents.count >= 2 {

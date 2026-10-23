@@ -75,14 +75,16 @@ public extension SFTPFileProtocol {
     /// chunk is in flight on the network, the next chunk is read from disk concurrently. Returning `false` from
     /// `continuation` cancels the transfer after the current chunk is written.
     ///
-    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server
-    /// has stopped answering; whatever was already written stays on the remote file. Close the handle afterwards.
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server has
+    /// stopped answering; whatever was already written stays on the remote file. Close the handle afterwards.
     ///
     /// - Parameters:
     ///   - file: Local file URL to read.
     ///   - startFromFileOffset: Local file offset to start reading from.
     ///   - upTo: Maximum number of bytes to read from the local file. Pass `nil` to read until EOF.
-    ///   - bufferSize: Maximum local read size per transfer step. Must be greater than zero.
+    ///   - bufferSize: Maximum local read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
     /// - Returns: The number of bytes successfully written to the remote file.
     /// - Throws: `CancellationError` when the calling task is cancelled; ``FileTransferErrors`` for invalid local
@@ -92,7 +94,7 @@ public extension SFTPFileProtocol {
         from file: URL,
         startFromFileOffset: UInt64 = 0,
         upTo: UInt64? = nil,
-        bufferSize: Int = 512 * 1024,
+        bufferSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws -> UInt64 {
         guard file.isFileURL else {
@@ -170,8 +172,8 @@ public extension SFTPFileProtocol {
     /// from the network, and every received chunk is flushed to disk before the method returns or throws. Returning
     /// `false` from `continuation` cancels the transfer after the current chunk is written.
     ///
-    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server
-    /// has stopped answering; chunks already received are still flushed to `file`. Close the handle afterwards.
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`, even when the server has
+    /// stopped answering; chunks already received are still flushed to `file`. Close the handle afterwards.
     ///
     /// - Parameters:
     ///   - file: Local file URL to create or append to.
@@ -236,13 +238,15 @@ public extension SFTPFileProtocol {
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
+        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             while remainingBytes > 0 {
                 try Task.checkCancellation()
 
                 let chunkSize = Int(min(Int64(bufferSize), remainingBytes))
-                guard let data = try await read(upTo: chunkSize), data.isEmpty == false else {
+                let data = try await read(upTo: chunkSize, readAheadLimit: readAheadLimit)
+                guard let data, data.isEmpty == false else {
                     break
                 }
 
@@ -276,14 +280,16 @@ public extension SFTPFileProtocol {
     /// - Parameters:
     ///   - source: Remote SFTP file handle to read from.
     ///   - upTo: Maximum number of bytes to copy. Pass `nil` to copy until EOF.
-    ///   - chunkSize: Maximum read size per transfer step. Must be greater than zero.
+    ///   - chunkSize: Maximum read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
     /// - Throws: `CancellationError` when the calling task is cancelled; ``FileTransferErrors`` for a `continuation`
     /// that returned `false`, invalid chunk sizes, or short writes; otherwise forwards SFTP read and write errors.
     func read(
         from source: any SFTPFileProtocol,
         upTo: Int64? = nil,
-        chunkSize: Int = 512 * 1024,
+        chunkSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
         try await Self.transfer(
@@ -304,14 +310,16 @@ public extension SFTPFileProtocol {
     /// - Parameters:
     ///   - destination: Remote SFTP file handle to write to.
     ///   - upTo: Maximum number of bytes to copy. Pass `nil` to copy until EOF.
-    ///   - chunkSize: Maximum read size per transfer step. Must be greater than zero.
+    ///   - chunkSize: Maximum read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``SFTPClientProtocol/writeAhead`` keep the connection busy. Must
+    /// be greater than zero.
     ///   - continuation: Progress callback. Return `true` to continue, or `false` to cancel.
     /// - Throws: `CancellationError` when the calling task is cancelled; ``FileTransferErrors`` for a `continuation`
     /// that returned `false`, invalid chunk sizes, or short writes; otherwise forwards SFTP read and write errors.
     func write(
         to destination: any SFTPFileProtocol,
         upTo: Int64? = nil,
-        chunkSize: Int = 512 * 1024,
+        chunkSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
         try await Self.transfer(
@@ -346,13 +354,15 @@ public extension SFTPFileProtocol {
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
+        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
 
         while remainingBytes > 0 {
             try Task.checkCancellation()
 
             let bytesToRead = Int(min(UInt64(chunkSize), UInt64(clamping: remainingBytes)))
 
-            guard let data = try await source.read(upTo: bytesToRead), data.isEmpty == false else {
+            let data = try await source.read(upTo: bytesToRead, readAheadLimit: readAheadLimit)
+            guard let data, data.isEmpty == false else {
                 break
             }
 

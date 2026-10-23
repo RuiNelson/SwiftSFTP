@@ -8,8 +8,8 @@ import Foundation
 ///
 /// The `isValid_` checks ask whether the string is a valid key: well formed, valid for its algorithm, and, for private
 /// keys, with halves that belong together (see ``PublicKey`` and ``PrivateKey``). The `isValidForSSH_` checks also
-/// apply OpenSSH's rules (see ``OpenSSHKeyPolicy``): an algorithm SSH defines (Ed25519, ECDSA P-256 / P-384 / P-521,
-/// or RSA), and an RSA modulus of 1024 to 16384 bits.
+/// apply OpenSSH's rules (see ``OpenSSHKeyPolicy``): an algorithm SSH defines (Ed25519, ECDSA P-256 / P-384 / P-521, or
+/// RSA), and an RSA modulus of 1024 to 16384 bits.
 ///
 /// Wherever a `passphrase` is taken, `nil` or an empty string accepts only unencrypted keys; otherwise encrypted keys
 /// must decrypt with it, and unencrypted keys are accepted as they are.

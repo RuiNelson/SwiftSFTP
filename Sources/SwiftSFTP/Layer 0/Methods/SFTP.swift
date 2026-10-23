@@ -67,9 +67,9 @@ public func SFTPOpen(
     mode: LibSSH2SFTPPOSIXPermissions,
     openType: LibSSH2SFTPOpenType
 ) throws -> LibSSH2SFTPHandle {
-    // Only a create sends permissions. The serverDefault sentinel (-1) must not reach the wire: libssh2 would
-    // serialize it as 0xffffffff, and the server would create the file with every mode bit set. Omitting the
-    // permissions attribute is how SFTP asks for the server's default mode instead.
+    // Only a create sends permissions. The serverDefault sentinel (-1) must not reach the wire: libssh2 would serialize
+    // it as 0xffffffff, and the server would create the file with every mode bit set. Omitting the permissions
+    // attribute is how SFTP asks for the server's default mode instead.
     let sendsPermissions = flags.contains(.create) && mode != .serverDefault
     var attributes = LIBSSH2_SFTP_ATTRIBUTES()
     attributes.flags = sendsPermissions ? CUnsignedLong(libssh2.LIBSSH2_SFTP_ATTR_PERMISSIONS) : 0
@@ -93,6 +93,10 @@ public func SFTPOpen(
 /// Modelled on the POSIX `read(2)` function: the call attempts to fill the buffer but may return a short read if the
 /// end of the file is reached or the underlying transport would block.
 ///
+/// libssh2 keeps read requests for up to four times `maximumLength` (at most 8 MiB) in flight ahead of the file
+/// position, so the length passed to each call, not the number of calls, sets how much one connection fetches per round
+/// trip.
+///
 /// - Parameters:
 ///   - handle: The SFTP file handle to read from.
 ///   - maximumLength: Maximum number of bytes to read.
@@ -100,15 +104,29 @@ public func SFTPOpen(
 /// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
 /// non-blocking sessions).
 public func SFTPRead(handle: LibSSH2SFTPHandle, maximumLength: Int) throws -> Data {
-    var buffer = [CChar](repeating: 0, count: maximumLength)
-    let size = buffer.withUnsafeMutableBufferPointer {
-        libssh2.libssh2_sftp_read(handle.rawValue, $0.baseAddress, maximumLength)
-    }
+    var data = Data(count: maximumLength)
+    let count = try data.withUnsafeMutableBytes { try SFTPRead(handle: handle, into: $0) }
+    data.count = count
+    return data
+}
+
+/// Reads data from an SFTP file handle straight into caller-owned memory.
+///
+/// Behaves like ``SFTPRead(handle:maximumLength:)`` with `buffer.count` as the maximum length, without allocating or
+/// copying.
+///
+/// - Parameters:
+///   - handle: The SFTP file handle to read from.
+///   - buffer: Destination for the bytes read. Its size is the maximum length.
+/// - Returns: The number of bytes written to the start of `buffer`, or `0` at end of file.
+/// - Throws: ``LibSSH2Error`` on failure (allocation, socket send, socket timeout, SFTP protocol error, or `EAGAIN` for
+/// non-blocking sessions).
+public func SFTPRead(handle: LibSSH2SFTPHandle, into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+    let size = libssh2.libssh2_sftp_read(handle.rawValue, buffer.bindMemory(to: CChar.self).baseAddress, buffer.count)
     if size < 0 {
         throw LibSSH2Error(code: Int32(size))
     }
-    let count = size
-    return Data(bytes: buffer, count: count)
+    return size
 }
 
 /// Reads the next entry from an SFTP directory handle.
@@ -207,6 +225,9 @@ public func SFTPCloseHandle(handle: LibSSH2SFTPHandle) throws {
 ///
 /// The seek adjusts an internal, client-side file pointer; no packets are exchanged with the server. Do not seek while
 /// a read or write is in flight.
+///
+/// Unless nothing is pending, seeking discards every read request libssh2 sent ahead for the handle, even when the
+/// offset does not change. The server still answers them, and those answers are dropped as they arrive.
 ///
 /// - Parameters:
 ///   - handle: The SFTP file handle to seek.

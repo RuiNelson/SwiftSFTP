@@ -32,48 +32,58 @@ public extension SFTPClient {
 
         try withSessionIO {
             try checkClosed()
-            try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
+            let sftp = try sftp
+            try runSFTPCall(.mkdir) { try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode) }
         }
     }
 
     func setAttributes(path: String, attributes: FileAttributes) async throws {
         try withSessionIO {
             try checkClosed()
+            let sftp = try sftp
             let sanitizedPath = path.sanitizePath
-            try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
+            try runSFTPCall(.stat) { try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes) }
         }
     }
 
     func rename(from: String, to: String) async throws {
         try withSessionIO {
             try checkClosed()
-            try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+            let sftp = try sftp
+            try runSFTPCall(.posixRename) {
+                try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+            }
         }
     }
 
     func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
         try withSessionIO {
             try checkClosed()
-            try SFTPRename(
-                sftp: sftp,
-                sourceFilename: from.sanitizePath,
-                destinationFilename: to.sanitizePath,
-                flags: options
-            )
+            let sftp = try sftp
+            try runSFTPCall(.rename) {
+                try SFTPRename(
+                    sftp: sftp,
+                    sourceFilename: from.sanitizePath,
+                    destinationFilename: to.sanitizePath,
+                    flags: options
+                )
+            }
         }
     }
 
     func deleteFile(path: String) async throws {
         try withSessionIO {
             try checkClosed()
-            try SFTPUnlink(sftp: sftp, filename: path.sanitizePath)
+            let sftp = try sftp
+            try runSFTPCall(.unlink) { try SFTPUnlink(sftp: sftp, filename: path.sanitizePath) }
         }
     }
 
     func deleteDirectory(path: String) async throws {
         try withSessionIO {
             try checkClosed()
-            try SFTPRmdir(sftp: sftp, path: path.sanitizePath)
+            let sftp = try sftp
+            try runSFTPCall(.rmdir) { try SFTPRmdir(sftp: sftp, path: path.sanitizePath) }
         }
     }
 
@@ -105,7 +115,12 @@ public extension SFTPClient {
         try withSessionIO {
             try checkClosed()
 
-            guard let target = try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink) else {
+            let sftp = try sftp
+            let link = try runSFTPCall(.symlink) {
+                try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .readLink)
+            }
+
+            guard let target = link else {
                 throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
             }
 
@@ -116,12 +131,15 @@ public extension SFTPClient {
     func createSymLink(path: String, destination: String) async throws {
         try withSessionIO {
             try checkClosed()
-            _ = try SFTPSymlink(
-                sftp: sftp,
-                path: path.sanitizePath,
-                target: destination.sanitizePath,
-                linkType: .symlink
-            )
+            let sftp = try sftp
+            _ = try runSFTPCall(.symlink) {
+                try SFTPSymlink(
+                    sftp: sftp,
+                    path: path.sanitizePath,
+                    target: destination.sanitizePath,
+                    linkType: .symlink
+                )
+            }
         }
     }
 }

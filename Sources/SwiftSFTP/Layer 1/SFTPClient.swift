@@ -35,6 +35,10 @@ public final class SFTPClient: SFTPClientProtocol {
     nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
     /// Backing storage for ``teardownGracePeriod``. Protected by `internalStateQueue`.
     nonisolated(unsafe) var _teardownGracePeriod: TimeInterval = 1.0
+    /// Backing storage for ``readAhead``. Protected by `internalStateQueue`.
+    nonisolated(unsafe) var _readAhead: Int = SFTPClient.defaultReadAhead
+    /// Backing storage for ``writeAhead``. Protected by `internalStateQueue`.
+    nonisolated(unsafe) var _writeAhead: Int = SFTPClient.defaultWriteAhead
 
     // MARK: Concurrency
 
@@ -42,6 +46,12 @@ public final class SFTPClient: SFTPClientProtocol {
     let sessionIOLock = NSRecursiveLock()
     /// Whether the last blocking call gave up waiting for the peer. Guarded by `sessionIOLock`.
     nonisolated(unsafe) var _peerStoppedResponding = false
+    /// SFTP calls given up mid-wait, by the libssh2 state machine they hold. Guarded by `sessionIOLock`. See
+    /// ``runSFTPCall(_:on:slice:discarding:_:)``.
+    nonisolated(unsafe) var _abandonedCalls: [SFTPCallKind: AbandonedSFTPCall] = [:]
+    /// The write call holding a half-sent packet, if any. Guarded by `sessionIOLock`. See
+    /// ``finishInterruptedSend(slice:)``.
+    nonisolated(unsafe) var _interruptedSend: InterruptedSend?
     /// Serial queue that owns blocking libssh2 calls made from `async` code, keeping them off the Swift cooperative
     /// pool. See ``withCancellableSessionIO(_:)``.
     let sessionIOQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SFTPClient.SessionIO")

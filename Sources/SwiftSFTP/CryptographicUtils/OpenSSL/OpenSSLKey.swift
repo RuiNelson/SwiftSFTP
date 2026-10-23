@@ -176,8 +176,8 @@ extension OpenSSLKey {
         try runCheck(EVP_PKEY_check)
     }
 
-    /// Throws ``AsymmetricCryptographyError/invalidKeyData`` unless the RSA private key belongs to its public key:
-    /// n = p·q, and e·d ≡ 1 modulo both p − 1 and q − 1.
+    /// Throws ``AsymmetricCryptographyError/invalidKeyData`` unless the RSA private key belongs to its public key: n =
+    /// p·q, and e·d ≡ 1 modulo both p − 1 and q − 1.
     ///
     /// This is OpenSSL's RSA key check without its primality tests, which take about 100 ms for a 4096-bit key, and
     /// without its SP 800-56B public key policy, which rejects valid keys with small public exponents. Keys with more

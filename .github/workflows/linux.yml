@@ -2,7 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [main, bin-free]
+    branches: [main, next]
   pull_request:
     branches: [main]
 

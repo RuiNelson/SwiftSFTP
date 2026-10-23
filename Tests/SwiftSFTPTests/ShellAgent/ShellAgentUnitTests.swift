@@ -702,9 +702,9 @@ struct ShellAgentUnitTests {
 
     @Test("sftpFormForParentComputation agrees with pathForRemoteShell on absoluteness")
     func sftpFormForParentComputationAgreesWithShellPath() {
-        // A leading space before the leading "/" must not flip the path from absolute to relative: the
-        // directory ensureDestinationDirectory/ensureParentDirectory create over SFTP has to match the path the
-        // transfer command (built from pathForRemoteShell) actually targets.
+        // A leading space before the leading "/" must not flip the path from absolute to relative: the directory
+        // ensureDestinationDirectory/ensureParentDirectory create over SFTP has to match the path the transfer command
+        // (built from pathForRemoteShell) actually targets.
         let path = " /remote/dir/file.txt"
         #expect(
             ShellAgentSupport.sftpFormForParentComputation(path, shellType: .linux)

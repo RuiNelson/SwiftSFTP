@@ -107,8 +107,8 @@ extension ShellAgentSupport {
             line
         }
 
-        // GNU coreutils and `shasum` escape a file name holding a backslash or newline, and flag the line by opening
-        // it with a backslash ahead of the digest.
+        // GNU coreutils and `shasum` escape a file name holding a backslash or newline, and flag the line by opening it
+        // with a backslash ahead of the digest.
         let digest = hex.hasPrefix("\\") ? String(hex.dropFirst()) : hex
 
         return try parseHexDigestLine(digest, algorithm: algorithm)

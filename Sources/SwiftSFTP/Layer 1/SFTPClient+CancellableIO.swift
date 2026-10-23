@@ -33,9 +33,9 @@ final class SessionIOCancellationToken: @unchecked Sendable {
 
 /// Re-enters one blocking libssh2 call until it finishes, the task is cancelled, or the timeout budget is spent.
 ///
-/// The retry unit has to be a single libssh2 call. libssh2's SFTP entry points are resumable state machines that
-/// resume exactly where an expired slice left them, but a Swift loop wrapped around several of them is not: retrying
-/// such a loop would replay calls whose bytes already moved the remote file position.
+/// The retry unit has to be a single libssh2 call. libssh2's SFTP entry points are resumable state machines that resume
+/// exactly where an expired slice left them, but a Swift loop wrapped around several of them is not: retrying such a
+/// loop would replay calls whose bytes already moved the remote file position.
 struct SessionIOSlicer {
     /// Cancellation flag for the owning Swift task, for operations that loop over several calls.
     let token: SessionIOCancellationToken
@@ -43,8 +43,9 @@ struct SessionIOSlicer {
     /// Milliseconds a single blocking call may run before control returns here.
     let sliceMilliseconds: Int
 
-    /// When the originally configured `operationsTimeOut` budget runs out, or `nil` for no blocking timeout.
-    let deadline: DispatchTime?
+    /// The originally configured `operationsTimeOut` in milliseconds, which each call gets in full, or `nil` for no
+    /// blocking timeout.
+    let timeoutMilliseconds: Int?
 
     /// Whether the session timeout was short enough that the call is already its own slice.
     let slicingDisabled: Bool
@@ -53,12 +54,16 @@ struct SessionIOSlicer {
     ///
     /// - Parameter call: Exactly one libssh2 entry point, invoked again unchanged after an expired slice.
     /// - Returns: The call's result.
-    /// - Throws: `CancellationError` when the task is cancelled, ``LibSSH2Error/timeout(_:)`` once the budget is
-    /// spent, or whatever `call` throws.
+    /// - Throws: `CancellationError` when the task is cancelled, ``LibSSH2Error/timeout(_:)`` once the budget is spent,
+    /// or whatever `call` throws.
     func callAsFunction<T>(_ call: () throws -> T) throws -> T {
         guard !slicingDisabled else {
             return try call()
         }
+
+        // libssh2 gives every call the whole timeout, and so does this: an operation made of many calls that each make
+        // progress is not cut short for taking longer than one timeout in total.
+        let deadline = timeoutMilliseconds.map { DispatchTime.now() + .milliseconds($0) }
 
         while true {
             do {
@@ -93,10 +98,10 @@ extension SFTPClient {
     /// The work runs on the client's serial session-I/O queue, under the same lock as ``withSessionIO(_:)``, so libssh2
     /// still sees one call at a time. For the duration, the session's blocking timeout is lowered to
     /// ``cancellationPollIntervalMilliseconds``; every libssh2 call the operation makes through the supplied
-    /// ``SessionIOSlicer`` is then re-entered slice by slice until it completes, the task is cancelled, or the
-    /// originally configured timeout budget is spent. Nothing about the connection changes: the socket, the SSH
-    /// session, and the SFTP state machine are exactly as libssh2 left them, so an expired slice is indistinguishable
-    /// from a call that simply had not finished yet.
+    /// ``SessionIOSlicer`` is then re-entered slice by slice until it completes, the task is cancelled, or the call has
+    /// waited as long as the originally configured timeout allows. Nothing about the connection changes: the socket,
+    /// the SSH session, and the SFTP state machine are exactly as libssh2 left them, so an expired slice is
+    /// indistinguishable from a call that simply had not finished yet.
     ///
     /// - Parameter operation: Blocking work to run. Every libssh2 call it makes must go through the slicer.
     /// - Returns: The operation's result.
@@ -167,20 +172,22 @@ private extension SFTPClient {
             let slicer = SessionIOSlicer(
                 token: token,
                 sliceMilliseconds: slice,
-                deadline: configuredMilliseconds > 0
-                    ? DispatchTime.now() + .milliseconds(configuredMilliseconds)
-                    : nil,
+                timeoutMilliseconds: configuredMilliseconds > 0 ? configuredMilliseconds : nil,
                 slicingDisabled: slicingDisabled
             )
 
+            // A packet an earlier write left half sent goes out first, under this operation's budget: libssh2 sends
+            // nothing else until it has.
             do {
                 let result: R
                 if slicingDisabled {
+                    try finishInterruptedSend(slice: slicer)
                     result = try operation(slicer)
                 }
                 else {
                     SessionSetTimeout(session: session, timeoutMilliseconds: slice)
                     defer { SessionSetTimeout(session: session, timeoutMilliseconds: configuredMilliseconds) }
+                    try finishInterruptedSend(slice: slicer)
                     result = try operation(slicer)
                 }
                 notePeerResponded(true)

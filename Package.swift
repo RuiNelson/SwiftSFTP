@@ -4,7 +4,7 @@
 import PackageDescription
 
 // BEGIN OPENSSL SOURCE MANIFEST
-// OpenSSL source manifest SHA-256: 904706bc4148b58438cf3a9e064b5660b22948cc404e281859fbbc01b106343b
+// OpenSSL source manifest SHA-256: 07a07c497547770033117a40a3f6ded028419721cb05f97c3cd547182d96dae4
 let opensslSourcePaths: [String] = [
     "crypto",
     "providers",
@@ -16,50 +16,34 @@ let opensslExcludedPaths: [String] = [
     "crypto/LPdir_vms.inc",
     "crypto/LPdir_win.inc",
     "crypto/LPdir_win32.inc",
-    "crypto/LPdir_wince.inc",
     "crypto/des/ncbc_enc.inc",
+    "crypto/ec/curve448/arch_32/arch_intrinsics.inc",
+    "crypto/ec/curve448/arch_64/arch_intrinsics.inc",
+    "crypto/ml_dsa/asm/mldsa_ppc_macros_asm.inc",
+    "crypto/ml_dsa/ml_dsa_sample_hw_x86_64.inc",
+    "crypto/ml_kem/asm/mlkem_ppc_macros_asm.inc",
+    "private/crypto/md32_common.inc",
+    "private/internal/qlog_events.inc",
     "providers/decoders.inc",
     "providers/encoders.inc",
-    "providers/fips/include/fips_indicator_params.inc",
-    "providers/fips/include/fips_selftest_params.inc",
     "providers/implementations/asymciphers/rsa_enc.inc",
     "providers/implementations/asymciphers/sm2_enc.inc",
     "providers/implementations/ciphers/cipher_aes_cbc_hmac_sha.inc",
     "providers/implementations/ciphers/cipher_aes_cbc_hmac_sha_etm.inc",
-    "providers/implementations/ciphers/cipher_aes_ccm_hw_aesni.inc",
-    "providers/implementations/ciphers/cipher_aes_ccm_hw_rv32i.inc",
-    "providers/implementations/ciphers/cipher_aes_ccm_hw_rv64i.inc",
-    "providers/implementations/ciphers/cipher_aes_ccm_hw_s390x.inc",
-    "providers/implementations/ciphers/cipher_aes_ccm_hw_t4.inc",
-    "providers/implementations/ciphers/cipher_aes_cfb_hw_aesni.inc",
-    "providers/implementations/ciphers/cipher_aes_cfb_hw_s390x.inc",
-    "providers/implementations/ciphers/cipher_aes_cts.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_aesni.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_armv8.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_ppc.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_rv32i.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_rv64i.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_s390x.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_t4.inc",
-    "providers/implementations/ciphers/cipher_aes_gcm_hw_vaes_avx512.inc",
     "providers/implementations/ciphers/cipher_aes_gcm_siv.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_aesni.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_armv8.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_rv32i.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_rv64i.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_s390x.inc",
-    "providers/implementations/ciphers/cipher_aes_hw_t4.inc",
     "providers/implementations/ciphers/cipher_aes_ocb.inc",
     "providers/implementations/ciphers/cipher_aes_siv.inc",
     "providers/implementations/ciphers/cipher_aes_wrp.inc",
     "providers/implementations/ciphers/cipher_aes_xts.inc",
-    "providers/implementations/ciphers/cipher_aes_xts_s390x.inc",
-    "providers/implementations/ciphers/cipher_camellia_cts.inc",
     "providers/implementations/ciphers/cipher_camellia_hw_t4.inc",
     "providers/implementations/ciphers/cipher_chacha20.inc",
     "providers/implementations/ciphers/cipher_chacha20_poly1305.inc",
+    "providers/implementations/ciphers/cipher_cts.inc",
+    "providers/implementations/ciphers/cipher_des.inc",
     "providers/implementations/ciphers/cipher_null.inc",
+    "providers/implementations/ciphers/cipher_rc2.inc",
     "providers/implementations/ciphers/cipher_rc4_hmac_md5.inc",
+    "providers/implementations/ciphers/cipher_rc5.inc",
     "providers/implementations/ciphers/cipher_sm4_ccm_hw_rv64i.inc",
     "providers/implementations/ciphers/cipher_sm4_ccm_hw_x86_64.inc",
     "providers/implementations/ciphers/cipher_sm4_gcm_hw_rv64i.inc",
@@ -69,6 +53,7 @@ let opensslExcludedPaths: [String] = [
     "providers/implementations/ciphers/cipher_sm4_xts.inc",
     "providers/implementations/ciphers/cipher_sm4_xts_hw_rv64i.inc",
     "providers/implementations/ciphers/cipher_sm4_xts_hw_x86_64.inc",
+    "providers/implementations/ciphers/cipher_tdes.inc",
     "providers/implementations/ciphers/ciphercommon.inc",
     "providers/implementations/ciphers/ciphercommon_ccm.inc",
     "providers/implementations/ciphers/ciphercommon_gcm.inc",
@@ -93,6 +78,7 @@ let opensslExcludedPaths: [String] = [
     "providers/implementations/kdfs/argon2.inc",
     "providers/implementations/kdfs/hkdf.inc",
     "providers/implementations/kdfs/hmacdrbg_kdf.inc",
+    "providers/implementations/kdfs/ikev2kdf.inc",
     "providers/implementations/kdfs/kbkdf.inc",
     "providers/implementations/kdfs/krb5kdf.inc",
     "providers/implementations/kdfs/pbkdf1.inc",
@@ -114,7 +100,6 @@ let opensslExcludedPaths: [String] = [
     "providers/implementations/kem/rsa_kem.inc",
     "providers/implementations/keymgmt/dh_kmgmt.inc",
     "providers/implementations/keymgmt/dsa_kmgmt.inc",
-    "providers/implementations/keymgmt/ec_kmgmt_imexport.inc",
     "providers/implementations/keymgmt/ecx_kmgmt.inc",
     "providers/implementations/keymgmt/keymgmtcommon.inc",
     "providers/implementations/keymgmt/lms_kmgmt.inc",
@@ -187,9 +172,11 @@ let opensslTarget = Target.target(
 let libssh2ExcludedPaths = [
     // This target's root also contains other targets and their resources.
     "Sources/SwiftSFTP",
+    "Sources/SwiftSFTPAVFoundation",
     "Tests",
     "Documentation",
     "Scripts",
+    "SampleApp",
     "TestServer",
     "Vendor/SwiftSFTP-OpenSSL",
     "Vendor/libssh2/.github",
@@ -214,6 +201,7 @@ let libssh2ExcludedPaths = [
 
 let libssh2Sources = [
     "Sources/libssh2/server_sign_algorithms.c",
+    "Sources/libssh2/sftp.c",
     "Sources/libssh2/swiftsftp_bcrypt_pbkdf.c",
     "Sources/libssh2/transport.c",
     "Vendor/libssh2/src/agent.c",
@@ -240,7 +228,6 @@ let libssh2Sources = [
     "Vendor/libssh2/src/publickey.c",
     "Vendor/libssh2/src/scp.c",
     "Vendor/libssh2/src/session.c",
-    "Vendor/libssh2/src/sftp.c",
     "Vendor/libssh2/src/userauth.c",
     "Vendor/libssh2/src/userauth_kbd_packet.c",
     "Vendor/libssh2/src/version.c",
@@ -290,7 +277,20 @@ let swiftSFTPTarget = Target.target(
 
 let swiftSFTPTestsTarget = Target.testTarget(
     name: "SwiftSFTPTests",
-    dependencies: ["SwiftSFTP", "libssh2", "OpenSSLCrypto"]
+    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation", "libssh2", "OpenSSLCrypto"]
+)
+
+let swiftSFTPAVFoundationTarget = Target.target(
+    name: "SwiftSFTPAVFoundation",
+    dependencies: [
+        "SwiftSFTP",
+        .product(name: "PathWorks", package: "PathWorks"),
+    ]
+)
+
+let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
+    name: "SwiftSFTPAVFoundationTests",
+    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
 )
 
 let package = Package(
@@ -311,11 +311,32 @@ let package = Package(
             type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
+        .library(
+            name: "SwiftSFTPStatic",
+            // Consumers sharing static dependencies (for example swift-log with
+            // Citadel) need one final link step to avoid duplicate library code.
+            type: .static,
+            targets: ["SwiftSFTP"]
+        ),
+        .library(
+            name: "SwiftSFTPAVFoundation",
+            type: .dynamic,
+            // Supply both modules through one product: linking the SwiftSFTP target
+            // through two dynamic products duplicates its code in Xcode's build graph.
+            targets: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
-    targets: [opensslTarget, libssh2Target, swiftSFTPTarget, swiftSFTPTestsTarget],
+    targets: [
+        opensslTarget,
+        libssh2Target,
+        swiftSFTPTarget,
+        swiftSFTPAVFoundationTarget,
+        swiftSFTPTestsTarget,
+        swiftSFTPAVFoundationTestsTarget,
+    ],
     swiftLanguageModes: [.v6]
 )

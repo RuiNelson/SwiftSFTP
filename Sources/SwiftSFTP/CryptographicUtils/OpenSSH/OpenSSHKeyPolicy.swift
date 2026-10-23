@@ -5,7 +5,7 @@ import Foundation
 /// ``PublicKey`` and ``PrivateKey`` parse any valid key; these rules decide which of them SSH can use:
 /// - the algorithm is one OpenSSH defines (Ed25519, ECDSA over P-256 / P-384 / P-521, or RSA);
 /// - RSA moduli are 1024 to 16384 bits (OpenSSH's `SSH_RSA_MINIMUM_MODULUS_SIZE` and `SSHBUF_MAX_BIGNUM`) and public
-///   exponents are above 1.
+/// exponents are above 1.
 enum OpenSSHKeyPolicy {
     /// RSA modulus sizes OpenSSH accepts, in bits.
     static let rsaModulusBits = 1024 ... 16384
