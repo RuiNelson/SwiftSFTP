@@ -30,6 +30,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
 - **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
+- **EXIF Metadata**: The optional `SwiftSFTPEXIFKit` product reads, edits and removes the EXIF of remote images with [EXIFKit](https://github.com/RuiNelson/EXIFKit), reading only the byte ranges that hold metadata; see [EXIF Metadata](#exif-metadata).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
 
@@ -117,6 +118,10 @@ For complete details, see:
   - [Validating SSH Keys](Documentation/UserGuide.md#validating-ssh-keys-offline)
   - [Error Handling](Documentation/UserGuide.md#error-handling)
 
+- [Integrations](Documentation/Integrations.md) — optional products for other libraries:
+  - [AVFoundation Playback](Documentation/Integrations.md#avfoundation-playback)
+  - [EXIF Metadata](Documentation/Integrations.md#exif-metadata)
+
 - [Cryptographic Utilities](Documentation/CryptographicUtils.md) — offline validation and key management:
   - [User Authentication Key Validation](Documentation/CryptographicUtils.md#user-authentication-key-validation-keyvalidation)
   - [Host Key Validation](Documentation/CryptographicUtils.md#host-key-validation-known_hosts)
@@ -147,11 +152,38 @@ Each client opens the file read-only when AVFoundation loads it. The clients fet
 local copy. Releasing an asset or its player item cancels its pending reads and closes its file handles. The caller
 still owns and closes the SFTP clients. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
 for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
-See the [User's Guide](Documentation/UserGuide.md#avfoundation-playback) for read-ahead, lifetime, and error handling
+See [Integrations](Documentation/Integrations.md#avfoundation-playback) for read-ahead, lifetime, and error handling
 details.
 
 The [sample app](SampleApp/README.md) includes a SwiftUI player for macOS, iOS, and visionOS, using this checkout's
 local package. Open `SampleApp/SFTP+AV/MediaPlayerOverSFTP.xcodeproj` in Xcode to run it.
+
+## EXIF Metadata
+
+Add the `SwiftSFTPEXIFKit` product to read, edit, and remove image metadata with
+[EXIFKit](https://github.com/RuiNelson/EXIFKit). Reading fetches only the ranges that hold metadata, instead of
+downloading the image:
+
+```swift
+import SwiftSFTP
+import SwiftSFTPEXIFKit // Re-exports EXIFKit.
+
+// Opens the file, reads the metadata and its thumbnail, and closes the file.
+var metadata = try await client.imageMetadata(path: "/Photos/IMG_0001.HEIC")
+print(metadata.make, metadata.dateTimeOriginal)
+let thumbnail = try await metadata.readThumbnail()
+
+// Edit in place, through a temporary file renamed over the original.
+metadata.ifd0.set(tagID: Tag.artist, value: .ascii("Photographer"))
+try await client.writeImageMetadata(metadata, path: "/Photos/IMG_0001.HEIC")
+
+// Or remove the EXIF into another file.
+try await client.removeImageMetadata(path: "/Photos/IMG_0001.HEIC", to: "/Shared/IMG_0001.HEIC")
+```
+
+The same operations exist on `SFTPFileProtocol` for handles you open yourself.
+The product requires macOS 12, iOS 15, tvOS 15, or watchOS 8, like EXIFKit, and is empty on Android. See
+[Integrations](Documentation/Integrations.md#exif-metadata) for editing, read options, lifetime, and errors.
 
 ## Adding SwiftSFTP to your Project
 
@@ -181,6 +213,10 @@ targets: [
 For AVFoundation playback, use `.product(name: "SwiftSFTPAVFoundation", package: "SwiftSFTP")` as your target's
 dependency. This product supplies both the `SwiftSFTP` and `SwiftSFTPAVFoundation` modules in one dynamic library.
 
+For EXIF metadata, use `.product(name: "SwiftSFTPEXIFKit", package: "SwiftSFTP")`. It supplies the `SwiftSFTP` and
+`SwiftSFTPEXIFKit` modules, with EXIFKit linked in and re-exported; don't add EXIFKit's own product to the same
+target, which would link a second copy.
+
 ### Xcode
 
 If you are using Xcode, you can directly add this repository as a Swift Package dependency in your project settings:
@@ -191,6 +227,7 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 4. Make sure the `SwiftSFTP` product is added to your app target.
 
 For AVFoundation playback, select `SwiftSFTPAVFoundation` as the product; it includes the `SwiftSFTP` module too.
+For EXIF metadata, select `SwiftSFTPEXIFKit`; it includes the `SwiftSFTP` and EXIFKit modules too.
 
 ### Source distribution
 

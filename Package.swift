@@ -173,6 +173,7 @@ let libssh2ExcludedPaths = [
     // This target's root also contains other targets and their resources.
     "Sources/SwiftSFTP",
     "Sources/SwiftSFTPAVFoundation",
+    "Sources/SwiftSFTPEXIFKit",
     "Tests",
     "Documentation",
     "Scripts",
@@ -277,7 +278,7 @@ let swiftSFTPTarget = Target.target(
 
 let swiftSFTPTestsTarget = Target.testTarget(
     name: "SwiftSFTPTests",
-    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation", "libssh2", "OpenSSLCrypto"]
+    dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation", "SwiftSFTPEXIFKit", "libssh2", "OpenSSLCrypto"]
 )
 
 let swiftSFTPAVFoundationTarget = Target.target(
@@ -291,6 +292,23 @@ let swiftSFTPAVFoundationTarget = Target.target(
 let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
     name: "SwiftSFTPAVFoundationTests",
     dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
+)
+
+// EXIFKit is not built for Android; the module is empty there.
+let exifKitPlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .linux]
+
+let swiftSFTPEXIFKitTarget = Target.target(
+    name: "SwiftSFTPEXIFKit",
+    dependencies: [
+        "SwiftSFTP",
+        .product(name: "PathWorks", package: "PathWorks"),
+        .product(name: "EXIFKit", package: "EXIFKit", condition: .when(platforms: exifKitPlatforms)),
+    ]
+)
+
+let swiftSFTPEXIFKitTestsTarget = Target.testTarget(
+    name: "SwiftSFTPEXIFKitTests",
+    dependencies: ["SwiftSFTP", "SwiftSFTPEXIFKit"]
 )
 
 let package = Package(
@@ -326,18 +344,28 @@ let package = Package(
             // through two dynamic products duplicates its code in Xcode's build graph.
             targets: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
         ),
+        .library(
+            name: "SwiftSFTPEXIFKit",
+            type: .dynamic,
+            // Like SwiftSFTPAVFoundation, one product supplies both modules. EXIFKit is linked in and re-exported, so
+            // consumers do not add its product again and link a second copy.
+            targets: ["SwiftSFTP", "SwiftSFTPEXIFKit"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
+        .package(url: "https://github.com/RuiNelson/EXIFKit.git", from: "0.2.0"),
     ],
     targets: [
         opensslTarget,
         libssh2Target,
         swiftSFTPTarget,
         swiftSFTPAVFoundationTarget,
+        swiftSFTPEXIFKitTarget,
         swiftSFTPTestsTarget,
         swiftSFTPAVFoundationTestsTarget,
+        swiftSFTPEXIFKitTestsTarget,
     ],
     swiftLanguageModes: [.v6]
 )
