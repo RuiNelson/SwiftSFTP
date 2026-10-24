@@ -301,6 +301,7 @@ let package = Package(
         .visionOS(.v1),
         .watchOS(.v7),
         .tvOS(.v14),
+        .macCatalyst(.v14),
         .custom("android", versionString: "28"),
     ],
     products: [
