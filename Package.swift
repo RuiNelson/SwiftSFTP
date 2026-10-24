@@ -355,7 +355,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
-        .package(url: "https://github.com/RuiNelson/EXIFKit.git", from: "0.2.0"),
+        .package(url: "https://github.com/RuiNelson/EXIFKit.git", from: "0.3.0"),
     ],
     targets: [
         opensslTarget,
