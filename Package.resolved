@@ -1,6 +1,15 @@
 {
-  "originHash" : "a8c678c3378957bec8201af714c0b951732faec7219385203161e7c71aa6961e",
+  "originHash" : "a102e83d335ba5e1a76136e1f26e9df55e0c1375053401f5e31290c22824d119",
   "pins" : [
+    {
+      "identity" : "exifkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/RuiNelson/EXIFKit.git",
+      "state" : {
+        "revision" : "a2d346cdc07b92e1deb3346385cd0adf69876aeb",
+        "version" : "0.3.0"
+      }
+    },
     {
       "identity" : "pathworks",
       "kind" : "remoteSourceControl",
@@ -15,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "4038b6a4f74a1426f47eb1dd5b4bb5628a15d597",
-        "version" : "1.16.1"
+        "revision" : "c9c6bb9d275ec0d95c3ad16391f3f045dc623104",
+        "version" : "1.16.2"
       }
     }
   ],

@@ -35,6 +35,17 @@ The product includes both modules in one dynamic library. Selecting the core tar
 products would duplicate SwiftSFTP and its dependencies in Xcode's build graph; the consumer catches packaging
 regressions that the library's own test targets cannot detect.
 
+## EXIFKit product (macOS and Linux, no server required)
+
+```sh
+swift test --package-path Tests/Packaging/EXIFKitConsumer --scratch-path /private/tmp/swiftsftp-exifkit-consumer
+```
+
+This consumer depends on the `SwiftSFTPEXIFKit` product alone, not on EXIFKit. It reads an image's metadata through the
+adapter's public API and edits it with EXIFKit, checking that the product supplies the core and adapter modules and that
+EXIFKit's API arrives through the adapter's re-export, so applications never link EXIFKit a second time. The directory is not named
+`EXIFKit`: SwiftPM derives a root package's identity from its directory, and that name would collide with EXIFKit's.
+
 ## Official MEGA artifact (iOS 27)
 
 `MEGACoexistence` consumes MEGA's official, checksum-pinned `libmega_25_12_12`

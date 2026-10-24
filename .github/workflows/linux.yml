@@ -2,9 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [main, next]
   pull_request:
-    branches: [main]
 
 concurrency:
   group: linux-${{ github.workflow }}-${{ github.ref }}
@@ -64,7 +62,10 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation
+
+      - name: Test EXIFKit product consumer
+        run: swift test --package-path Tests/Packaging/EXIFKitConsumer --scratch-path /tmp/swift-exifkit-consumer

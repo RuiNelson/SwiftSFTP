@@ -2,9 +2,7 @@ name: Apple
 
 on:
   push:
-    branches: [main, next]
   pull_request:
-    branches: [main]
 
 concurrency:
   group: apple-${{ github.workflow }}-${{ github.ref }}
@@ -59,7 +57,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
 
       # Crypto validation can occupy the cooperative executor long enough to starve media timing checks.
       - name: Test AVFoundation (offline)
@@ -76,3 +74,6 @@ jobs:
 
       - name: Test AVFoundation product consumer
         run: swift test --package-path Tests/Packaging/AVFoundation --scratch-path /tmp/swift-avfoundation-consumer
+
+      - name: Test EXIFKit product consumer
+        run: swift test --package-path Tests/Packaging/EXIFKitConsumer --scratch-path /tmp/swift-exifkit-consumer
