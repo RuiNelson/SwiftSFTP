@@ -1,13 +1,13 @@
 {
-  "originHash" : "a102e83d335ba5e1a76136e1f26e9df55e0c1375053401f5e31290c22824d119",
+  "originHash" : "80bbfbd08486f2dee22e8741165279167f186e35206c933c00d12b8837790ade",
   "pins" : [
     {
       "identity" : "exifkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/RuiNelson/EXIFKit.git",
       "state" : {
-        "revision" : "a2d346cdc07b92e1deb3346385cd0adf69876aeb",
-        "version" : "0.3.0"
+        "revision" : "f5bfeea7ef20991984f36395d534f0b863d26fd0",
+        "version" : "0.4.0"
       }
     },
     {
