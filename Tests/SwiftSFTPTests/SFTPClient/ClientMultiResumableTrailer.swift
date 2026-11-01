@@ -588,3 +588,120 @@ struct TrailerByteConversionTests {
         #expect(UInt64.max.dividedRoundingUp(by: 2) == UInt64.max / 2 + 1)
     }
 }
+
+// MARK: - Hostile input
+
+/// A seeded generator, so a failing mutation reproduces on the next run.
+private struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+@Suite("Resumable trailer: hostile input")
+struct HostileTrailerInputTests {
+    /// Parses and checks the invariants any accepted trailer must hold. A trap fails the whole test run, and the typed
+    /// throws of `parse` leave `TrailerParseError` as the only way to refuse.
+    private func parseOrRefuse(_ file: Data) {
+        do {
+            let trailer = try ResumableTrailer.parse(
+                tailBytes: file.suffix(ResumableTrailer.readWindowByteCount),
+                totalFileSize: UInt64(file.count)
+            )
+            #expect(trailer.blockScale > 0)
+            #expect(trailer.bitmap.blockCount <= BlockBitmap.maximumBlockCount)
+            #expect(trailer.fileName.utf8.count <= ResumableTrailer.maximumFileNameByteCount)
+            #expect(trailer.fileSize <= UInt64(file.count))
+        }
+        catch {
+            _ = error as TrailerParseError
+        }
+    }
+
+    private func validFile(payloadSize: Int = 5000, workers: Int = 4) -> Data {
+        let trailer = ResumableTrailer(
+            fileName: "report.pdf",
+            fileSize: UInt64(payloadSize),
+            sourceModificationTime: 1_700_000_000,
+            workers: workers
+        )
+        return Data(repeating: 0xAB, count: payloadSize) + trailer.serializedData
+    }
+
+    @Test("every truncation of a valid file is refused or accepted without trapping")
+    func truncations() {
+        let file = validFile()
+        for length in 0 ... file.count {
+            parseOrRefuse(file.prefix(length))
+        }
+    }
+
+    @Test("every single-byte corruption of a valid file is refused or accepted without trapping")
+    func singleByteCorruptions() {
+        let file = validFile()
+        for index in file.indices {
+            for value in [0x00, 0x01, 0x7F, 0x80, 0xFF] as [UInt8] {
+                var mutated = file
+                mutated[index] = value
+                parseOrRefuse(mutated)
+            }
+        }
+    }
+
+    @Test("random mutations of a valid file never trap")
+    func randomMutations() {
+        var random = SplitMix64(seed: 0xC0FFEE)
+        let file = validFile()
+        for _ in 0 ..< 5000 {
+            var mutated = file
+            for _ in 0 ..< Int.random(in: 1 ... 8, using: &random) {
+                mutated[Int.random(in: 0 ..< mutated.count, using: &random)] = .random(in: 0 ... 255, using: &random)
+            }
+            parseOrRefuse(mutated)
+        }
+    }
+
+    @Test("random bytes behind a planted magic word never trap")
+    func randomBytesAfterMagic() {
+        var random = SplitMix64(seed: 0xBADF00D)
+        for _ in 0 ..< 5000 {
+            let payloadSize = Int.random(in: 0 ... 512, using: &random)
+            let junk = (0 ..< Int.random(in: 0 ... 400, using: &random)).map { _ in
+                UInt8.random(in: 0 ... 255, using: &random)
+            }
+            parseOrRefuse(Data(repeating: 0, count: payloadSize) + ResumableTrailer.magicWord + Data(junk))
+        }
+    }
+
+    @Test("extreme numeric fields are refused without overflowing")
+    func extremeNumbers() {
+        let extremes: [UInt64] = [0, 1, 7, 8, UInt64(Int.max), UInt64.max - 1, UInt64.max]
+        for size in extremes {
+            for scale in extremes {
+                for payloadSize in [0, 8000] {
+                    parseOrRefuse(partialFile(
+                        payloadSize: payloadSize,
+                        metadata: metadataSection(fileSize: size, blockScale: scale)
+                    ))
+                }
+            }
+        }
+    }
+
+    @Test("a file name length prefix larger than the metadata is refused")
+    func oversizedNameLength() {
+        var metadata = TrailerField.version.encoded(ResumableTrailer.currentVersion.bigEndianData)
+        metadata += TrailerField.fileName.encoded(Data([0xFF, 0xFF, 0x61]))
+        parseOrRefuse(partialFile(metadata: metadata))
+    }
+}
