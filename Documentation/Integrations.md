@@ -100,7 +100,7 @@ Enable SwiftSFTP's `EXIFKit` package trait and use `.product(name: "SwiftSFTPEXI
 target's dependency to read, edit, and remove image metadata with [EXIFKit](https://github.com/RuiNelson/EXIFKit):
 
 ```swift
-.package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.19.0", traits: ["EXIFKit"])
+.package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.19.1", traits: ["EXIFKit"])
 ```
 
 The trait is disabled by default: packages that don't enable it never resolve or fetch EXIFKit, and the
