@@ -294,9 +294,6 @@ let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
     dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
 )
 
-// EXIFKit is not built for Android; the module is empty there.
-let exifKitPlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .linux]
-
 // Opt-in trait for the EXIFKit integration. While it is disabled, SwiftPM neither resolves nor fetches EXIFKit, and
 // the SwiftSFTPEXIFKit module is empty.
 let exifKitTrait = "EXIFKit"
@@ -306,11 +303,7 @@ let swiftSFTPEXIFKitTarget = Target.target(
     dependencies: [
         "SwiftSFTP",
         .product(name: "PathWorks", package: "PathWorks"),
-        .product(
-            name: "EXIFKit",
-            package: "EXIFKit",
-            condition: .when(platforms: exifKitPlatforms, traits: [exifKitTrait])
-        ),
+        .product(name: "EXIFKit", package: "EXIFKit", condition: .when(traits: [exifKitTrait])),
     ]
 )
 
