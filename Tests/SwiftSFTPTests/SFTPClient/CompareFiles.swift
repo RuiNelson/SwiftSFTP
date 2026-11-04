@@ -204,11 +204,16 @@ struct CompareFilesBlockComparison {
     @Test("blocks follow the equal-size grid")
     func gridCoversFile() async throws {
         let recorder = Recorder()
-        let result = try await FileBlockComparison(size: 2500, scan: .startToEnd, blockSize: 1000, minimumCoverage: 1)
-            .run { offset, length, limit in
-                await recorder.record(offset, length, limit)
-                return true
-            }
+        let result = try await FileBlockComparison(
+            size: 2500,
+            scan: .startToEnd,
+            maximumBlockSize: 1000,
+            minimumCoverage: 1
+        )
+        .run { offset, length, limit in
+            await recorder.record(offset, length, limit)
+            return true
+        }
 
         #expect(result)
         let blocks = await recorder.blocks
@@ -220,11 +225,16 @@ struct CompareFilesBlockComparison {
     @Test("a differing block ends the comparison as conclusive")
     func mismatchIsConclusive() async throws {
         let recorder = Recorder()
-        let result = try await FileBlockComparison(size: 8000, scan: .bisection, blockSize: 1000, minimumCoverage: 1)
-            .run { offset, length, limit in
-                await recorder.record(offset, length, limit)
-                return offset != 3000
-            }
+        let result = try await FileBlockComparison(
+            size: 8000,
+            scan: .bisection,
+            maximumBlockSize: 1000,
+            minimumCoverage: 1
+        )
+        .run { offset, length, limit in
+            await recorder.record(offset, length, limit)
+            return offset != 3000
+        }
 
         #expect(!result)
         #expect(await recorder.blocks.map(\.offset) == [0, 7000, 3000])
@@ -236,7 +246,7 @@ struct CompareFilesBlockComparison {
         let result = try await FileBlockComparison(
             size: 10000,
             scan: .startToEnd,
-            blockSize: 1000,
+            maximumBlockSize: 1000,
             minimumCoverage: 0.25
         )
         .run { offset, length, limit in
@@ -254,7 +264,7 @@ struct CompareFilesBlockComparison {
     @Test("non-forward scans limit read-ahead to the current block")
     func readAheadLimitedToBlock() async throws {
         let recorder = Recorder()
-        _ = try await FileBlockComparison(size: 2500, scan: .endToStart, blockSize: 1000, minimumCoverage: 1)
+        _ = try await FileBlockComparison(size: 2500, scan: .endToStart, maximumBlockSize: 1000, minimumCoverage: 1)
             .run { offset, length, limit in
                 await recorder.record(offset, length, limit)
                 return true
@@ -268,7 +278,7 @@ struct CompareFilesBlockComparison {
     @Test("cancellation throws instead of reporting a result")
     func cancellationThrows() async {
         let task = Task {
-            try await FileBlockComparison(size: 10000, scan: .startToEnd, blockSize: 1000, minimumCoverage: 1)
+            try await FileBlockComparison(size: 10000, scan: .startToEnd, maximumBlockSize: 1000, minimumCoverage: 1)
                 .run { _, _, _ in
                     withUnsafeCurrentTask { $0?.cancel() }
                     return true
@@ -283,7 +293,7 @@ struct CompareFilesBlockComparison {
 
 @Suite("SFTPClient: Compare Files", .serialized)
 struct SFTPClientCompareFiles {
-    private static let blockSize: UInt64 = 1000
+    private static let maximumBlockSize: UInt64 = 1000
 
     /// 10 500 bytes: eleven blocks of 954 or 955 bytes with a 1000-byte maximum.
     private static let payload = Data((0 ..< 10500).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
@@ -302,7 +312,7 @@ struct SFTPClientCompareFiles {
                 "\(dir)/a.bin",
                 "\(dir)/b.bin",
                 scan: scan,
-                scanBlockSize: Self.blockSize
+                maximumBlockSize: Self.maximumBlockSize
             )
             #expect(result)
         }
@@ -321,7 +331,7 @@ struct SFTPClientCompareFiles {
                     "\(dir)/a.bin",
                     "\(dir)/b.bin",
                     scan: scan,
-                    scanBlockSize: Self.blockSize
+                    maximumBlockSize: Self.maximumBlockSize
                 )
                 #expect(!result, "scan \(scan)")
             }
@@ -363,7 +373,7 @@ struct SFTPClientCompareFiles {
                 "\(dir)/a.bin",
                 "\(dir)/b.bin",
                 scan: .bisection,
-                scanBlockSize: Self.blockSize,
+                maximumBlockSize: Self.maximumBlockSize,
                 minimumCoverage: 0.5
             )
             #expect(result)
@@ -372,7 +382,7 @@ struct SFTPClientCompareFiles {
                 "\(dir)/a.bin",
                 "\(dir)/b.bin",
                 scan: .bisection,
-                scanBlockSize: Self.blockSize
+                maximumBlockSize: Self.maximumBlockSize
             )
             #expect(!full)
         }
@@ -409,7 +419,7 @@ struct SFTPClientCompareFiles {
                     local: local,
                     remote: "\(dir)/same.bin",
                     scan: scan,
-                    scanBlockSize: Self.blockSize
+                    maximumBlockSize: Self.maximumBlockSize
                 )
                 #expect(same, "scan \(scan)")
 
@@ -417,7 +427,7 @@ struct SFTPClientCompareFiles {
                     local: local,
                     remote: "\(dir)/changed.bin",
                     scan: scan,
-                    scanBlockSize: Self.blockSize
+                    maximumBlockSize: Self.maximumBlockSize
                 )
                 #expect(!different, "scan \(scan)")
             }

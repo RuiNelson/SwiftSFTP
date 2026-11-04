@@ -1,10 +1,10 @@
 import Foundation
 
-/// The order in which ``SFTPClientProtocol/compareFiles(_:_:scan:scanBlockSize:minimumCoverage:)`` compares blocks.
+/// The order in which ``SFTPClientProtocol/compareFiles(_:_:scan:maximumBlockSize:minimumCoverage:)`` compares blocks.
 ///
-/// The files are divided into the fewest blocks of at most `scanBlockSize` bytes, all of the same size give or take one
-/// byte, so no short block is left at the end. The order matters only when `minimumCoverage` is below `1.0`, where it
-/// decides which part of the files the comparison covers before it stops.
+/// The files are divided into the fewest blocks of at most `maximumBlockSize` bytes, all of the same size give or take
+/// one byte, so no short block is left at the end. The order matters only when `minimumCoverage` is below `1.0`, where
+/// it decides which part of the files the comparison covers before it stops.
 public enum FileCompareScan: Equatable, Sendable {
     /// Compares the blocks from the first to the last.
     case startToEnd
@@ -23,7 +23,7 @@ public enum FileCompareScan: Equatable, Sendable {
 public extension SFTPClientProtocol {
     /// Compares two remote files block by block, for servers that offer no way to hash a file.
     ///
-    /// Sizes are compared first. Then both files are divided into equal blocks of at most `scanBlockSize` bytes and
+    /// Sizes are compared first. Then both files are divided into equal blocks of at most `maximumBlockSize` bytes and
     /// read in the order `scan` gives, until a block differs or the bytes compared reach `minimumCoverage` of the file
     /// size.
     ///
@@ -31,7 +31,8 @@ public extension SFTPClientProtocol {
     ///   - fileA: Remote path of the first file.
     ///   - fileB: Remote path of the second file.
     ///   - scan: Order in which the blocks are compared.
-    ///   - scanBlockSize: Largest compared block in bytes. Must be greater than zero.
+    ///   - maximumBlockSize: Largest block to compare, in bytes. Blocks shrink below it so that all are the same size
+    /// give or take one byte. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
@@ -42,11 +43,11 @@ public extension SFTPClientProtocol {
         _ fileA: String,
         _ fileB: String,
         scan: FileCompareScan = .bisection,
-        scanBlockSize: UInt64 = 1 * 1024 * 1024,
+        maximumBlockSize: UInt64 = 1 * 1024 * 1024,
         minimumCoverage: Double = 1.0
     ) async throws -> Bool {
         precondition(minimumCoverage > 0 && minimumCoverage <= 1.0, "minimumCoverage must be in (0, 1]")
-        precondition(scanBlockSize > 0, "scanBlockSize must be greater than zero")
+        precondition(maximumBlockSize > 0, "maximumBlockSize must be greater than zero")
 
         guard let statA = try await stat(path: fileA, followLink: true), statA.isRegularFile,
               let statB = try await stat(path: fileB, followLink: true), statB.isRegularFile else {
@@ -76,7 +77,7 @@ public extension SFTPClientProtocol {
             let result = try await FileBlockComparison(
                 size: size,
                 scan: scan,
-                blockSize: scanBlockSize,
+                maximumBlockSize: maximumBlockSize,
                 minimumCoverage: minimumCoverage
             ).run { offset, length, readAheadLimit in
                 // Seeking drops what was read ahead, so only seek when the scan is not already there.
@@ -108,14 +109,15 @@ public extension SFTPClientProtocol {
 
     /// Compares a local file with a remote file block by block, for servers that offer no way to hash a file.
     ///
-    /// Behaves like ``compareFiles(_:_:scan:scanBlockSize:minimumCoverage:)``, reading the local block while the remote
-    /// one is in flight.
+    /// Behaves like ``compareFiles(_:_:scan:maximumBlockSize:minimumCoverage:)``, reading the local block while the
+    /// remote one is in flight.
     ///
     /// - Parameters:
     ///   - local: Local file URL.
     ///   - remote: Remote file path.
     ///   - scan: Order in which the blocks are compared.
-    ///   - scanBlockSize: Largest compared block in bytes. Must be greater than zero.
+    ///   - maximumBlockSize: Largest block to compare, in bytes. Blocks shrink below it so that all are the same size
+    /// give or take one byte. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
@@ -126,11 +128,11 @@ public extension SFTPClientProtocol {
         local: URL,
         remote: String,
         scan: FileCompareScan = .bisection,
-        scanBlockSize: UInt64 = 1 * 1024 * 1024,
+        maximumBlockSize: UInt64 = 1 * 1024 * 1024,
         minimumCoverage: Double = 1.0
     ) async throws -> Bool {
         precondition(minimumCoverage > 0 && minimumCoverage <= 1.0, "minimumCoverage must be in (0, 1]")
-        precondition(scanBlockSize > 0, "scanBlockSize must be greater than zero")
+        precondition(maximumBlockSize > 0, "maximumBlockSize must be greater than zero")
 
         let localPath = local.resolvingSymlinksInPath().path
         guard let localAttributes = try? FileManager.default.attributesOfItem(atPath: localPath),
@@ -159,7 +161,7 @@ public extension SFTPClientProtocol {
             let result = try await FileBlockComparison(
                 size: size,
                 scan: scan,
-                blockSize: scanBlockSize,
+                maximumBlockSize: maximumBlockSize,
                 minimumCoverage: minimumCoverage
             ).run { offset, length, readAheadLimit in
                 async let localBlock: Data? = {
@@ -244,7 +246,7 @@ struct FileCompareGrid: Equatable {
 struct FileBlockComparison {
     let size: UInt64
     let scan: FileCompareScan
-    let blockSize: UInt64
+    let maximumBlockSize: UInt64
     let minimumCoverage: Double
 
     /// Compares one block: returns whether the `length` bytes at `offset` match. `readAheadLimit` is where reading
@@ -252,7 +254,7 @@ struct FileBlockComparison {
     typealias CompareBlock = (_ offset: UInt64, _ length: Int, _ readAheadLimit: UInt64) async throws -> Bool
 
     func run(_ compareBlock: CompareBlock) async throws -> Bool {
-        let grid = FileCompareGrid(size: size, maximumBlockSize: blockSize)
+        let grid = FileCompareGrid(size: size, maximumBlockSize: maximumBlockSize)
         let targetBytes = min(size, UInt64((minimumCoverage * Double(size)).rounded(.up)))
 
         // Only a forward scan reads blocks back to back, so only it gains from reading ahead past the current block.
