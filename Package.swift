@@ -297,12 +297,20 @@ let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
 // EXIFKit is not built for Android; the module is empty there.
 let exifKitPlatforms: [Platform] = [.macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .linux]
 
+// Opt-in trait for the EXIFKit integration. While it is disabled, SwiftPM neither resolves nor fetches EXIFKit, and
+// the SwiftSFTPEXIFKit module is empty.
+let exifKitTrait = "EXIFKit"
+
 let swiftSFTPEXIFKitTarget = Target.target(
     name: "SwiftSFTPEXIFKit",
     dependencies: [
         "SwiftSFTP",
         .product(name: "PathWorks", package: "PathWorks"),
-        .product(name: "EXIFKit", package: "EXIFKit", condition: .when(platforms: exifKitPlatforms)),
+        .product(
+            name: "EXIFKit",
+            package: "EXIFKit",
+            condition: .when(platforms: exifKitPlatforms, traits: [exifKitTrait])
+        ),
     ]
 )
 
@@ -351,6 +359,14 @@ let package = Package(
             // consumers do not add its product again and link a second copy.
             targets: ["SwiftSFTP", "SwiftSFTPEXIFKit"]
         ),
+    ],
+    traits: [
+        .trait(
+            name: exifKitTrait,
+            description: "Adds EXIF metadata access over SFTP to the SwiftSFTPEXIFKit product, through EXIFKit."
+        ),
+        // Disabled by default, so consumers of the core products never resolve EXIFKit.
+        .default(enabledTraits: []),
     ],
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", .upToNextMajor(from: "2.0.1")),

@@ -93,10 +93,12 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 
 - Run `swift build` after wrapper API changes.
 - Run `swift test` after behavior, package, or public API changes.
+- The EXIFKit integration sits behind the `EXIFKit` package trait, disabled by default. Pass `--traits EXIFKit` to
+  `swift build`/`swift test` to build and run it; without the trait, `SwiftSFTPEXIFKit` and its tests compile empty.
 - Prefer scratch paths under `/private/tmp` for local verification, for example:
 
 ```bash
-swift test --scratch-path /private/tmp/SwiftSFTP-NG-test
+swift test --scratch-path /private/tmp/SwiftSFTP-NG-test --traits EXIFKit
 ```
 
 - Integration tests against the Docker SFTP test server are documented in `Documentation/TestServerInfo.md`; start the server with `Scripts/test-server-up.sh` before expecting those tests to pass.
