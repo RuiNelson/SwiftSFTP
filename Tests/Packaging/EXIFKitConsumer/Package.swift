@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "EXIFKitConsumer",
     platforms: [.macOS(.v12), .iOS(.v15)],
-    dependencies: [.package(name: "SwiftSFTP", path: "../../..")],
+    // The EXIFKit trait is disabled by default; without it, the SwiftSFTPEXIFKit module is empty.
+    dependencies: [.package(name: "SwiftSFTP", path: "../../..", traits: ["EXIFKit"])],
     targets: [
         .testTarget(
             name: "EXIFKitConsumerTests",

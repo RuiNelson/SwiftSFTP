@@ -96,8 +96,15 @@ denied access, `ENOTCONN` for a closed or unauthenticated client, and `ETIMEDOUT
 
 ## EXIF Metadata
 
-Use `.product(name: "SwiftSFTPEXIFKit", package: "SwiftSFTP")` as your target's dependency to read, edit, and remove
-image metadata with [EXIFKit](https://github.com/RuiNelson/EXIFKit). The product supplies the `SwiftSFTP` and `SwiftSFTPEXIFKit` modules in
+Enable SwiftSFTP's `EXIFKit` package trait and use `.product(name: "SwiftSFTPEXIFKit", package: "SwiftSFTP")` as your
+target's dependency to read, edit, and remove image metadata with [EXIFKit](https://github.com/RuiNelson/EXIFKit):
+
+```swift
+.package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.19.0", traits: ["EXIFKit"])
+```
+
+The trait is disabled by default: packages that don't enable it never resolve or fetch EXIFKit, and the
+`SwiftSFTPEXIFKit` module is then empty. In Xcode, enable the trait on the package dependency (Xcode 26.4 or later). The product supplies the `SwiftSFTP` and `SwiftSFTPEXIFKit` modules in
 one dynamic library, with EXIFKit linked in. `SwiftSFTPEXIFKit` re-exports EXIFKit, so import it instead of adding
 EXIFKit's own product, which would link a second copy. Like EXIFKit, the product requires macOS 12+, iOS 15+, tvOS 15+,
 or watchOS 8+, and it also works on visionOS, Mac Catalyst, and Linux. On Android the module is empty.

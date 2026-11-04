@@ -21,7 +21,8 @@ configuration must select our package-qualified adapter before canonical include
 The consumer statically links a second C implementation of `EVP_PKEY_CTX_new_id`.
 SwiftSFTP key generation must succeed without calling it. OpenSSL is compiled from C
 sources with SDK-private public linker names and hidden internal symbols.
-The standalone consumer runs in both Apple and Linux CI. The foreign-header shell
+The standalone consumer runs in both Apple and Linux CI. It depends on the core product without the `EXIFKit` trait, so
+CI also checks that its `Package.resolved` does not contain EXIFKit. The foreign-header shell
 check uses the macOS SDK and runs in Apple CI.
 
 ## AVFoundation product (macOS, no server required)
@@ -41,7 +42,7 @@ regressions that the library's own test targets cannot detect.
 swift test --package-path Tests/Packaging/EXIFKitConsumer --scratch-path /private/tmp/swiftsftp-exifkit-consumer
 ```
 
-This consumer depends on the `SwiftSFTPEXIFKit` product alone, not on EXIFKit. It reads an image's metadata through the
+This consumer enables the `EXIFKit` trait and depends on the `SwiftSFTPEXIFKit` product alone, not on EXIFKit. It reads an image's metadata through the
 adapter's public API and edits it with EXIFKit, checking that the product supplies the core and adapter modules and that
 EXIFKit's API arrives through the adapter's re-export, so applications never link EXIFKit a second time. The directory is not named
 `EXIFKit`: SwiftPM derives a root package's identity from its directory, and that name would collide with EXIFKit's.

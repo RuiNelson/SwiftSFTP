@@ -43,7 +43,7 @@ jobs:
         run: bash Tests/Packaging/CryptoIsolation/check-header-isolation.sh
 
       - name: Build
-        run: swift build --scratch-path /tmp/swift-build -v
+        run: swift build --scratch-path /tmp/swift-build --traits EXIFKit -v
 
       - name: Generate test keys and fixtures
         run: bash Scripts/generate-test-keys-and-fixtures.sh
@@ -51,7 +51,7 @@ jobs:
       - name: Test (offline)
         run: |
           set -o pipefail
-          swift test --scratch-path /tmp/swift-test --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee /tmp/swift-test-offline.log
+          swift test --scratch-path /tmp/swift-test --traits EXIFKit --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee /tmp/swift-test-offline.log
           if grep -qE 'No matching test cases were run|^Test run with 0 tests' /tmp/swift-test-offline.log; then
             echo "::error::Offline test filter '$OFFLINE_TEST_FILTER' executed zero tests" >&2
             exit 1
@@ -63,7 +63,7 @@ jobs:
       - name: Test AVFoundation (offline)
         run: |
           set -o pipefail
-          swift test --scratch-path /tmp/swift-test --filter AVFoundationUnitTests 2>&1 | tee /tmp/swift-test-media.log
+          swift test --scratch-path /tmp/swift-test --traits EXIFKit --filter AVFoundationUnitTests 2>&1 | tee /tmp/swift-test-media.log
           if grep -qE 'No matching test cases were run|Test run with 0 tests' /tmp/swift-test-media.log; then
             echo "::error::AVFoundation test filter executed zero tests" >&2
             exit 1
@@ -71,6 +71,15 @@ jobs:
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation
+
+      # CryptoIsolation depends on the core product without the EXIFKit trait, so it must not resolve EXIFKit.
+      - name: Check core consumers do not resolve EXIFKit
+        shell: bash
+        run: |
+          if grep -qi '"exifkit"' Tests/Packaging/CryptoIsolation/Package.resolved; then
+            echo "::error::A consumer of the core product resolved EXIFKit without enabling the EXIFKit trait" >&2
+            exit 1
+          fi
 
       - name: Test AVFoundation product consumer
         run: swift test --package-path Tests/Packaging/AVFoundation --scratch-path /tmp/swift-avfoundation-consumer

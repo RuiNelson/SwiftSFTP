@@ -160,8 +160,8 @@ local package. Open `SampleApp/SFTP+AV/MediaPlayerOverSFTP.xcodeproj` in Xcode t
 
 ## EXIF Metadata
 
-Add the `SwiftSFTPEXIFKit` product to read, edit, and remove image metadata with
-[EXIFKit](https://github.com/RuiNelson/EXIFKit). Reading fetches only the ranges that hold metadata, instead of
+Enable the package's `EXIFKit` trait and add the `SwiftSFTPEXIFKit` product to read, edit, and remove image metadata
+with [EXIFKit](https://github.com/RuiNelson/EXIFKit). Reading fetches only the ranges that hold metadata, instead of
 downloading the image:
 
 ```swift
@@ -213,9 +213,17 @@ targets: [
 For AVFoundation playback, use `.product(name: "SwiftSFTPAVFoundation", package: "SwiftSFTP")` as your target's
 dependency. This product supplies both the `SwiftSFTP` and `SwiftSFTPAVFoundation` modules in one dynamic library.
 
-For EXIF metadata, use `.product(name: "SwiftSFTPEXIFKit", package: "SwiftSFTP")`. It supplies the `SwiftSFTP` and
-`SwiftSFTPEXIFKit` modules, with EXIFKit linked in and re-exported; don't add EXIFKit's own product to the same
-target, which would link a second copy.
+For EXIF metadata, enable the `EXIFKit` trait and use `.product(name: "SwiftSFTPEXIFKit", package: "SwiftSFTP")`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.19.0", traits: ["EXIFKit"])
+]
+```
+
+The product supplies the `SwiftSFTP` and `SwiftSFTPEXIFKit` modules, with EXIFKit linked in and re-exported; don't add
+EXIFKit's own product to the same target, which would link a second copy. The trait is disabled by default, so
+packages that don't enable it never resolve or fetch EXIFKit; without it, the `SwiftSFTPEXIFKit` module is empty.
 
 ### Xcode
 
@@ -227,7 +235,8 @@ If you are using Xcode, you can directly add this repository as a Swift Package 
 4. Make sure the `SwiftSFTP` product is added to your app target.
 
 For AVFoundation playback, select `SwiftSFTPAVFoundation` as the product; it includes the `SwiftSFTP` module too.
-For EXIF metadata, select `SwiftSFTPEXIFKit`; it includes the `SwiftSFTP` and EXIFKit modules too.
+For EXIF metadata, select `SwiftSFTPEXIFKit` and enable the package's `EXIFKit` trait (Xcode 26.4 or later); the
+product includes the `SwiftSFTP` and EXIFKit modules too.
 
 ### Source distribution
 
