@@ -33,9 +33,9 @@ public extension SFTPClientProtocol {
     ///   - scanBlockSize: Size of each compared block in bytes. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
-    /// - Returns: `equality` is `false` as soon as the files differ, with `coverage` `1.0` since a difference is
-    /// conclusive. When every compared block matches, `equality` is `true` and `coverage` is the fraction of bytes
-    /// compared. When either path is missing or not a regular file, the result is `(false, 0.0)`.
+    /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
+    /// path is missing or not a regular file. Below a `minimumCoverage` of `1.0`, `true` only vouches for the blocks
+    /// compared.
     /// - Throws: libssh2/SFTP errors, ``AlreadyClosed``, or `CancellationError`.
     func compareFiles(
         _ fileA: String,
@@ -43,22 +43,22 @@ public extension SFTPClientProtocol {
         scan: FileCompareScan = .bisection,
         scanBlockSize: UInt64 = 1 * 1024 * 1024,
         minimumCoverage: Double = 1.0
-    ) async throws -> (equality: Bool, coverage: Double) {
+    ) async throws -> Bool {
         precondition(minimumCoverage > 0 && minimumCoverage <= 1.0, "minimumCoverage must be in (0, 1]")
         precondition(scanBlockSize > 0, "scanBlockSize must be greater than zero")
 
         guard let statA = try await stat(path: fileA, followLink: true), statA.isRegularFile,
               let statB = try await stat(path: fileB, followLink: true), statB.isRegularFile else {
-            return (false, 0.0)
+            return false
         }
 
         let size = statA.attributes.fileSize
         guard size == statB.attributes.fileSize else {
-            return (false, 1.0)
+            return false
         }
 
         guard size > 0 else {
-            return (true, 1.0)
+            return true
         }
 
         let handleA = try await openFile([.read], path: fileA, permissions: [.serverDefault])
@@ -117,9 +117,9 @@ public extension SFTPClientProtocol {
     ///   - scanBlockSize: Size of each compared block in bytes. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
-    /// - Returns: `equality` is `false` as soon as the files differ, with `coverage` `1.0` since a difference is
-    /// conclusive. When every compared block matches, `equality` is `true` and `coverage` is the fraction of bytes
-    /// compared. When either path is missing or not a regular file, the result is `(false, 0.0)`.
+    /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
+    /// path is missing or not a regular file. Below a `minimumCoverage` of `1.0`, `true` only vouches for the blocks
+    /// compared.
     /// - Throws: Local file errors, libssh2/SFTP errors, ``AlreadyClosed``, or `CancellationError`.
     func compareFiles(
         local: URL,
@@ -127,7 +127,7 @@ public extension SFTPClientProtocol {
         scan: FileCompareScan = .bisection,
         scanBlockSize: UInt64 = 1 * 1024 * 1024,
         minimumCoverage: Double = 1.0
-    ) async throws -> (equality: Bool, coverage: Double) {
+    ) async throws -> Bool {
         precondition(minimumCoverage > 0 && minimumCoverage <= 1.0, "minimumCoverage must be in (0, 1]")
         precondition(scanBlockSize > 0, "scanBlockSize must be greater than zero")
 
@@ -136,16 +136,16 @@ public extension SFTPClientProtocol {
               localAttributes[.type] as? FileAttributeType == .typeRegular,
               let localSize = (localAttributes[.size] as? NSNumber)?.uint64Value,
               let remoteStat = try await stat(path: remote, followLink: true), remoteStat.isRegularFile else {
-            return (false, 0.0)
+            return false
         }
 
         let size = localSize
         guard size == remoteStat.attributes.fileSize else {
-            return (false, 1.0)
+            return false
         }
 
         guard size > 0 else {
-            return (true, 1.0)
+            return true
         }
 
         let localHandle = try FileHandle(forReadingFrom: URL(fileURLWithPath: localPath))
@@ -202,7 +202,7 @@ struct FileBlockComparison {
     /// ahead is still useful.
     typealias CompareBlock = (_ offset: UInt64, _ length: Int, _ readAheadLimit: UInt64) async throws -> Bool
 
-    func run(_ compareBlock: CompareBlock) async throws -> (equality: Bool, coverage: Double) {
+    func run(_ compareBlock: CompareBlock) async throws -> Bool {
         let blockCount = (size + blockSize - 1) / blockSize
         let targetBytes = min(size, UInt64((minimumCoverage * Double(size)).rounded(.up)))
 
@@ -218,7 +218,7 @@ struct FileBlockComparison {
             let readAheadLimit = scan == .startToEnd ? forwardLimit : end
 
             guard try await compareBlock(offset, Int(end - offset), readAheadLimit) else {
-                return (false, 1.0)
+                return false
             }
 
             compared += end - offset
@@ -227,7 +227,7 @@ struct FileBlockComparison {
             }
         }
 
-        return (true, Double(compared) / Double(size))
+        return true
     }
 }
 

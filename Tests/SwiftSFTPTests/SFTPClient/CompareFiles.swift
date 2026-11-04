@@ -131,8 +131,7 @@ struct CompareFilesBlockComparison {
                 return true
             }
 
-        #expect(result.equality)
-        #expect(result.coverage == 1.0)
+        #expect(result)
         let blocks = await recorder.blocks
         #expect(blocks.map(\.offset) == [0, 1000, 2000])
         #expect(blocks.map(\.length) == [1000, 1000, 500])
@@ -148,8 +147,7 @@ struct CompareFilesBlockComparison {
                 return offset != 3000
             }
 
-        #expect(!result.equality)
-        #expect(result.coverage == 1.0)
+        #expect(!result)
         #expect(await recorder.blocks.map(\.offset) == [0, 7000, 3000])
     }
 
@@ -167,8 +165,7 @@ struct CompareFilesBlockComparison {
             return true
         }
 
-        #expect(result.equality)
-        #expect(result.coverage == 0.3)
+        #expect(result)
         let blocks = await recorder.blocks
         #expect(blocks.count == 3)
         // A forward scan reads ahead only up to the blocks it will compare.
@@ -212,7 +209,7 @@ struct SFTPClientCompareFiles {
     /// 10 500 bytes: ten full blocks of 1000 and a short last block.
     private static let payload = Data((0 ..< 10500).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
 
-    @Test("identical remote files are equal with full coverage", arguments: [
+    @Test("identical remote files are equal", arguments: [
         FileCompareScan.startToEnd,
         .endToStart,
         .bisection,
@@ -228,8 +225,7 @@ struct SFTPClientCompareFiles {
                 scan: scan,
                 scanBlockSize: Self.blockSize
             )
-            #expect(result.equality)
-            #expect(result.coverage == 1.0)
+            #expect(result)
         }
     }
 
@@ -248,8 +244,7 @@ struct SFTPClientCompareFiles {
                     scan: scan,
                     scanBlockSize: Self.blockSize
                 )
-                #expect(!result.equality, "scan \(scan)")
-                #expect(result.coverage == 1.0, "scan \(scan)")
+                #expect(!result, "scan \(scan)")
             }
         }
     }
@@ -261,8 +256,7 @@ struct SFTPClientCompareFiles {
             try await Self.upload(Self.payload.dropLast(), to: "\(dir)/b.bin", client)
 
             let result = try await client.compareFiles("\(dir)/a.bin", "\(dir)/b.bin")
-            #expect(!result.equality)
-            #expect(result.coverage == 1.0)
+            #expect(!result)
         }
     }
 
@@ -273,16 +267,15 @@ struct SFTPClientCompareFiles {
             try await Self.upload(Data(), to: "\(dir)/b.bin", client)
 
             let result = try await client.compareFiles("\(dir)/a.bin", "\(dir)/b.bin")
-            #expect(result.equality)
-            #expect(result.coverage == 1.0)
+            #expect(result)
         }
     }
 
-    @Test("partial coverage stops early and reports what it compared")
+    @Test("partial coverage stops before reaching an uncompared difference")
     func partialCoverage() async throws {
         try await withRemoteDirectory("compare-partial") { client, dir in
             var changed = Self.payload
-            // Block 9 is the last one a 50% bisection of eleven blocks never reaches: 0, 10, 5, 2, 7, 1.
+            // A 50% bisection of eleven blocks compares blocks 0, 10, 5, 2, 7 and 1, and never reaches block 9.
             changed[9100] ^= 0xFF
             try await Self.upload(Self.payload, to: "\(dir)/a.bin", client)
             try await Self.upload(changed, to: "\(dir)/b.bin", client)
@@ -294,22 +287,28 @@ struct SFTPClientCompareFiles {
                 scanBlockSize: Self.blockSize,
                 minimumCoverage: 0.5
             )
-            #expect(result.equality)
-            #expect(result.coverage >= 0.5)
-            #expect(result.coverage < 1.0)
+            #expect(result)
+
+            let full = try await client.compareFiles(
+                "\(dir)/a.bin",
+                "\(dir)/b.bin",
+                scan: .bisection,
+                scanBlockSize: Self.blockSize
+            )
+            #expect(!full)
         }
     }
 
-    @Test("missing files and directories give no coverage")
+    @Test("missing files and directories are not equal")
     func notRegularFiles() async throws {
         try await withRemoteDirectory("compare-irregular") { client, dir in
             try await Self.upload(Self.payload, to: "\(dir)/a.bin", client)
 
             let missing = try await client.compareFiles("\(dir)/a.bin", "\(dir)/missing.bin")
-            #expect(missing == (false, 0.0))
+            #expect(!missing)
 
             let directory = try await client.compareFiles(dir, "\(dir)/a.bin")
-            #expect(directory == (false, 0.0))
+            #expect(!directory)
         }
     }
 
@@ -333,7 +332,7 @@ struct SFTPClientCompareFiles {
                     scan: scan,
                     scanBlockSize: Self.blockSize
                 )
-                #expect(same == (true, 1.0), "scan \(scan)")
+                #expect(same, "scan \(scan)")
 
                 let different = try await client.compareFiles(
                     local: local,
@@ -341,12 +340,12 @@ struct SFTPClientCompareFiles {
                     scan: scan,
                     scanBlockSize: Self.blockSize
                 )
-                #expect(different == (false, 1.0), "scan \(scan)")
+                #expect(!different, "scan \(scan)")
             }
         }
     }
 
-    @Test("a local directory or missing file gives no coverage")
+    @Test("a local directory or missing file is not equal")
     func localNotRegularFile() async throws {
         try await withRemoteDirectory("compare-local-irregular") { client, dir in
             try await Self.upload(Self.payload, to: "\(dir)/a.bin", client)
@@ -355,13 +354,13 @@ struct SFTPClientCompareFiles {
                 local: FileManager.default.temporaryDirectory,
                 remote: "\(dir)/a.bin"
             )
-            #expect(directory == (false, 0.0))
+            #expect(!directory)
 
             let missing = try await client.compareFiles(
                 local: FileManager.default.temporaryDirectory.appendingPathComponent("missing-\(UUID().uuidString)"),
                 remote: "\(dir)/a.bin"
             )
-            #expect(missing == (false, 0.0))
+            #expect(!missing)
         }
     }
 
