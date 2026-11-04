@@ -111,6 +111,85 @@ struct CompareFilesBisection {
     }
 }
 
+@Suite("CompareFiles: block grid")
+struct CompareFilesBlockGrid {
+    private func lengths(_ grid: FileCompareGrid) -> [UInt64] {
+        (0 ..< grid.blockCount).map(grid.length)
+    }
+
+    @Test("splits a file into equal blocks without a short last one")
+    func equalBlocks() {
+        let grid = FileCompareGrid(size: 10500, maximumBlockSize: 1000)
+        #expect(grid.blockCount == 11)
+        #expect(lengths(grid) == Array(repeating: 955, count: 6) + Array(repeating: 954, count: 5))
+        #expect(grid.offset(6) == 6 * 955)
+        #expect(grid.offset(11) == 10500)
+    }
+
+    @Test("an exact multiple keeps the maximum block size")
+    func exactMultiple() {
+        let grid = FileCompareGrid(size: 3000, maximumBlockSize: 1000)
+        #expect(lengths(grid) == [1000, 1000, 1000])
+        #expect((0 ... 3).map(grid.offset) == [0, 1000, 2000, 3000])
+    }
+
+    @Test("small files and empty files")
+    func smallFiles() {
+        #expect(FileCompareGrid(size: 0, maximumBlockSize: 1000).blockCount == 0)
+        #expect(lengths(FileCompareGrid(size: 1, maximumBlockSize: 1000)) == [1])
+        #expect(lengths(FileCompareGrid(size: 999, maximumBlockSize: 1000)) == [999])
+        #expect(lengths(FileCompareGrid(size: 1001, maximumBlockSize: 1000)) == [501, 500])
+        #expect(lengths(FileCompareGrid(size: 5, maximumBlockSize: 1)) == [1, 1, 1, 1, 1])
+    }
+
+    @Test("blocks tile the file, use the fewest blocks and differ by at most one byte")
+    func gridProperties() {
+        for maximum in UInt64(1) ... 40 {
+            for size in UInt64(0) ... 400 {
+                let grid = FileCompareGrid(size: size, maximumBlockSize: maximum)
+                let context: Comment = "size \(size), maximum \(maximum)"
+                #expect(grid.blockCount == (size + maximum - 1) / maximum, context)
+                #expect(grid.offset(0) == 0, context)
+                #expect(grid.offset(grid.blockCount) == size, context)
+
+                let blockLengths = lengths(grid)
+                for index in 0 ..< grid.blockCount {
+                    #expect(grid.offset(index) + grid.length(index) == grid.offset(index + 1), context)
+                }
+                if let shortest = blockLengths.min(), let longest = blockLengths.max() {
+                    #expect(shortest > 0, context)
+                    #expect(longest <= maximum, context)
+                    #expect(longest - shortest <= 1, context)
+                    // Longer blocks come first.
+                    #expect(blockLengths == blockLengths.sorted(by: >), context)
+                }
+            }
+        }
+    }
+
+    @Test("covering a byte count ends at the first block boundary that reaches it")
+    func endOfBlocksCovering() {
+        for (size, maximum) in [(UInt64(10500), UInt64(1000)), (2500, 1000), (3000, 1000), (97, 10), (1, 1)] {
+            let grid = FileCompareGrid(size: size, maximumBlockSize: maximum)
+            let boundaries = (0 ... grid.blockCount).map(grid.offset)
+            for bytes in 0 ... size {
+                let expected = boundaries.first { $0 >= bytes }
+                #expect(grid.endOfBlocks(covering: bytes) == expected, "size \(size), bytes \(bytes)")
+            }
+            #expect(grid.endOfBlocks(covering: size + 1) == size)
+        }
+    }
+
+    @Test("huge files do not overflow")
+    func hugeFiles() {
+        let grid = FileCompareGrid(size: .max, maximumBlockSize: 1 << 20)
+        #expect(grid.blockCount == UInt64.max / (1 << 20) + 1)
+        #expect(grid.offset(grid.blockCount) == .max)
+        #expect(grid.length(0) <= 1 << 20)
+        #expect(grid.length(grid.blockCount - 1) >= grid.length(0) - 1)
+    }
+}
+
 @Suite("CompareFiles: block comparison")
 struct CompareFilesBlockComparison {
     /// Records each block the comparison asks for.
@@ -122,7 +201,7 @@ struct CompareFilesBlockComparison {
         }
     }
 
-    @Test("grid covers the whole file with a short last block")
+    @Test("blocks follow the equal-size grid")
     func gridCoversFile() async throws {
         let recorder = Recorder()
         let result = try await FileBlockComparison(size: 2500, scan: .startToEnd, blockSize: 1000, minimumCoverage: 1)
@@ -133,8 +212,8 @@ struct CompareFilesBlockComparison {
 
         #expect(result)
         let blocks = await recorder.blocks
-        #expect(blocks.map(\.offset) == [0, 1000, 2000])
-        #expect(blocks.map(\.length) == [1000, 1000, 500])
+        #expect(blocks.map(\.offset) == [0, 834, 1667])
+        #expect(blocks.map(\.length) == [834, 833, 833])
         #expect(blocks.allSatisfy { $0.readAheadLimit == 2500 })
     }
 
@@ -182,8 +261,8 @@ struct CompareFilesBlockComparison {
             }
 
         let blocks = await recorder.blocks
-        #expect(blocks.map(\.offset) == [2000, 1000, 0])
-        #expect(blocks.map(\.readAheadLimit) == [2500, 2000, 1000])
+        #expect(blocks.map(\.offset) == [1667, 834, 0])
+        #expect(blocks.map(\.readAheadLimit) == [2500, 1667, 834])
     }
 
     @Test("cancellation throws instead of reporting a result")
@@ -206,7 +285,7 @@ struct CompareFilesBlockComparison {
 struct SFTPClientCompareFiles {
     private static let blockSize: UInt64 = 1000
 
-    /// 10 500 bytes: ten full blocks of 1000 and a short last block.
+    /// 10 500 bytes: eleven blocks of 954 or 955 bytes with a 1000-byte maximum.
     private static let payload = Data((0 ..< 10500).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
 
     @Test("identical remote files are equal", arguments: [

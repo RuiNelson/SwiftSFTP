@@ -2,9 +2,9 @@ import Foundation
 
 /// The order in which ``SFTPClientProtocol/compareFiles(_:_:scan:scanBlockSize:minimumCoverage:)`` compares blocks.
 ///
-/// The files are divided into a grid of `scanBlockSize` blocks aligned to the start of the file; only the last block
-/// may be shorter. The order matters only when `minimumCoverage` is below `1.0`, where it decides which part of the
-/// files the comparison covers before it stops.
+/// The files are divided into the fewest blocks of at most `scanBlockSize` bytes, all of the same size give or take one
+/// byte, so no short block is left at the end. The order matters only when `minimumCoverage` is below `1.0`, where it
+/// decides which part of the files the comparison covers before it stops.
 public enum FileCompareScan: Equatable, Sendable {
     /// Compares the blocks from the first to the last.
     case startToEnd
@@ -23,14 +23,15 @@ public enum FileCompareScan: Equatable, Sendable {
 public extension SFTPClientProtocol {
     /// Compares two remote files block by block, for servers that offer no way to hash a file.
     ///
-    /// Sizes are compared first. Then both files are read in `scanBlockSize` blocks, in the order `scan` gives, until a
-    /// block differs or the bytes compared reach `minimumCoverage` of the file size.
+    /// Sizes are compared first. Then both files are divided into equal blocks of at most `scanBlockSize` bytes and
+    /// read in the order `scan` gives, until a block differs or the bytes compared reach `minimumCoverage` of the file
+    /// size.
     ///
     /// - Parameters:
     ///   - fileA: Remote path of the first file.
     ///   - fileB: Remote path of the second file.
     ///   - scan: Order in which the blocks are compared.
-    ///   - scanBlockSize: Size of each compared block in bytes. Must be greater than zero.
+    ///   - scanBlockSize: Largest compared block in bytes. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
@@ -114,7 +115,7 @@ public extension SFTPClientProtocol {
     ///   - local: Local file URL.
     ///   - remote: Remote file path.
     ///   - scan: Order in which the blocks are compared.
-    ///   - scanBlockSize: Size of each compared block in bytes. Must be greater than zero.
+    ///   - scanBlockSize: Largest compared block in bytes. Must be greater than zero.
     ///   - minimumCoverage: Fraction of the file, in `0 < minimumCoverage <= 1`, to compare before declaring the files
     /// equal. `1.0` compares every byte.
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
@@ -190,6 +191,54 @@ public extension SFTPClientProtocol {
 
 // MARK: - Block comparison
 
+/// Divides a file into the fewest blocks of at most `maximumBlockSize` bytes, all of the same size give or take one
+/// byte.
+///
+/// With `size = blockCount * base + remainder`, the first `remainder` blocks hold `base + 1` bytes and the rest `base`.
+struct FileCompareGrid: Equatable {
+    let size: UInt64
+    let blockCount: UInt64
+    private let base: UInt64
+    private let remainder: UInt64
+
+    init(size: UInt64, maximumBlockSize: UInt64) {
+        precondition(maximumBlockSize > 0, "maximumBlockSize must be greater than zero")
+        self.size = size
+        blockCount = size / maximumBlockSize + (size % maximumBlockSize == 0 ? 0 : 1)
+        base = blockCount == 0 ? 0 : size / blockCount
+        remainder = blockCount == 0 ? 0 : size % blockCount
+    }
+
+    /// The file offset where block `index` starts; `offset(blockCount)` is the file size.
+    func offset(_ index: UInt64) -> UInt64 {
+        index * base + min(index, remainder)
+    }
+
+    /// The length of block `index` in bytes.
+    func length(_ index: UInt64) -> UInt64 {
+        base + (index < remainder ? 1 : 0)
+    }
+
+    /// The end of the first run of blocks from the start of the file that holds at least `bytes` bytes.
+    func endOfBlocks(covering bytes: UInt64) -> UInt64 {
+        guard bytes > 0 else {
+            return 0
+        }
+        guard bytes < size else {
+            return size
+        }
+
+        let longBlocksBytes = remainder * (base + 1)
+        let blocks = if bytes <= longBlocksBytes {
+            (bytes + base) / (base + 1)
+        }
+        else {
+            remainder + (bytes - longBlocksBytes + base - 1) / base
+        }
+        return offset(blocks)
+    }
+}
+
 /// Walks the block grid of two equally sized files in a ``FileCompareScan`` order until a block differs or the coverage
 /// target is met.
 struct FileBlockComparison {
@@ -203,25 +252,25 @@ struct FileBlockComparison {
     typealias CompareBlock = (_ offset: UInt64, _ length: Int, _ readAheadLimit: UInt64) async throws -> Bool
 
     func run(_ compareBlock: CompareBlock) async throws -> Bool {
-        let blockCount = (size + blockSize - 1) / blockSize
+        let grid = FileCompareGrid(size: size, maximumBlockSize: blockSize)
         let targetBytes = min(size, UInt64((minimumCoverage * Double(size)).rounded(.up)))
 
         // Only a forward scan reads blocks back to back, so only it gains from reading ahead past the current block.
-        let forwardLimit = min(size, (targetBytes + blockSize - 1) / blockSize * blockSize)
+        let forwardLimit = grid.endOfBlocks(covering: targetBytes)
 
         var compared: UInt64 = 0
-        for index in FileCompareBlockOrder(blockCount: blockCount, scan: scan) {
+        for index in FileCompareBlockOrder(blockCount: grid.blockCount, scan: scan) {
             try Task.checkCancellation()
 
-            let offset = index * blockSize
-            let end = min(offset + blockSize, size)
-            let readAheadLimit = scan == .startToEnd ? forwardLimit : end
+            let offset = grid.offset(index)
+            let length = grid.length(index)
+            let readAheadLimit = scan == .startToEnd ? forwardLimit : offset + length
 
-            guard try await compareBlock(offset, Int(end - offset), readAheadLimit) else {
+            guard try await compareBlock(offset, Int(length), readAheadLimit) else {
                 return false
             }
 
-            compared += end - offset
+            compared += length
             if compared >= targetBytes {
                 break
             }
