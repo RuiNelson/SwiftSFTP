@@ -1298,7 +1298,7 @@ An incorrect or missing passphrase makes `.isValidForSSH_PrivateKey(passphrase:)
 Both checks run offline and do not verify that the key is authorized on a server.
 
 For more formats, file-based validation, public keys, and algorithm-specific checks, see
-[User Authentication Key Validation](CryptographicUtils.md#user-authentication-key-validation-keyvalidation).
+[Validating Existing Key Pairs](CryptographicUtils.md#validating-existing-key-pairs).
 
 ---
 

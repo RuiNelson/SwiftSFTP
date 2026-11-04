@@ -123,9 +123,10 @@ For complete details, see:
   - [EXIF Metadata](Documentation/Integrations.md#exif-metadata)
 
 - [Cryptographic Utilities](Documentation/CryptographicUtils.md) — offline validation and key management:
-  - [User Authentication Key Validation](Documentation/CryptographicUtils.md#user-authentication-key-validation-keyvalidation)
-  - [Host Key Validation](Documentation/CryptographicUtils.md#host-key-validation-known_hosts)
-  - [Asymmetric Key Generation, Import, and Export](Documentation/CryptographicUtils.md#asymmetric-keys-asymmetriccryptography)
+  - [Generating Key Pairs](Documentation/CryptographicUtils.md#generating-key-pairs)
+  - [Deriving Public Keys from Private Keys](Documentation/CryptographicUtils.md#deriving-public-keys-from-private-keys)
+  - [Validating Existing Key Pairs](Documentation/CryptographicUtils.md#validating-existing-key-pairs)
+  - [Validating Host Key Entries](Documentation/CryptographicUtils.md#validating-host-key-entries)
 
 ## AVFoundation Playback
 
