@@ -106,8 +106,8 @@ target's dependency to read, edit, and remove image metadata with [EXIFKit](http
 The trait is disabled by default: packages that don't enable it never resolve or fetch EXIFKit, and the
 `SwiftSFTPEXIFKit` module is then empty. In Xcode, enable the trait on the package dependency (Xcode 26.4 or later). The product supplies the `SwiftSFTP` and `SwiftSFTPEXIFKit` modules in
 one dynamic library, with EXIFKit linked in. `SwiftSFTPEXIFKit` re-exports EXIFKit, so import it instead of adding
-EXIFKit's own product, which would link a second copy. Like EXIFKit, the product requires macOS 12+, iOS 15+, tvOS 15+,
-or watchOS 8+, and it also works on visionOS, Mac Catalyst, and Linux. On Android the module is empty.
+EXIFKit's own product, which would link a second copy. The product builds on every platform SwiftSFTP supports,
+including Linux and Android.
 
 EXIFKit follows the offsets inside the image and asks only for the ranges that hold metadata, so a large photo is never
 downloaded to read its EXIF. It reads in aligned blocks and merges adjacent ones into one request, so a typical JPEG,

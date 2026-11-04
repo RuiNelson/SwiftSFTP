@@ -182,7 +182,7 @@ try await client.removeImageMetadata(path: "/Photos/IMG_0001.HEIC", to: "/Shared
 ```
 
 The same operations exist on `SFTPFileProtocol` for handles you open yourself.
-The product requires macOS 12, iOS 15, tvOS 15, or watchOS 8, like EXIFKit, and is empty on Android. See
+The product builds on every platform SwiftSFTP supports, including Linux and Android. See
 [Integrations](Documentation/Integrations.md#exif-metadata) for editing, read options, lifetime, and errors.
 
 ## Adding SwiftSFTP to your Project
