@@ -240,16 +240,18 @@ struct CompareFilesBlockComparison {
         #expect(await recorder.blocks.map(\.offset) == [0, 7000, 3000])
     }
 
-    @Test("full coverage targets every byte, even beyond what Double holds exactly", arguments: [
-        UInt64(0),
-        1,
-        10500,
-        1 << 53,
-        (1 << 53) + 1,
-        (1 << 63) + 1,
-        .max - 1,
-        .max,
-    ])
+    /// Sizes around the points where `Double` stops holding every integer. Typed up front: as an inline literal the mix
+    /// of shifts and `.max` takes the Linux compiler too long to type-check.
+    static let fullCoverageSizes: [UInt64] = {
+        let exactDoubleLimit: UInt64 = 1 << 53
+        let highBit: UInt64 = 1 << 63
+        return [0, 1, 10500, exactDoubleLimit, exactDoubleLimit + 1, highBit + 1, UInt64.max - 1, UInt64.max]
+    }()
+
+    @Test(
+        "full coverage targets every byte, even beyond what Double holds exactly",
+        arguments: CompareFilesBlockComparison.fullCoverageSizes
+    )
     func fullCoverageTargetsEveryByte(size: UInt64) {
         #expect(FileBlockComparison.targetBytes(size: size, minimumCoverage: 1) == size)
     }
