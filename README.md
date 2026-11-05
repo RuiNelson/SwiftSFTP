@@ -218,7 +218,7 @@ For EXIF metadata, enable the `EXIFKit` trait and use `.product(name: "SwiftSFTP
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.19.1", traits: ["EXIFKit"])
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.20.0", traits: ["EXIFKit"])
 ]
 ```
 
