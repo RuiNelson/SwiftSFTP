@@ -1,237 +1,133 @@
 # Cryptographic Utilities
 
-SwiftSFTP exposes OpenSSL-backed helpers under `Sources/SwiftSFTP/CryptographicUtils/` for offline validation of user authentication keys and OpenSSH `known_hosts` host keys, plus asymmetric key generation, import, and export in OpenSSH, PEM, PKCS#8, and DER formats.
+SwiftSFTP includes OpenSSL-backed key utilities under `Sources/SwiftSFTP/CryptographicUtils/`. They cover four tasks:
 
-All validation APIs return simple `Bool` values. They check that a key is well formed and cryptographically valid — they do not verify that a key is authorized on any particular server.
+1. [Generating key pairs](#generating-key-pairs) — create new keys and save them in OpenSSH, PKCS#8, PEM, or DER form.
+2. [Deriving public keys from private keys](#deriving-public-keys-from-private-keys) — the equivalent of
+   `ssh-keygen -y`.
+3. [Validating existing key pairs](#validating-existing-key-pairs) — check user authentication keys, and whether a
+   private and a public key belong together.
+4. [Validating host key entries](#validating-host-key-entries) — check `known_hosts` lines and shorthand host keys.
 
----
+Everything here runs offline: no API contacts a server. A [reference](#reference) of algorithms, formats, and errors
+follows the four tasks.
 
-## User Authentication Key Validation (`KeyValidation`)
+The main types are:
 
-`String` conforms to `KeyValidation`, allowing you to check PEM, PKCS#8, OpenSSH private key, and OpenSSH one-line public key strings before using them for user authentication.
-
-### Supported formats
-
-| Format | Private key | Public key |
-|--------|-------------|------------|
-| PEM / PKCS#8 (`BEGIN PRIVATE KEY`, `BEGIN EC PRIVATE KEY`, etc.) | ✓ | ✓ (`BEGIN PUBLIC KEY`) |
-| Encrypted PKCS#8 / legacy encrypted PEM | ✓ (with passphrase) | — |
-| OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`) | ✓ (clear, or with passphrase) | — |
-| OpenSSH one-line public key (`ssh-ed25519 AAAA… [comment]`, etc.) | — | ✓ |
-
-### Supported algorithms
-
-Every `AsymmetricKeyType`: Ed25519, Ed448, ECDSA P-256/P-384/P-521, RSA, ML-DSA-44/65/87 and all SLH-DSA parameter sets (see [Asymmetric Keys](#asymmetric-keys-asymmetriccryptography)). Keys of other OpenSSL algorithms (DSA, X25519, Brainpool curves, …) are rejected.
-
-### What "valid" means
-
-The `isValid_` checks ask whether the string is a valid key of any supported algorithm:
-
-- it parses in one of the formats above;
-- public keys are valid for their algorithm — for example, an EC point lies on its curve and is not the point at infinity;
-- private keys are consistent — their private and public halves belong together, so a tampered key whose embedded public key belongs to another key is rejected.
-
-No acceptance policy applies: a 768-bit RSA key is a valid key.
-
-### Valid vs. valid for SSH
-
-A valid key is not necessarily one SSH will use. The `isValidForSSH_` checks add OpenSSH's own rules:
-
-- the algorithm is one OpenSSH defines — Ed25519, ECDSA P-256/P-384/P-521, or RSA (not Ed448, ML-DSA, or SLH-DSA);
-- RSA moduli are 1024 to 16384 bits.
-
-```swift
-pem.isValid_PrivateKey(passphrase: "passphrase")         // any valid key
-pem.isValidForSSH_PrivateKey(passphrase: "passphrase")   // a key OpenSSH accepts
-line.isValidForSSH_PublicKey
-```
-
-`PrivateKeyString` and `PrivateKeyFile` follow the same split: `.valid` accepts any valid key, `.isValidForSSH` only keys OpenSSH accepts (it is `true` exactly when `.algorithm` is non-`nil`). `SSHUserKeyAlgorithm.detect(from:passphrase:)` returns `nil` for keys SSH will not use.
-
-### Passphrases
-
-Functions that take `passphrase: String? = nil` accept unencrypted keys whatever the passphrase. Encrypted keys must decrypt with it; `nil` or an empty string rejects them. The passphrase is used as its exact UTF-8 bytes in every format.
-
-The `password:` variants (`isValid_PrivateKey(password:)`, `isValid_RSA_PrivateKey(password:)`, …) are deprecated in favour of `passphrase:`.
-
-### Key type
-
-`privateKeyType`, `privateKeyType(passphrase:)` and `publicKeyType` return the key's `AsymmetricKeyType`, or `nil` when the string is not a valid key:
-
-```swift
-if pem.privateKeyType(passphrase: "passphrase") == .ed448 {
-    // decryptable Ed448 private key
-}
-```
-
-### Generic checks
-
-```swift
-import SwiftSFTP
-
-let pem = """
-    -----BEGIN EC PRIVATE KEY-----
-    MHcCAQEEIGU49N3pXnY7QLxXGEf9vFayuBzcGp4knY1aFQbVgfeCoAoGCCqGSM49
-    AwEHoUQDQgAEMSzxTnxAxZ8MxL9AXDScmv1pcWOXh8N3QYo4O+dvBVeFsaumKxit
-    t3f3yxw97qIw5d+uUvDo1+1S7tcYRkWfIA==
-    -----END EC PRIVATE KEY-----
-    """
-
-if pem.isValid_PrivateKey {
-    // well-formed unencrypted private key
-}
-
-if pem.isValidForSSH_PrivateKey(passphrase: "passphrase") {
-    // decryptable private key SFTPClient can authenticate with
-}
-```
-
-### Algorithm-specific checks
-
-Private keys:
-
-```swift
-pem.isValid_RSA_PrivateKey
-pem.isValid_P256_PrivateKey
-pem.isValid_P384_PrivateKey
-pem.isValid_P521_PrivateKey
-pem.isValid_Curve25519_PrivateKey   // Ed25519
-```
-
-Public keys:
-
-```swift
-pem.isValid_RSA_PublicKey
-pem.isValid_P256_PublicKey
-pem.isValid_P384_PublicKey
-pem.isValid_P521_PublicKey
-pem.isValid_Curve25519_PublicKey
-```
-
-Encrypted private keys use the `passphrase:` variants, for example `isValid_RSA_PrivateKey(passphrase:)`. For other key types, compare `privateKeyType` / `publicKeyType` with the `AsymmetricKeyType` you expect.
-
-OpenSSH one-line public keys (as used in `authorized_keys`, with or without a trailing comment, but without leading options) are accepted by the `_PublicKey` checks:
-
-```swift
-let publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
-#expect(publicKey.isValid_Curve25519_PublicKey)
-#expect(publicKey.isValid_PublicKey)
-```
+| Type | Role |
+|------|------|
+| `AsymmetricCryptography` | One namespace per algorithm (`EdDSA.Ed25519`, `ECDSA.P256`, `RSA`, …), each able to generate keys. |
+| `PrivateKey` | A private key of any supported algorithm, together with its `publicKey`. |
+| `PublicKey` | A public key of any supported algorithm. |
+| `AsymmetricKeyPair` | A `privateKey` and its `publicKey`, as returned by key generation. |
+| `AsymmetricKeyType` | The algorithm and parameters of a key (`.ed25519`, `.ecdsaP256`, `.rsa`, …). |
+| `KeyValidation` (on `String`) | `Bool` checks for private and public key text. |
+| `String.isValid_HostKey` / `isValid_ShortHandHostKey` | `Bool` checks for host key entries. |
 
 ---
 
-## Host Key Validation (`known_hosts`)
+## Generating Key Pairs
 
-`String` exposes properties to validate OpenSSH host key material before storing or comparing `known_hosts` entries.
-
-### Shorthand host key
-
-Validates a two-field line: `algorithm base64-key`.
-
-```swift
-let shorthand = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
-
-if shorthand.isValid_ShortHandHostKey {
-    // well formed, cryptographically valid, and accepted by OpenSSH
-}
-```
-
-### Full `known_hosts` line
-
-Validates a three-field line: `host algorithm base64-key`. The host field is checked with `TCPLocation.isValidKnownHostsHostField(_:)`.
-
-```swift
-let line = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
-
-if line.isValid_HostKey {
-    // valid known_hosts entry
-}
-```
-
-### Supported host key algorithms
-
-- `ssh-rsa`
-- `ecdsa-sha2-nistp256`
-- `ecdsa-sha2-nistp384`
-- `ecdsa-sha2-nistp521`
-- `ssh-ed25519`
-- `ssh-dss`
-
-Validation decodes the base64 wire blob, which must name the line's algorithm and carry exactly its components, then checks the key with OpenSSL (EC points on their curve and not at infinity, DSA public values in their subgroup) and applies OpenSSH's rules (RSA moduli of 1024 to 16384 bits). `@cert-authority` and `@revoked` marker lines are not accepted.
-
-### Known hosts host fields
-
-`TCPLocation.isValidKnownHostsHostField(_:)` validates the host column used in `known_hosts` lines. Accepted forms include:
-
-- IPv4 addresses (`127.0.0.1`, `10.0.0.1:2222`)
-- Bracketed hostnames and IPv6 (`[example.com]`, `[2001:db8::1]:443`)
-- Plain hostnames (`example.com`, `localhost`)
-- Hashed hosts (`|1|<salt>|<hash>`)
-- Comma-separated lists (`127.0.0.1,example.com`)
-
-`TCPLocation.knownHostsHost` produces host strings in this format when constructing entries from a `TCPLocation`.
-
----
-
-## Asymmetric Keys (`AsymmetricCryptography`)
-
-`AsymmetricCryptography` generates, imports, and exports signature keys for every algorithm below, in every format OpenSSL and OpenSSH define for them.
-
-### Algorithms
-
-| Namespace | Key type | OpenSSH name |
-|-----------|----------|--------------|
-| `AsymmetricCryptography.EdDSA.Ed25519` | `.ed25519` | `ssh-ed25519` |
-| `AsymmetricCryptography.EdDSA.Ed448` | `.ed448` | — |
-| `AsymmetricCryptography.ECDSA.P256` / `P384` / `P521` | `.ecdsaP256` / `.ecdsaP384` / `.ecdsaP521` | `ecdsa-sha2-nistp256` / `384` / `521` |
-| `AsymmetricCryptography.RSA` | `.rsa` | `ssh-rsa` |
-| `AsymmetricCryptography.MLDSA.MLDSA44` / `MLDSA65` / `MLDSA87` | `.mlDSA44` / `.mlDSA65` / `.mlDSA87` | — |
-| `AsymmetricCryptography.SLHDSA.SHA2_128s` … `SHAKE_256f` (12 parameter sets) | `.slhDSA_SHA2_128s` … | — |
-
-ML-DSA and SLH-DSA need OpenSSL 3.5 or later. SwiftSFTP compiles its pinned OpenSSL sources on every supported platform, so the same algorithms are available on Apple, Linux, and Android. `AsymmetricKeyType.isAvailable` still reports runtime availability.
-
-RSA keys default to 3072 bits (`RSA.generateKeyPair(bits:)` accepts 2048–16384). A single RSA key serves both PKCS#1 v1.5 and PSS signatures.
-
-### Formats
-
-| Format | Private key | Public key | Key types |
-|--------|-------------|------------|-----------|
-| `.openSSH` | `BEGIN OPENSSH PRIVATE KEY`; with a passphrase, aes256-ctr + bcrypt, like `ssh-keygen` | `ssh-ed25519 AAAA…` | Ed25519, ECDSA, RSA |
-| `.pkcs8` | `BEGIN PRIVATE KEY`; with a passphrase, `BEGIN ENCRYPTED PRIVATE KEY` (PBES2, AES-256-CBC) | — | all |
-| `.pem` | `BEGIN RSA PRIVATE KEY` / `BEGIN EC PRIVATE KEY` (legacy PEM encryption) | `BEGIN PUBLIC KEY` (SubjectPublicKeyInfo) | private: RSA, ECDSA; public: all |
-| DER | `derRepresentation` (PKCS#8) | `derRepresentation` (SubjectPublicKeyInfo) | all |
-
-Parsing accepts all of the above, ignoring text around a key's `BEGIN` and `END` lines. It also reads OpenSSH keys encrypted with aes128/192/256-ctr, aes128/192/256-cbc, and aes128/256-gcm@openssh.com. `chacha20-poly1305@openssh.com` is not supported. Keys whose bcrypt KDF asks for more than 1024 rounds are rejected with `unsupportedEncryption`: each round costs about 9 ms on Apple silicon, so the limit bounds decryption at about 10 seconds, where a crafted file could otherwise stall it indefinitely (`ssh-keygen` uses 16 rounds by default). Such keys also fail `isValid_PrivateKey(passphrase:)` and `SSHUserKeyAlgorithm.detect`, but `SFTPClient` still tries them last during authentication, when libssh2 decrypts them itself. OpenSSH does not define Ed448, ML-DSA, or SLH-DSA keys, so those throw `unsupportedPrivateKeyFormat` / `unsupportedPublicKeyFormat` for `.openSSH`.
-
-### Generating keys
+Pick an algorithm namespace and call `generateKeyPair()`. The result is an `AsymmetricKeyPair`; encode each half in
+the format you need:
 
 ```swift
 import SwiftSFTP
 
 let pair = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
 
-let privateKey = try pair.privateKey.encode(format: .openSSH, passphrase: "passphrase")
-let publicKey = try pair.publicKey.encode(format: .openSSH) // "ssh-ed25519 AAAA…"
+let privateKeyFile = try pair.privateKey.encode(format: .openSSH, passphrase: "passphrase")
+// "-----BEGIN OPENSSH PRIVATE KEY-----…"
+let authorizedKey = try pair.publicKey.encode(format: .openSSH)
+// "ssh-ed25519 AAAA…", ready for authorized_keys
 ```
 
-### Importing and converting keys
+### Choosing an algorithm
+
+For SSH user authentication, generate one of the keys OpenSSH defines:
+
+| Namespace | Notes |
+|-----------|-------|
+| `AsymmetricCryptography.EdDSA.Ed25519` | Recommended default: small, fast keys, as `ssh-keygen` generates by default. |
+| `AsymmetricCryptography.ECDSA.P256` / `P384` / `P521` | For servers or policies that require NIST curves. |
+| `AsymmetricCryptography.RSA` | For servers that accept only RSA. 3072 bits by default. |
+
+RSA takes an optional modulus size between `RSA.minimumBits` (2048) and `RSA.maximumBits` (16384); other sizes throw
+`invalidKeySize`:
 
 ```swift
-let key = try PrivateKey(string: pem, passphrase: "passphrase") // OpenSSH, PKCS#8 or algorithm-specific PEM
-key.type                                                        // e.g. .ecdsaP256
-let authorizedKey = try key.publicKey.encode(format: .openSSH)
-let pkcs8 = try key.encode(format: .pkcs8)
-
-let publicKey = try PublicKey(string: "ssh-ed25519 AAAA… user@host") // or a PEM PUBLIC KEY
+let rsaPair = try AsymmetricCryptography.RSA.generateKeyPair(bits: 4096)
 ```
 
-Imported keys are checked as described in [What "valid" means](#what-valid-means): public keys must be valid for their algorithm, and private keys consistent, so `key.publicKey` is always the key that verifies `key`'s signatures. `PrivateKey` and `PublicKey` apply no SSH policy; use the `isValidForSSH_` checks for that.
+Ed448, ML-DSA, and SLH-DSA keys can be generated too, but OpenSSH does not define them, so they cannot be used to
+log in to an SSH server, and they have no `.openSSH` encoding. See [Algorithms](#algorithms) for the full list.
 
-`PrivateKey`, `PublicKey`, and `AsymmetricKeyPair` are `Codable` as their DER form; decoding validates the key.
+Every namespace conforms to `AsymmetricAlgorithm`, so code can take the algorithm as a parameter:
 
-### Deriving a public key
+```swift
+func makeKey(_ algorithm: any AsymmetricAlgorithm.Type) throws -> AsymmetricKeyPair {
+    try algorithm.generateKeyPair()
+}
+```
 
-Every `PrivateKey` carries its public key, so deriving it from a private key file is a property access — the equivalent of `ssh-keygen -y`:
+### Encoding the private key
+
+`PrivateKey.encode(format:passphrase:)` returns text in one of three formats. A non-empty passphrase encrypts the
+key; `nil` or an empty string leaves it unencrypted.
+
+| Format | Output | Encryption with a passphrase | Key types |
+|--------|--------|------------------------------|-----------|
+| `.openSSH` | `BEGIN OPENSSH PRIVATE KEY` | aes256-ctr with bcrypt, as `ssh-keygen` does | Ed25519, ECDSA, RSA |
+| `.pkcs8` | `BEGIN PRIVATE KEY` | `BEGIN ENCRYPTED PRIVATE KEY` (PBES2, AES-256-CBC) | all |
+| `.pem` | `BEGIN RSA PRIVATE KEY` / `BEGIN EC PRIVATE KEY` | legacy PEM encryption (AES-256-CBC) | RSA, ECDSA |
+
+Use `.openSSH` for keys that SSH clients will read, and `.pkcs8` for other tools; `.pem` exists for software that
+needs the legacy algorithm-specific form. `privateKey.derRepresentation` holds the key as unencrypted DER PKCS#8.
+
+Asking for a format the key type does not have throws `unsupportedPrivateKeyFormat`, for example `.openSSH` for an
+Ed448 key.
+
+### Encoding the public key
+
+`PublicKey.encode(format:)` returns:
+
+- `.openSSH` — a one-line key such as `ssh-ed25519 AAAA…`, for `authorized_keys`. Only Ed25519, ECDSA, and RSA keys
+  have one; other key types throw `unsupportedPublicKeyFormat`.
+- `.pem` — `BEGIN PUBLIC KEY` (SubjectPublicKeyInfo), for every key type.
+
+`publicKey.derRepresentation` holds the DER-encoded SubjectPublicKeyInfo.
+
+The OpenSSH line has no comment. Append one, such as `user@host`, if you want it to appear in `authorized_keys`.
+
+### Saving a key file
+
+OpenSSH refuses private key files that other users can read, so write them with `0600` permissions:
+
+```swift
+let pair = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
+let keyFile = try pair.privateKey.encode(format: .openSSH, passphrase: "passphrase")
+let authorizedKey = try pair.publicKey.encode(format: .openSSH) + " user@host"
+
+FileManager.default.createFile(
+    atPath: "/path/to/id_ed25519",
+    contents: Data(keyFile.utf8),
+    attributes: [.posixPermissions: 0o600]
+)
+try (authorizedKey + "\n").write(toFile: "/path/to/id_ed25519.pub", atomically: true, encoding: .utf8)
+```
+
+### Storing keys with `Codable`
+
+`PrivateKey`, `PublicKey`, and `AsymmetricKeyPair` are `Codable`. They encode as their DER form; decoding checks the
+key again, and `AsymmetricKeyPair` rejects a pair whose halves do not match. A `PrivateKey` encodes unencrypted, so
+protect the encoded data as you would the key itself.
+
+---
+
+## Deriving Public Keys from Private Keys
+
+Every `PrivateKey` carries its public key. Deriving the public key of an existing private key — what
+`ssh-keygen -y` does — is a parse followed by a property access:
 
 ```swift
 import SwiftSFTP
@@ -240,40 +136,313 @@ let keyFile = try String(contentsOfFile: "/Users/me/.ssh/id_ed25519", encoding: 
 let privateKey = try PrivateKey(string: keyFile, passphrase: "passphrase") // or nil for an unencrypted key
 
 let publicKey = privateKey.publicKey
-let authorizedKey = try publicKey.encode(format: .openSSH) // "ssh-ed25519 AAAA…", ready for authorized_keys
+let authorizedKey = try publicKey.encode(format: .openSSH) // "ssh-ed25519 AAAA…"
 let pem = try publicKey.encode(format: .pem)               // "-----BEGIN PUBLIC KEY-----…"
 let der = publicKey.derRepresentation                      // DER-encoded SubjectPublicKeyInfo
 ```
 
-The OpenSSH line carries no comment; append one (such as `user@host`) if you want it in `authorized_keys`.
+`privateKey.type` tells you which algorithm the key uses.
 
-When the key must be of a particular algorithm, derive it through that algorithm's namespace instead. `derivePublicKey(from:)` returns the key pair, and throws `keyTypeMismatch` for a key of any other type:
+### What `PrivateKey(string:passphrase:)` reads
+
+- OpenSSH private keys (`BEGIN OPENSSH PRIVATE KEY`), unencrypted or encrypted with aes128/192/256-ctr,
+  aes128/192/256-cbc, or aes128/256-gcm@openssh.com. `chacha20-poly1305@openssh.com` is not supported.
+- PKCS#8 (`BEGIN PRIVATE KEY`, or `BEGIN ENCRYPTED PRIVATE KEY`).
+- Algorithm-specific PEM (`BEGIN RSA PRIVATE KEY`, `BEGIN EC PRIVATE KEY`), unencrypted or with legacy PEM encryption.
+
+Text before the `BEGIN` line and after the `END` line, such as a file name or a comment, is ignored. Binary keys go
+through `PrivateKey(derRepresentation:)`, which takes unencrypted PKCS#8, PKCS#1 (RSA), or SEC 1 (EC) DER.
+
+The passphrase is used as its exact UTF-8 bytes. An encrypted key throws `passphraseRequired` when the passphrase is
+`nil` or empty, and `incorrectPassphrase` when it does not decrypt the key. Unencrypted keys ignore the passphrase.
+
+OpenSSH keys whose bcrypt KDF asks for more than 1024 rounds throw `unsupportedEncryption`. Each round costs about
+9 ms on Apple silicon, so the limit keeps decryption under about 10 seconds, where a crafted file could otherwise stall
+it indefinitely. `ssh-keygen` uses 16 rounds by default.
+
+### Requiring a particular algorithm
+
+When the key must be of one algorithm, derive the pair through that algorithm's namespace.
+`derivePublicKey(from:)` returns the `AsymmetricKeyPair` and throws `keyTypeMismatch` for a key of any other type:
 
 ```swift
 let pair = try AsymmetricCryptography.EdDSA.Ed25519.derivePublicKey(from: privateKey)
 let authorizedKey = try pair.publicKey.encode(format: .openSSH)
 ```
 
-Ed448, ML-DSA, and SLH-DSA public keys have no OpenSSH encoding, so `encode(format: .openSSH)` throws `unsupportedPublicKeyFormat` for them; use `.pem` or `derRepresentation`.
+### The derived key is always the right one
 
-Errors are thrown as `AsymmetricCryptographyError`, for example `.passphraseRequired`, `.incorrectPassphrase`, `.invalidKeyData`, or `.unsupportedAlgorithm("X25519")`.
-
-### Deprecated Ed25519 API
-
-`SwiftSFTP_Curve25519` and `OpenSSHKeyPair` are deprecated and now forward to `AsymmetricCryptography`:
-
-| Deprecated | Replacement |
-|------------|-------------|
-| `SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()` | `AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()` + `encode(format: .openSSH)` |
-| `SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat:)` | `PrivateKey(string:).publicKey.encode(format: .openSSH)` |
+Parsing checks that the private key's halves belong together. A tampered key file whose embedded public key belongs
+to another key is rejected with `invalidKeyData`, so `privateKey.publicKey` is always the key that verifies
+`privateKey`'s signatures.
 
 ---
 
-## What These APIs Do Not Check
+## Validating Existing Key Pairs
 
-- Whether a private key matches a server's `authorized_keys` entry
-- Whether a host key belongs to the host you intend to connect to
-- Certificate chains, expiry, or revocation
-- Key strength policy beyond OpenSSH's own rules (for example, whether a 2048-bit RSA key is strong enough for you)
+Before using keys you did not create — imported by a user, read from disk, pasted into a form — check them. SwiftSFTP
+offers two styles:
 
-Use `SFTPClient` host key acceptance policies and server-side authorization for connection-time trust decisions.
+- **`Bool` checks** on `String`, through `KeyValidation`, for a quick yes or no.
+- **Throwing initializers** (`PrivateKey(string:passphrase:)`, `PublicKey(string:)`), when you need the reason a key
+  was rejected or the parsed key itself.
+
+Both apply the same checks. None of them tells you whether a server will authorize a key; see
+[What these APIs do not check](#what-these-apis-do-not-check).
+
+### Valid keys and keys SSH accepts
+
+There are two levels of validity:
+
+| Level | Checks | Accepts |
+|-------|--------|---------|
+| Valid | `isValid_PrivateKey`, `isValid_PublicKey`, `PrivateKey`, `PublicKey` | A well-formed, valid key of any [supported algorithm](#algorithms). No policy applies: a 768-bit RSA key is a valid key. |
+| Accepted by SSH | `isValidForSSH_PrivateKey(passphrase:)`, `isValidForSSH_PublicKey` | A valid key that OpenSSH will also use: Ed25519, ECDSA P-256/P-384/P-521, or RSA with a 1024- to 16384-bit modulus and a public exponent above 1. Ed448, ML-DSA, and SLH-DSA keys are rejected. |
+
+A key is valid when:
+
+- it parses in one of the [supported formats](#formats);
+- its public key is valid for its algorithm — for example, an EC point lies on its curve and is not the point at
+  infinity;
+- for a private key, its private and public halves belong together.
+
+Keys of algorithms SwiftSFTP does not support (DSA, X25519, Brainpool curves, …) are never valid.
+
+Use the SSH level for keys that `SFTPClient` will authenticate with, and the plain level when the key is meant for
+something else.
+
+### Private keys
+
+```swift
+import SwiftSFTP
+
+let keyText = try String(contentsOfFile: "/Users/me/.ssh/id_ecdsa", encoding: .utf8)
+
+keyText.isValid_PrivateKey                                   // valid and unencrypted
+keyText.isValid_PrivateKey(passphrase: "passphrase")         // valid, encrypted or not
+keyText.isValidForSSH_PrivateKey(passphrase: "passphrase")   // valid, and SFTPClient can log in with it
+keyText.privateKeyType(passphrase: "passphrase")             // e.g. .ecdsaP256, or nil
+```
+
+Passphrases follow one rule everywhere: unencrypted keys pass whatever the passphrase, and encrypted keys must
+decrypt with it. A `nil` or empty passphrase therefore rejects every encrypted key. The properties without a
+`passphrase:` parameter (`isValid_PrivateKey`, `privateKeyType`) accept only unencrypted keys.
+
+OpenSSH keys encrypted with more than 1024 bcrypt rounds fail these checks, since SwiftSFTP will not decrypt them.
+`SFTPClient` still tries such keys last during authentication, when libssh2 decrypts them itself.
+
+### Public keys
+
+Public keys can be PEM (`BEGIN PUBLIC KEY`) or OpenSSH one-line keys, as found in `authorized_keys`, with or without
+a trailing comment but without leading options:
+
+```swift
+let line = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s user@host"
+
+line.isValid_PublicKey      // true
+line.isValidForSSH_PublicKey // true
+line.publicKeyType          // .ed25519
+```
+
+### Checking for a particular algorithm
+
+Compare `privateKeyType` or `publicKeyType` with the `AsymmetricKeyType` you expect:
+
+```swift
+if keyText.privateKeyType(passphrase: "passphrase") == .ed25519 {
+    // a decryptable Ed25519 private key
+}
+```
+
+Shortcuts exist for the SSH algorithms. Each private key check also has a `passphrase:` variant, such as
+`isValid_RSA_PrivateKey(passphrase:)`:
+
+| Algorithm | Private key | Public key |
+|-----------|-------------|------------|
+| Ed25519 | `isValid_Curve25519_PrivateKey` | `isValid_Curve25519_PublicKey` |
+| ECDSA P-256 | `isValid_P256_PrivateKey` | `isValid_P256_PublicKey` |
+| ECDSA P-384 | `isValid_P384_PrivateKey` | `isValid_P384_PublicKey` |
+| ECDSA P-521 | `isValid_P521_PrivateKey` | `isValid_P521_PublicKey` |
+| RSA | `isValid_RSA_PrivateKey` | `isValid_RSA_PublicKey` |
+
+These check validity only: `isValid_RSA_PublicKey` is `true` for a 768-bit RSA key. Combine them with
+`isValidForSSH_…` when the key is meant for SSH.
+
+### Checking that a private and a public key belong together
+
+To confirm that a public key — an `authorized_keys` line, a `.pub` file — matches a private key, parse both and
+compare the private key's public half with it:
+
+```swift
+let privateKey = try PrivateKey(string: keyText, passphrase: "passphrase")
+let publicKey = try PublicKey(string: line)
+
+if privateKey.publicKey == publicKey {
+    // the public key belongs to this private key
+}
+```
+
+`PublicKey` values compare by their DER form, so the comparison ignores the text format (OpenSSH or PEM) and any
+comment.
+
+### Finding out why a key is rejected
+
+The throwing initializers report the reason as an `AsymmetricCryptographyError`:
+
+```swift
+do {
+    let privateKey = try PrivateKey(string: keyText, passphrase: passphrase)
+    // use privateKey
+} catch AsymmetricCryptographyError.passphraseRequired {
+    // ask the user for the passphrase
+} catch AsymmetricCryptographyError.incorrectPassphrase {
+    // ask again
+} catch AsymmetricCryptographyError.unsupportedAlgorithm(let name) {
+    // a key of an algorithm SwiftSFTP does not support, such as "X25519"
+} catch {
+    // invalidKeyData, unsupportedEncryption, …
+}
+```
+
+`PrivateKey` and `PublicKey` apply no SSH policy. Check `isValidForSSH_…` as well when the key is meant for SSH.
+
+### Keys configured for `SFTPClient`
+
+The key types `SFTPClient` authenticates with apply the same checks:
+
+- `PrivateKeyString` and `PrivateKeyFile` have `valid` (any valid key) and `isValidForSSH` (a key OpenSSH accepts).
+  `PrivateKeyFile` reads the file each time.
+- Their `algorithm` property returns the key's `SSHUserKeyAlgorithm` (`.ed25519`, `.ecdsaP256`, …, `.rsa`), or `nil`
+  for a key SSH will not use. `isValidForSSH` is `true` exactly when `algorithm` is non-`nil`.
+- `SSHUserKeyAlgorithm.detect(from:passphrase:)` does the same for key text.
+
+---
+
+## Validating Host Key Entries
+
+A host key entry pairs a server's public host key with the hosts it belongs to. Validate entries before storing them
+or passing them to `HostKeyAcceptance`, so that a malformed entry is caught early instead of failing at login.
+
+There are two shapes of entry, each with its own check on `String`:
+
+| Shape | Example | Check | Used by |
+|-------|---------|-------|---------|
+| Full `known_hosts` line | `example.com ssh-ed25519 AAAA… [comment]` | `isValid_HostKey` | `known_hosts` files, `.loadFromFile`, `.loadFromFileString` |
+| Shorthand host key | `ssh-ed25519 AAAA…` | `isValid_ShortHandHostKey` | `.shortHandAcceptedKeys` |
+
+```swift
+import SwiftSFTP
+
+let line = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
+line.isValid_HostKey // true
+
+let shorthand = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
+shorthand.isValid_ShortHandHostKey // true
+```
+
+A full line may end with a comment. A shorthand key must be exactly two fields, so remove any comment before
+checking it.
+
+### Host key algorithms
+
+- `ssh-ed25519`
+- `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`
+- `ssh-rsa`
+- `ssh-dss`
+
+Certificate types (`…-cert-v01@openssh.com`), security keys (`sk-…@openssh.com`), and marker lines
+(`@cert-authority`, `@revoked`) are rejected.
+
+### What the checks verify
+
+- The key field is valid base64, and the decoded key blob names the same algorithm as the entry and carries exactly
+  that algorithm's components.
+- The key is valid for its algorithm: EC points lie on their curve and are not the point at infinity, and DSA public
+  values lie in their subgroup.
+- OpenSSH would accept the key: RSA moduli are 1024 to 16384 bits, with a public exponent above 1.
+
+### Host field
+
+The first field of a full line names the hosts. It may be one host or a comma-separated list
+(`127.0.0.1,example.com`) of:
+
+- hostnames (`example.com`, `localhost`);
+- IPv4 and IPv6 addresses (`10.0.0.1`, `2001:db8::1`);
+- bracketed hosts with a port, as OpenSSH writes hosts on a port other than 22 (`[example.com]:2222`,
+  `[2001:db8::1]:443`);
+- IPv4 addresses with a port (`10.0.0.1:2222`);
+- hashed hosts (`|1|<base64 salt>|<base64 hash>`).
+
+Wildcard patterns (`*.example.com`) and negations (`!host`) are not accepted.
+
+---
+
+## Reference
+
+### Algorithms
+
+| Namespace | `AsymmetricKeyType` | OpenSSH name |
+|-----------|---------------------|--------------|
+| `AsymmetricCryptography.EdDSA.Ed25519` | `.ed25519` | `ssh-ed25519` |
+| `AsymmetricCryptography.EdDSA.Ed448` | `.ed448` | — |
+| `AsymmetricCryptography.ECDSA.P256` / `P384` / `P521` | `.ecdsaP256` / `.ecdsaP384` / `.ecdsaP521` | `ecdsa-sha2-nistp256` / `384` / `521` |
+| `AsymmetricCryptography.RSA` | `.rsa` | `ssh-rsa` |
+| `AsymmetricCryptography.MLDSA.MLDSA44` / `MLDSA65` / `MLDSA87` | `.mlDSA44` / `.mlDSA65` / `.mlDSA87` | — |
+| `AsymmetricCryptography.SLHDSA.SHA2_128s` … `SHAKE_256f` (12 parameter sets) | `.slhDSA_SHA2_128s` … `.slhDSA_SHAKE_256f` | — |
+
+`AsymmetricKeyType.openSSHName` returns the OpenSSH name, or `nil` when OpenSSH does not define the key type. A single
+RSA key serves both PKCS#1 v1.5 and PSS signatures. SLH-DSA `s` parameter sets make small signatures slowly; `f`
+sets sign fast with larger signatures.
+
+ML-DSA and SLH-DSA need OpenSSL 3.5 or later. SwiftSFTP compiles its pinned OpenSSL sources on every supported
+platform, so every algorithm is available on Apple platforms, Linux, and Android. `AsymmetricKeyType.isAvailable`
+reports availability at runtime.
+
+### Formats
+
+| Format | Private key | Public key | Key types |
+|--------|-------------|------------|-----------|
+| `.openSSH` | `BEGIN OPENSSH PRIVATE KEY` | `ssh-ed25519 AAAA… [comment]` | Ed25519, ECDSA, RSA |
+| `.pkcs8` | `BEGIN PRIVATE KEY` / `BEGIN ENCRYPTED PRIVATE KEY` | — | all |
+| `.pem` | `BEGIN RSA PRIVATE KEY` / `BEGIN EC PRIVATE KEY` | `BEGIN PUBLIC KEY` (SubjectPublicKeyInfo) | private: RSA, ECDSA; public: all |
+| DER | `derRepresentation` (PKCS#8) | `derRepresentation` (SubjectPublicKeyInfo) | all |
+
+Parsing accepts every format above. Encoding encrypts as described in
+[Encoding the private key](#encoding-the-private-key); parsing also reads the extra OpenSSH ciphers listed in
+[What `PrivateKey(string:passphrase:)` reads](#what-privatekeystringpassphrase-reads).
+
+### Errors
+
+Key generation, parsing, and encoding throw `AsymmetricCryptographyError`:
+
+| Case | Thrown when |
+|------|-------------|
+| `invalidKeyData` | The input is not a well-formed, valid key. |
+| `passphraseRequired` | The key is encrypted and the passphrase is `nil` or empty. |
+| `incorrectPassphrase` | The passphrase does not decrypt the key. |
+| `unsupportedEncryption(_:)` | An OpenSSH key uses an unsupported cipher or KDF, or more than 1024 bcrypt rounds. |
+| `unsupportedAlgorithm(_:)` | The key's algorithm is not supported; carries its name, such as `X25519` or `ssh-dss`. |
+| `unsupportedPrivateKeyFormat(_:_:)` / `unsupportedPublicKeyFormat(_:_:)` | The key type has no encoding in that format. |
+| `keyTypeMismatch(expected:actual:)` | `derivePublicKey(from:)` received a key of another algorithm. |
+| `invalidKeySize(_:)` | `RSA.generateKeyPair(bits:)` received a size outside 2048…16384. |
+| `openSSLFailure(_:)` | OpenSSL failed unexpectedly; carries its error queue. |
+
+The `Bool` checks never throw.
+
+### Deprecated API
+
+| Deprecated | Replacement |
+|------------|-------------|
+| `SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()` | `AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()`, then `encode(format: .openSSH)` |
+| `SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat:)` | `PrivateKey(string:).publicKey.encode(format: .openSSH)` |
+| `OpenSSHKeyPair` | `AsymmetricKeyPair` |
+| `isValid_PrivateKey(password:)`, `isValid_RSA_PrivateKey(password:)`, … | The `passphrase:` variants |
+
+### What these APIs do not check
+
+- Whether a server will accept a key for user authentication (its `authorized_keys`).
+- Whether a host key belongs to the host you mean to connect to.
+- Certificates, their expiry, or revocation.
+- Key strength beyond OpenSSH's own rules — for example, whether a 2048-bit RSA key is strong enough for you.
+
+Connection-time trust is decided by `SFTPClient`'s `HostKeyAcceptance` setting and by the server's own authorization.
