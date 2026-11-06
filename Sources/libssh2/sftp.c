@@ -44,7 +44,6 @@
 #include "sftp.h"
 
 #include <assert.h>
-#include <stdlib.h>  /* strtol() */
 
 /* This release of libssh2 implements Version 5 with automatic downgrade
  * based on server's declaration
@@ -294,6 +293,12 @@ static int sftp_packet_read(LIBSSH2_SFTP *sftp)
                 return (int)rc;
             else if(rc < 0)
                 return ssh2_err(session, (int)rc, "channel read");
+            else if(rc == 0) {
+                sftp->packet_header_len = 0;
+                return ssh2_err(session, LIBSSH2_ERROR_SOCKET_RECV,
+                                "Unexpected channel EOF while reading "
+                                "SFTP packet header");
+            }
 
             sftp->packet_header_len += rc;
 
@@ -386,11 +391,15 @@ window_adjust:
                 sftp->packet_state = ssh2_NB_state_sent1;
                 return (int)rc;
             }
-            else if(rc < 0) {
+            else if(rc <= 0) {
                 SSH2_FREE(session, packet);
                 sftp->partial_packet = NULL;
-                return ssh2_err(session, (int)rc,
-                                "Error waiting for SFTP packet");
+                if(rc < 0)
+                    return ssh2_err(session, (int)rc,
+                                    "Error waiting for SFTP packet");
+                return ssh2_err(session, LIBSSH2_ERROR_SOCKET_RECV,
+                                "Unexpected channel EOF while reading "
+                                "SFTP packet body");
             }
             sftp->partial_received += rc;
         }
@@ -954,7 +963,11 @@ static LIBSSH2_SFTP *sftp_init(LIBSSH2_SESSION *session)
 
         if(extdata_len > 0) {
             char *extversion_str = SSH2_ALLOC(session, extdata_len + 1);
+            const char *extversion_end;
+            libssh2_int64_t num;
+
             if(!extversion_str) {
+                SSH2_FREE(session, data);
                 ssh2_err(session, LIBSSH2_ERROR_ALLOC,
                          "Unable to allocate memory for SSH_FXP_VERSION "
                          "packet");
@@ -962,8 +975,11 @@ static LIBSSH2_SFTP *sftp_init(LIBSSH2_SESSION *session)
             }
             memcpy(extversion_str, extdata, extdata_len);
             extversion_str[extdata_len] = '\0';
-            /* !checksrc! disable BANNEDFUNC 1 */
-            extversion = (uint32_t)strtol(extversion_str, NULL, 10);
+
+            extversion_end = extversion_str;
+            if(!ssh2_str_number(&extversion_end, &num, UINT32_MAX, 10))
+                extversion = (uint32_t)num;
+
             SSH2_FREE(session, extversion_str);
         }
         if(extname_len == 24 &&
@@ -1122,7 +1138,7 @@ static LIBSSH2_SFTP_HANDLE *sftp_open(LIBSSH2_SFTP *sftp,
     LIBSSH2_SFTP_HANDLE *fp;
     unsigned char *s;
     ssize_t rc;
-    int open_file = (open_type == LIBSSH2_SFTP_OPENFILE) ? 1 : 0;
+    int open_file = open_type == LIBSSH2_SFTP_OPENFILE ? 1 : 0;
 
     if(sftp->open_state == ssh2_NB_state_idle) {
 
@@ -1654,26 +1670,32 @@ static ssize_t sftp_read(LIBSSH2_SFTP_HANDLE *handle,
                 }
 
             case SSH_FXP_DATA:
-                if(chunk->offset != filep->offset)
+                if(chunk->offset != filep->offset) {
                     /* This could happen if the server returns less bytes than
                        requested, which should not happen for normal files.
                        See:
                        https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02#section-6.4
                      */
+                    SSH2_FREE(session, data);
                     return ssh2_err(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
                                     "Read Packet At Unexpected Offset");
+                }
 
                 rc32 = ssh2_ntohu32(data + 5);
-                if(rc32 > (data_len - 9))
+                if(rc32 > (data_len - 9)) {
+                    SSH2_FREE(session, data);
                     return ssh2_err(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
                                     "SFTP Protocol badness");
+                }
 
-                if(rc32 > chunk->len)
+                if(rc32 > chunk->len) {
                     /* A chunk larger than we requested was returned to us.
                        This is a protocol violation and we do not know how to
                        deal with it. Bail out! */
+                    SSH2_FREE(session, data);
                     return ssh2_err(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
                                     "FXP_READ response too big");
+                }
 
                 if(rc32 != chunk->len)
                     /* a short read does not imply end of file, but we must
@@ -2993,8 +3015,8 @@ static int sftp_posix_rename(LIBSSH2_SFTP *sftp, const char *source_filename,
     }
     else if(rc) {
         sftp->posix_rename_state = ssh2_NB_state_idle;
-        return (int)ssh2_err(session, (int)rc,
-                             "Error waiting for FXP EXTENDED REPLY");
+        return ssh2_err(session, (int)rc,
+                        "Error waiting for FXP EXTENDED REPLY");
     }
 
     sftp->posix_rename_state = ssh2_NB_state_idle;
@@ -3374,14 +3396,14 @@ static int sftp_mkdir(LIBSSH2_SFTP *sftp,
             sftp->mkdir_packet = packet;
             return (int)nwritten;
         }
+        SSH2_FREE(session, packet);
+        sftp->mkdir_packet = NULL;
+
         if((ssize_t)packet_len != nwritten) {
-            SSH2_FREE(session, packet);
             sftp->mkdir_state = ssh2_NB_state_idle;
             return ssh2_err(session, LIBSSH2_ERROR_SOCKET_SEND,
                             "ssh2_channel_write() failed");
         }
-        SSH2_FREE(session, packet);
-        sftp->mkdir_packet = NULL;
         sftp->mkdir_state = ssh2_NB_state_sent;
     }
 
