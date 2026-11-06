@@ -47,7 +47,6 @@ let myClient = try SFTPClient(
     openSocketIn: .init(hostname: "localhost", port: 6922),
     hostKeyAcceptance: .acceptAny, // Configurable for strict host key checking
     authentication: .init(name: "bulbasaur", auth: .password("pass123")), // Also supports .privateKey
-    compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib])
 )
 
 // - Call this to connect
