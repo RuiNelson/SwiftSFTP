@@ -2,15 +2,6 @@
   "originHash" : "a584fb3243e110fc7c9cfee873d7ba4defa6830bb0028c338218ac7c597a0ecf",
   "pins" : [
     {
-      "identity" : "exifkit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/RuiNelson/EXIFKit.git",
-      "state" : {
-        "revision" : "f5bfeea7ef20991984f36395d534f0b863d26fd0",
-        "version" : "0.4.0"
-      }
-    },
-    {
       "identity" : "pathworks",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/RuiNelson/PathWorks.git",
