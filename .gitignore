@@ -68,3 +68,5 @@ fastlane/test_output
 Tests/SwiftSFTPTests/WiFiBenchmark.swift
 /.vscode
 /.cache
+
+Package.resolved
