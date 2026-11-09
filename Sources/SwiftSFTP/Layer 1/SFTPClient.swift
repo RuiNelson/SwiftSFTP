@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 
-public final class SFTPClient: SFTPClientProtocol {
+public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     // MARK: Identity
 
     public let id = UUID()
@@ -19,6 +19,11 @@ public final class SFTPClient: SFTPClientProtocol {
     /// Handles whose `SSH_FXP_CLOSE` timed out, still owned by libssh2. Reclaimed during ``close()``; see
     /// ``noteAbandonedHandle(_:)``. Protected by `internalStateQueue`.
     nonisolated(unsafe) var _abandonedHandles: [LibSSH2SFTPHandle] = []
+
+    // MARK: Cache
+
+    /// The attached cache, or `nil`. Protected by `internalStateQueue`. See ``attachCache(_:)``.
+    nonisolated(unsafe) var _cache: (any SFTPBlockLevelReadCache)?
 
     // MARK: Configuration
 

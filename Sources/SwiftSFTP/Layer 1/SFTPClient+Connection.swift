@@ -178,6 +178,7 @@ public extension SFTPClient {
             _socket = nil
             _keepAliveTask = nil
             _abandonedHandles = []
+            _cache = nil
 
             return resources
         }
@@ -210,8 +211,8 @@ public extension SFTPClient {
     func fork(loggedIn: Bool = true) async throws -> Self {
         try checkClosed()
 
-        let loginTimeOut = internalStateQueue.sync {
-            self.loginTimeOut
+        let (loginTimeOut, cache) = internalStateQueue.sync {
+            (self.loginTimeOut, _cache)
         }
         let instance = try Self(
             openSocketIn: tcpLocation,
@@ -228,6 +229,7 @@ public extension SFTPClient {
             instance._teardownGracePeriod = teardownGracePeriod
             instance._readAhead = readAhead
             instance._writeAhead = writeAhead
+            instance._cache = cache
         }
 
         guard loggedIn else {
