@@ -14,6 +14,12 @@ public extension SFTPClient {
             _cache = nil
         }
     }
+
+    func hasCacheAttached() -> Bool {
+        internalStateQueue.sync {
+            _cache != nil
+        }
+    }
 }
 
 // MARK: Internal access

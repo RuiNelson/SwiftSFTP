@@ -94,6 +94,33 @@ public extension SFTPClient {
     }
 }
 
+// MARK: SFTPClient + Paths
+
+public extension SFTPClient {
+    /// Asks the server for the canonical absolute form of `path`, with symbolic links, `.`, and `..` resolved.
+    ///
+    /// Servers differ on a path whose last component does not exist: some resolve it, others throw.
+    ///
+    /// - Parameter path: Remote path, absolute or relative to the working directory.
+    /// - Returns: The canonical absolute path.
+    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors, such as when the path cannot be resolved.
+    func realPath(path: String) async throws -> String {
+        try withSessionIO {
+            try checkClosed()
+            let sftp = try sftp
+            let resolved = try runSFTPCall(.symlink) {
+                try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .realPath)
+            }
+
+            guard let resolved else {
+                throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
+            }
+
+            return resolved
+        }
+    }
+}
+
 // MARK: Private implementation
 
 private extension SFTPClient {

@@ -33,4 +33,7 @@ public protocol SFTPClientWithCache: Sendable {
     /// Files opened from now on use no cache. Files already open keep calling the cache they were opened with until
     /// they close. ``SFTPClientProtocol/close()`` detaches the cache.
     func detachCache()
+
+    /// Whether a cache is attached.
+    func hasCacheAttached() -> Bool
 }

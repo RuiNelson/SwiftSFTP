@@ -14,6 +14,22 @@ struct SFTPClientFilesystemOps {
         }
     }
 
+    // MARK: - realPath
+
+    @Test("realPath resolves symbolic links and relative paths")
+    func realPathResolves() async throws {
+        try await withClient(user: "charmander") { client in
+            let cwd = try await client.currentWorkingDirectory
+            let throughLink = try await client.realPath(path: "\(TS.charmanderHome)/current")
+            let relative = try await client.realPath(path: "latest-report")
+            let dot = try await client.realPath(path: ".")
+
+            #expect(throughLink == "\(TS.charmanderHome)/documents")
+            #expect(relative == "\(TS.charmanderHome)/documents/report.txt")
+            #expect(dot == cwd)
+        }
+    }
+
     // MARK: - listDirectory
 
     @Test("listDirectory returns entries")
