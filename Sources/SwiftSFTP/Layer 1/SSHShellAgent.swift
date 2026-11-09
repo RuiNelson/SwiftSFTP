@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import PathWorks
 
 /// Runs remote shell commands over a **persistent** SSH session channel on the parent client.
 ///
@@ -150,8 +151,30 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             verbose: reportProgress
         )
-        try await reportingChanges(to: [from, to]) {
+
+        guard let attachment = client.cacheAttachment else {
             try runTransferCommand(command, progress: progress)
+            return
+        }
+
+        let source = ShellAgentSupport.sftpPathForCache(from, shellType: shellType)
+        let target = ShellAgentSupport.sftpPathForCache(to, shellType: shellType)
+        let destination = await moveDestination(of: source, to: target)
+
+        do {
+            try runTransferCommand(command, progress: progress)
+        }
+        catch {
+            // Part of the move may have happened.
+            await client.reportChange(at: [source, target], to: attachment, removing: true)
+            throw error
+        }
+
+        if let destination {
+            await client.reportRename(from: source, to: destination, attachment: attachment)
+        }
+        else {
+            await client.reportChange(at: [source, target], to: attachment, removing: true)
         }
     }
 
@@ -303,31 +326,48 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         }
     }
 
+    /// Where a move of `source` to `target` puts it, both in SFTP form: inside `target` when that is an existing
+    /// directory, as the move commands do. Asks the server, not the cache, and returns `nil` when the stat fails.
+    private func moveDestination(of source: String, to target: String) async -> String? {
+        let metadata: FileMetadata?
+        do {
+            metadata = try await client.withSessionIOReportingChanges {
+                try client.attributes(sanitizedPath: target, followLink: true)
+            }
+            .map { FileMetadata(sanitizedPath: target, attributes: $0) }
+        }
+        catch {
+            return nil
+        }
+
+        guard let metadata, metadata.isDirectory else {
+            return target
+        }
+
+        guard let name = source.lastPathComponent else {
+            return nil
+        }
+        return target.appendingPathComponent(name).sanitizePath
+    }
+
     /// Runs `operation`, then reports `paths` to the client's cache as changed, also when it fails: a command can write
     /// part of its output before failing.
     ///
-    /// A move is reported as two changed paths rather than a rename: when the destination is a directory, the command
-    /// moves the source into it.
+    /// Files open at or under `paths` stop using the cache: a command may replace a file rather than write to it, as
+    /// extracting an archive over existing files does.
     private func reportingChanges(to paths: [String], _ operation: () throws -> Void) async throws {
+        let attachment = client.cacheAttachment
+        let cachePaths = paths.map { ShellAgentSupport.sftpPathForCache($0, shellType: shellType) }
+
         do {
             try operation()
         }
         catch {
-            await invalidateInCache(paths)
+            await client.reportChange(at: cachePaths, to: attachment, removing: true)
             throw error
         }
 
-        await invalidateInCache(paths)
-    }
-
-    private func invalidateInCache(_ paths: [String]) async {
-        guard let cache = client.cache else {
-            return
-        }
-
-        for path in paths {
-            await cache.invalidate(path: ShellAgentSupport.sftpPathForCache(path, shellType: shellType))
-        }
+        await client.reportChange(at: cachePaths, to: attachment, removing: true)
     }
 
     /// Ensures `path` exists as a directory via the parent SFTP client (`makePath: true`).

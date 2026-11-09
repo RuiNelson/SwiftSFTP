@@ -21,8 +21,8 @@ extension InMemorySFTPReadCache {
         /// Value of ``InMemorySFTPReadCache/tick`` at the last use, for least-recently-used eviction.
         var lastUsed: UInt64
 
-        /// Generation of the path when a stat last confirmed the version.
-        var validatedGeneration: UInt64
+        /// Bytes the client appended since the last stat, or `nil` when it appended none.
+        var appends: Appends?
 
         /// Uptime of the last check against the server, or `nil` before the first.
         var lastCheck: TimeInterval?
@@ -42,7 +42,6 @@ extension InMemorySFTPReadCache {
             version: FileVersion?,
             knownSize: UInt64?,
             lastUsed: UInt64,
-            validatedGeneration: UInt64,
             lastCheck: TimeInterval?,
             statSinceCheck: Bool
         ) {
@@ -50,10 +49,17 @@ extension InMemorySFTPReadCache {
             self.version = version
             self.knownSize = knownSize
             self.lastUsed = lastUsed
-            self.validatedGeneration = validatedGeneration
             self.lastCheck = lastCheck
             self.statSinceCheck = statSinceCheck
         }
+    }
+
+    /// Bytes the client appended to a file since its last stat, which leave the bytes before them as they were.
+    struct Appends {
+        /// The size the file had before the first of them, or `nil` when unknown.
+        let base: UInt64?
+        /// Bytes appended.
+        var byteCount: UInt64
     }
 
     /// The size and modification time of a version of a file, as far as the server reported them.

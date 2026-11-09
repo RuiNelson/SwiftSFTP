@@ -24,6 +24,10 @@ struct AbandonedSFTPCall {
     /// The handle the call runs on, which must stay alive until the call is finished.
     let handle: LibSSH2SFTPHandle?
 
+    /// The paths the call may change on the server, and the cache to tell once it is finished or dropped, or `nil` for
+    /// a call that changes nothing or ran without a cache.
+    let changeReport: CacheChangeReport?
+
     /// Repeats the call with its original arguments, through the slicer when there is one, and discards its result.
     let finish: (SessionIOSlicer?) throws -> Void
 }

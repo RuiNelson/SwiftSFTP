@@ -161,10 +161,15 @@ struct FileBlocks {
         byteCount += merged.count - removed
     }
 
-    /// Drops every byte not written through the client since the last stat, and starts counting writes afresh.
-    mutating func keepOnlyUploaded() {
+    /// Drops every byte not written through the client since the last stat, other than those before `end`, and starts
+    /// counting writes afresh.
+    ///
+    /// - Parameter end: Position before which every byte is kept: where the file ended before the client appended to
+    /// it, or `0`.
+    mutating func keepOnlyUploaded(andBefore end: UInt64 = 0) {
+        let keptRanges = end > 0 ? Self.union(uploaded, 0 ..< end) : uploaded
         var kept: [Segment] = []
-        for range in uploaded {
+        for range in keptRanges {
             for segment in segments where segment.start < range.upperBound && segment.end > range.lowerBound {
                 let from = max(segment.start, range.lowerBound)
                 let to = min(segment.end, range.upperBound)
@@ -172,7 +177,7 @@ struct FileBlocks {
             }
         }
 
-        // Written ranges are merged, so the kept runs neither overlap nor touch.
+        // The kept ranges are merged, so the kept runs neither overlap nor touch.
         segments = kept
         byteCount = kept.reduce(0) { $0 + $1.bytes.count }
         uploaded = []

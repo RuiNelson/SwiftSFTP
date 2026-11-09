@@ -105,7 +105,7 @@ extension SFTPClient {
         defer { sessionIOLock.unlock() }
 
         // Nothing may finish an abandoned call any more, and the handles they hold are reclaimed below.
-        _abandonedCalls = [:]
+        dropAbandonedCalls()
 
         if politely, let deadline {
             if peerStoppedResponding {

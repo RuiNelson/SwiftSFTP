@@ -52,6 +52,79 @@ private func makeCache(
     )
 }
 
+/// Hands the cache a stat of `path` the way the client does when the cache does not answer: a lookup, the store, and
+/// the end of the request.
+private func stat(
+    _ cache: InMemorySFTPReadCache,
+    _ result: FileMetadata?,
+    path: String,
+    followLink: Bool = true
+) async {
+    let request = CacheRequestID()
+    _ = await cache.retrieveFileStat(path: path, followLink: followLink, request: request)
+    await cache.storeFileStat(result, path: path, followLink: followLink, request: request)
+    await cache.requestEnded(request)
+}
+
+/// Hands the cache a listing of `path` the way the client does when the cache does not answer.
+private func list(
+    _ cache: InMemorySFTPReadCache,
+    _ entries: Set<FileMetadata>,
+    path: String,
+    recursive: Bool = false
+) async {
+    let request = CacheRequestID()
+    _ = await cache.retrieveDirectoryListing(path: path, recursive: recursive, request: request)
+    await cache.storeDirectoryListing(entries, path: path, recursive: recursive, request: request)
+    await cache.requestEnded(request)
+}
+
+/// Hands the cache bytes downloaded from `offset` the way the client does: a lookup that does not cover them all, the
+/// store, and the end of the request.
+private func download(_ cache: InMemorySFTPReadCache, _ data: Data, path: String, offset: UInt64 = 0) async {
+    let request = CacheRequestID()
+    _ = await cache.retrieveBlock(path: path, offset: offset, upTo: .max, request: request)
+    await cache.storeBlock(data, path: path, offset: offset, source: .download, request: request)
+    await cache.requestEnded(request)
+}
+
+/// Hands the cache bytes written through the client.
+private func upload(_ cache: InMemorySFTPReadCache, _ data: Data, path: String, offset: UInt64 = 0) async {
+    await cache.storeBlock(data, path: path, offset: offset, source: .upload, request: nil)
+}
+
+/// Asks the cache for bytes, ending the request at once.
+private func retrieve(_ cache: InMemorySFTPReadCache, path: String, offset: UInt64 = 0, upTo: Int) async -> Data? {
+    let request = CacheRequestID()
+    let data = await cache.retrieveBlock(path: path, offset: offset, upTo: upTo, request: request)
+    await cache.requestEnded(request)
+    return data
+}
+
+/// Asks the cache for a stat, ending the request at once.
+private func cachedStat(
+    _ cache: InMemorySFTPReadCache,
+    path: String,
+    followLink: Bool = true
+) async -> CachedFileStat? {
+    let request = CacheRequestID()
+    let answer = await cache.retrieveFileStat(path: path, followLink: followLink, request: request)
+    await cache.requestEnded(request)
+    return answer
+}
+
+/// Asks the cache for a listing, ending the request at once.
+private func cachedListing(
+    _ cache: InMemorySFTPReadCache,
+    path: String,
+    recursive: Bool = false
+) async -> Set<FileMetadata>? {
+    let request = CacheRequestID()
+    let answer = await cache.retrieveDirectoryListing(path: path, recursive: recursive, request: request)
+    await cache.requestEnded(request)
+    return answer
+}
+
 /// Has the cache learn that `path` is a regular file of `size` bytes, then hands it `contents` as if downloaded.
 private func cacheFile(
     _ cache: InMemorySFTPReadCache,
@@ -59,12 +132,14 @@ private func cacheFile(
     contents: Data,
     modificationTime: UInt = 1000
 ) async {
-    await cache.storeFileStat(
-        regularFile(path, size: UInt64(contents.count), modificationTime: modificationTime),
-        path: path,
-        followLink: true
-    )
-    await cache.storeBlock(contents, path: path, offset: 0, source: .download)
+    await stat(cache, regularFile(path, size: UInt64(contents.count), modificationTime: modificationTime), path: path)
+    await download(cache, contents, path: path)
+}
+
+/// Whether ``InMemorySFTPReadCache/storedByteCount`` matches the bytes its files hold.
+private func byteCountIsConsistent(_ cache: InMemorySFTPReadCache) async -> Bool {
+    let held = await cache.files.values.reduce(0) { $0 + $1.blocks.byteCount }
+    return await cache.storedByteCount == held
 }
 
 // MARK: Block storage
@@ -123,16 +198,16 @@ struct InMemoryCacheBlockStorageTests {
     func cacheMergesRanges() async {
         let cache = makeCache()
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 100), path: path, followLink: true)
 
-        await cache.storeBlock(bytes(20, from: 10), path: path, offset: 10, source: .download)
-        await cache.storeBlock(bytes(20, from: 50), path: path, offset: 50, source: .download)
-        await cache.storeBlock(Data(repeating: 0xEE, count: 30), path: path, offset: 25, source: .download)
+        await download(cache, bytes(20, from: 10), path: path, offset: 10)
+        await download(cache, bytes(20, from: 50), path: path, offset: 50)
+        await download(cache, Data(repeating: 0xEE, count: 30), path: path, offset: 25)
 
         #expect(await cache.cachedRanges(path: path) == [10 ..< 70])
         #expect(await cache.storedByteCount == 60)
         #expect(
-            await cache.retrieveBlock(path: path, offset: 10, upTo: 100)
+            await retrieve(cache, path: path, offset: 10, upTo: 100)
                 == bytes(15, from: 10) + Data(repeating: 0xEE, count: 30) + bytes(15, from: 55)
         )
     }
@@ -141,36 +216,36 @@ struct InMemoryCacheBlockStorageTests {
     func prefixAnswers() async {
         let cache = makeCache(minimumHitLength: 16)
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
-        await cache.storeBlock(bytes(40), path: path, offset: 0, source: .download)
+        await stat(cache, regularFile(path, size: 100), path: path, followLink: true)
+        await download(cache, bytes(40), path: path, offset: 0)
 
         // A prefix of what was asked for, starting exactly at the offset.
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 100) == bytes(40))
-        #expect(await cache.retrieveBlock(path: path, offset: 5, upTo: 1000) == bytes(35, from: 5))
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 8) == bytes(8))
+        #expect(await retrieve(cache, path: path, offset: 0, upTo: 100) == bytes(40))
+        #expect(await retrieve(cache, path: path, offset: 5, upTo: 1000) == bytes(35, from: 5))
+        #expect(await retrieve(cache, path: path, offset: 0, upTo: 8) == bytes(8))
 
         // 10 bytes are fewer than the 16 required, but enough for a read of 8.
-        #expect(await cache.retrieveBlock(path: path, offset: 30, upTo: 100) == nil)
-        #expect(await cache.retrieveBlock(path: path, offset: 30, upTo: 8) == bytes(8, from: 30))
+        #expect(await retrieve(cache, path: path, offset: 30, upTo: 100) == nil)
+        #expect(await retrieve(cache, path: path, offset: 30, upTo: 8) == bytes(8, from: 30))
 
         // Nothing cached at the offset.
-        #expect(await cache.retrieveBlock(path: path, offset: 40, upTo: 10) == nil)
-        #expect(await cache.retrieveBlock(path: "/data/other", offset: 0, upTo: 10) == nil)
+        #expect(await retrieve(cache, path: path, offset: 40, upTo: 10) == nil)
+        #expect(await retrieve(cache, path: "/data/other", offset: 0, upTo: 10) == nil)
     }
 
     @Test("bytes past the known size are neither kept nor handed out, and a run up to the end is always long enough")
     func trimmedAtKnownSize() async {
         let cache = makeCache(minimumHitLength: 16)
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
-        await cache.storeBlock(bytes(40, from: 80), path: path, offset: 80, source: .download)
+        await stat(cache, regularFile(path, size: 100), path: path, followLink: true)
+        await download(cache, bytes(40, from: 80), path: path, offset: 80)
 
         #expect(await cache.cachedRanges(path: path) == [80 ..< 100])
-        #expect(await cache.retrieveBlock(path: path, offset: 90, upTo: 100) == bytes(10, from: 90))
-        #expect(await cache.retrieveBlock(path: path, offset: 100, upTo: 100) == nil)
+        #expect(await retrieve(cache, path: path, offset: 90, upTo: 100) == bytes(10, from: 90))
+        #expect(await retrieve(cache, path: path, offset: 100, upTo: 100) == nil)
 
         // The file shrinks.
-        await cache.storeFileStat(regularFile(path, size: 95, modificationTime: 1000), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 95, modificationTime: 1000), path: path, followLink: true)
         #expect(await cache.cachedRanges(path: path) == [])
     }
 
@@ -180,7 +255,7 @@ struct InMemoryCacheBlockStorageTests {
         await cacheFile(cache, path: "/a", contents: bytes(40))
         await cacheFile(cache, path: "/b", contents: bytes(40, from: 1))
         // Using /a makes /b the least recently used.
-        #expect(await cache.retrieveBlock(path: "/a", offset: 0, upTo: 10) == bytes(10))
+        #expect(await retrieve(cache, path: "/a", offset: 0, upTo: 10) == bytes(10))
 
         await cacheFile(cache, path: "/c", contents: bytes(40, from: 2))
 
@@ -201,15 +276,15 @@ struct InMemoryCacheBlockStorageTests {
         await cacheFile(cache, path: "/a", contents: bytes(40))
 
         // Written through the client: no size known.
-        await cache.storeBlock(bytes(60), path: "/growing", offset: 0, source: .upload)
-        await cache.storeBlock(bytes(60, from: 60), path: "/growing", offset: 60, source: .upload)
+        await upload(cache, bytes(60), path: "/growing", offset: 0)
+        await upload(cache, bytes(60, from: 60), path: "/growing", offset: 60)
 
         #expect(await cache.cachedRanges(path: "/growing") == [])
         #expect(await cache.cachedRanges(path: "/a") == [0 ..< 40])
         #expect(await cache.storedByteCount == 40)
 
         // Until its version changes.
-        await cache.storeBlock(bytes(10), path: "/growing", offset: 0, source: .upload)
+        await upload(cache, bytes(10), path: "/growing", offset: 0)
         #expect(await cache.cachedRanges(path: "/growing") == [])
     }
 
@@ -221,10 +296,11 @@ struct InMemoryCacheBlockStorageTests {
 
         #expect(await cache.cachedRanges(path: "/small") == [0 ..< 50])
         #expect(await cache.cachedRanges(path: "/large") == [])
-        #expect(await cache.retrieveBlock(path: "/large", offset: 0, upTo: 10) == nil)
+        #expect(await retrieve(cache, path: "/large", offset: 0, upTo: 10) == nil)
 
         // The small file grows past the maximum.
-        await cache.storeFileStat(
+        await stat(
+            cache,
             regularFile("/small", size: 60, modificationTime: 2000),
             path: "/small",
             followLink: true
@@ -245,18 +321,18 @@ struct InMemoryCacheVersionTests {
         await cacheFile(cache, path: path, contents: bytes(100))
 
         // The same version keeps everything.
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 100), path: path, followLink: true)
         #expect(await cache.cachedRanges(path: path) == [0 ..< 100])
 
         // Written through the client, then the file is closed: the final stat shows a new version.
         let written = Data(repeating: 0xEE, count: 10)
-        await cache.storeBlock(written, path: path, offset: 10, source: .upload)
-        await cache.storeFileStat(regularFile(path, size: 100, modificationTime: 2000), path: path, followLink: true)
+        await upload(cache, written, path: path, offset: 10)
+        await stat(cache, regularFile(path, size: 100, modificationTime: 2000), path: path, followLink: true)
         #expect(await cache.cachedRanges(path: path) == [10 ..< 20])
-        #expect(await cache.retrieveBlock(path: path, offset: 10, upTo: 10) == written)
+        #expect(await retrieve(cache, path: path, offset: 10, upTo: 10) == written)
 
         // Those bytes belong to that version: a further version drops them too.
-        await cache.storeFileStat(regularFile(path, size: 100, modificationTime: 3000), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 100, modificationTime: 3000), path: path, followLink: true)
         #expect(await cache.cachedRanges(path: path) == [])
     }
 
@@ -266,10 +342,10 @@ struct InMemoryCacheVersionTests {
         let path = "/data/file"
         await cacheFile(cache, path: path, contents: bytes(100))
 
-        await cache.storeFileStat(symbolicLink(path), path: path, followLink: false)
+        await stat(cache, symbolicLink(path), path: path, followLink: false)
         #expect(await cache.cachedRanges(path: path) == [0 ..< 100])
 
-        await cache.storeFileStat(nil, path: path, followLink: true)
+        await stat(cache, nil, path: path, followLink: true)
         #expect(await cache.cachedRanges(path: path) == [])
     }
 
@@ -281,7 +357,8 @@ struct InMemoryCacheVersionTests {
         await cacheFile(cache, path: "/d/gone", contents: bytes(10))
         await cacheFile(cache, path: "/d/sub/deeper", contents: bytes(10))
 
-        await cache.storeDirectoryListing(
+        await list(
+            cache,
             [regularFile("/d/same", size: 10), regularFile("/d/changed", size: 10, modificationTime: 2000)],
             path: "/d",
             recursive: false
@@ -301,13 +378,14 @@ struct InMemoryCacheVersionTests {
         await cacheFile(cache, path: "/d/sub/b", contents: bytes(10))
         await cacheFile(cache, path: "/d/subway", contents: bytes(10))
         await cacheFile(cache, path: "/other/c", contents: bytes(10))
-        await cache.storeDirectoryListing(
+        await list(
+            cache,
             [regularFile("/d/a", size: 10), regularFile("/d/subway", size: 10)],
             path: "/d",
             recursive: false
         )
-        await cache.storeDirectoryListing([regularFile("/d/sub/b", size: 10)], path: "/d/sub", recursive: false)
-        await cache.storeDirectoryListing([regularFile("/other/c", size: 10)], path: "/other", recursive: false)
+        await list(cache, [regularFile("/d/sub/b", size: 10)], path: "/d/sub", recursive: false)
+        await list(cache, [regularFile("/other/c", size: 10)], path: "/other", recursive: false)
 
         await cache.invalidate(path: "/d/sub")
 
@@ -316,11 +394,11 @@ struct InMemoryCacheVersionTests {
         #expect(await cache.cachedRanges(path: "/d/subway") == [0 ..< 10])
         #expect(await cache.cachedRanges(path: "/other/c") == [0 ..< 10])
 
-        #expect(await cache.retrieveDirectoryListing(path: "/d", recursive: false) == nil)
-        #expect(await cache.retrieveDirectoryListing(path: "/d/sub", recursive: false) == nil)
-        #expect(await cache.retrieveDirectoryListing(path: "/other", recursive: false) != nil)
-        #expect(await cache.retrieveFileStat(path: "/d/sub/b", followLink: true) == nil)
-        #expect(await cache.retrieveFileStat(path: "/d/a", followLink: true) != nil)
+        #expect(await cachedListing(cache, path: "/d", recursive: false) == nil)
+        #expect(await cachedListing(cache, path: "/d/sub", recursive: false) == nil)
+        #expect(await cachedListing(cache, path: "/other", recursive: false) != nil)
+        #expect(await cachedStat(cache, path: "/d/sub/b", followLink: true) == nil)
+        #expect(await cachedStat(cache, path: "/d/a", followLink: true) != nil)
     }
 
     @Test("renaming a file moves its blocks over whatever the destination held")
@@ -332,10 +410,10 @@ struct InMemoryCacheVersionTests {
         await cache.didRename(from: "/x", to: "/y")
 
         #expect(await cache.cachedRanges(path: "/x") == [])
-        #expect(await cache.retrieveBlock(path: "/y", offset: 0, upTo: 100) == bytes(10, from: 1))
+        #expect(await retrieve(cache, path: "/y", offset: 0, upTo: 100) == bytes(10, from: 1))
 
         // The moved file keeps its version, so the stat that opening it makes keeps the blocks.
-        await cache.storeFileStat(regularFile("/y", size: 10), path: "/y", followLink: true)
+        await stat(cache, regularFile("/y", size: 10), path: "/y", followLink: true)
         #expect(await cache.cachedRanges(path: "/y") == [0 ..< 10])
     }
 
@@ -347,19 +425,19 @@ struct InMemoryCacheVersionTests {
         await cacheFile(cache, path: "/d2/a", contents: bytes(10, from: 3))
         await cacheFile(cache, path: "/d2/z", contents: bytes(10, from: 4))
         await cacheFile(cache, path: "/d10/a", contents: bytes(10, from: 5))
-        await cache.storeDirectoryListing([regularFile("/d1/a", size: 10)], path: "/d1", recursive: false)
-        await cache.storeDirectoryListing([], path: "/", recursive: false)
+        await list(cache, [regularFile("/d1/a", size: 10)], path: "/d1", recursive: false)
+        await list(cache, [], path: "/", recursive: false)
 
         await cache.didRename(from: "/d1", to: "/d2")
 
         #expect(await cache.cachedRanges(path: "/d1/a") == [])
         #expect(await cache.cachedRanges(path: "/d1/s/b") == [])
-        #expect(await cache.retrieveBlock(path: "/d2/a", offset: 0, upTo: 100) == bytes(10, from: 1))
-        #expect(await cache.retrieveBlock(path: "/d2/s/b", offset: 0, upTo: 100) == bytes(10, from: 2))
+        #expect(await retrieve(cache, path: "/d2/a", offset: 0, upTo: 100) == bytes(10, from: 1))
+        #expect(await retrieve(cache, path: "/d2/s/b", offset: 0, upTo: 100) == bytes(10, from: 2))
         #expect(await cache.cachedRanges(path: "/d2/z") == [])
         #expect(await cache.cachedRanges(path: "/d10/a") == [0 ..< 10])
-        #expect(await cache.retrieveDirectoryListing(path: "/d1", recursive: false) == nil)
-        #expect(await cache.retrieveDirectoryListing(path: "/", recursive: false) == nil)
+        #expect(await cachedListing(cache, path: "/d1", recursive: false) == nil)
+        #expect(await cachedListing(cache, path: "/", recursive: false) == nil)
     }
 }
 
@@ -371,60 +449,154 @@ struct InMemoryCacheOrderingTests {
     func storeAfterInvalidate() async {
         let cache = makeCache()
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 100), path: path)
 
         // A read misses; before its bytes arrive, the file changes and is opened again.
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50) == nil)
+        let stale = CacheRequestID()
+        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50, request: stale) == nil)
         await cache.invalidate(path: path)
-        await cache.storeFileStat(regularFile(path, size: 100, modificationTime: 2000), path: path, followLink: true)
-        await cache.storeBlock(bytes(50, from: 1), path: path, offset: 0, source: .download)
+        await stat(cache, regularFile(path, size: 100, modificationTime: 2000), path: path)
+        await cache.storeBlock(bytes(50, from: 1), path: path, offset: 0, source: .download, request: stale)
+        await cache.requestEnded(stale)
         #expect(await cache.cachedRanges(path: path) == [])
 
         // A read made after the change is kept.
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50) == nil)
-        await cache.storeBlock(bytes(50, from: 2), path: path, offset: 0, source: .download)
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50) == bytes(50, from: 2))
+        await download(cache, bytes(50, from: 2), path: path)
+        #expect(await retrieve(cache, path: path, upTo: 50) == bytes(50, from: 2))
     }
 
     @Test("bytes read before a rename replaced the file, or before a new version, are refused")
     func storeAfterRenameOrNewVersion() async {
         let cache = makeCache()
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
+        await stat(cache, regularFile(path, size: 100), path: path)
 
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50) == nil)
+        let beforeRename = CacheRequestID()
+        _ = await cache.retrieveBlock(path: path, offset: 0, upTo: 50, request: beforeRename)
         await cache.didRename(from: "/data/other", to: path)
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
-        await cache.storeBlock(bytes(50, from: 1), path: path, offset: 0, source: .download)
+        await stat(cache, regularFile(path, size: 100), path: path)
+        await cache.storeBlock(bytes(50, from: 1), path: path, offset: 0, source: .download, request: beforeRename)
+        await cache.requestEnded(beforeRename)
         #expect(await cache.cachedRanges(path: path) == [])
 
-        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50) == nil)
-        await cache.storeFileStat(regularFile(path, size: 100, modificationTime: 2000), path: path, followLink: true)
-        await cache.storeBlock(bytes(50, from: 2), path: path, offset: 0, source: .download)
+        // The stat of a newer version arrives between the server read and the store, and no other read records the
+        // position: the bytes may be of the older version.
+        let beforeVersion = CacheRequestID()
+        _ = await cache.retrieveBlock(path: path, offset: 0, upTo: 50, request: beforeVersion)
+        await stat(cache, regularFile(path, size: 100, modificationTime: 2000), path: path)
+        await cache.storeBlock(bytes(50, from: 2), path: path, offset: 0, source: .download, request: beforeVersion)
+        await cache.requestEnded(beforeVersion)
         #expect(await cache.cachedRanges(path: path) == [])
     }
 
-    @Test("bytes no read asked for are kept only while nothing changed since the last stat")
-    func unrecordedStores() async {
+    @Test("bytes read while the cache did not track the file are refused once a stat starts tracking it")
+    func storeIntoEntryCreatedAfterLookup() async {
         let cache = makeCache()
         let path = "/data/file"
-        await cache.storeFileStat(regularFile(path, size: 100), path: path, followLink: true)
-        await cache.storeBlock(bytes(10), path: path, offset: 0, source: .download)
-        #expect(await cache.cachedRanges(path: path) == [0 ..< 10])
 
-        // A write changes the file.
-        await cache.storeBlock(bytes(10, from: 50), path: path, offset: 50, source: .upload)
-        await cache.storeBlock(bytes(10, from: 20), path: path, offset: 20, source: .download)
-        #expect(await cache.cachedRanges(path: path) == [0 ..< 10, 50 ..< 60])
+        // The lookup finds nothing tracked. A stat of a newer version, made by another task, starts tracking the file
+        // before the bytes, which may be of the older version, arrive.
+        let untracked = CacheRequestID()
+        #expect(await cache.retrieveBlock(path: path, offset: 0, upTo: 50, request: untracked) == nil)
+        await cache.storeFileStat(
+            regularFile(path, size: 100, modificationTime: 2000),
+            path: path,
+            followLink: true,
+            request: nil
+        )
+        await cache.storeBlock(bytes(50, from: 1), path: path, offset: 0, source: .download, request: untracked)
+        await cache.requestEnded(untracked)
+        #expect(await cache.cachedRanges(path: path) == [])
 
-        // Until a stat confirms the version again.
-        await cache.storeFileStat(regularFile(path, size: 100, modificationTime: 2000), path: path, followLink: true)
-        await cache.storeBlock(bytes(10, from: 20), path: path, offset: 20, source: .download)
-        #expect(await cache.cachedRanges(path: path) == [20 ..< 30, 50 ..< 60])
+        // Read once the file is tracked, they are kept.
+        await download(cache, bytes(50, from: 2), path: path)
+        #expect(await cache.cachedRanges(path: path) == [0 ..< 50])
+    }
+
+    @Test("bytes without an open request are refused: none, ended, forgotten, or never looked up")
+    func storesWithoutOpenRequest() async {
+        let cache = makeCache()
+        let path = "/data/file"
+        await stat(cache, regularFile(path, size: 100), path: path)
+
+        await cache.storeBlock(bytes(10), path: path, offset: 0, source: .download, request: nil)
+        await cache.storeBlock(bytes(10), path: path, offset: 0, source: .download, request: CacheRequestID())
+
+        let ended = CacheRequestID()
+        _ = await cache.retrieveBlock(path: path, offset: 0, upTo: 10, request: ended)
+        await cache.requestEnded(ended)
+        await cache.storeBlock(bytes(10), path: path, offset: 0, source: .download, request: ended)
+        #expect(await cache.cachedRanges(path: path) == [])
 
         // Nothing is ever stored for a file the cache does not track.
-        await cache.storeBlock(bytes(10), path: "/data/unknown", offset: 0, source: .download)
+        await download(cache, bytes(10), path: "/data/unknown")
         #expect(await cache.cachedRanges(path: "/data/unknown") == [])
+    }
+
+    @Test("a request that never stores leaves nothing behind that refuses later reads at its position")
+    func requestsThatNeverStore() async {
+        let cache = makeCache()
+        let path = "/data/file"
+        await stat(cache, regularFile(path, size: 100), path: path)
+
+        // A read that fails, then a change, then the file is read again from the same position.
+        let failed = CacheRequestID()
+        _ = await cache.retrieveBlock(path: path, offset: 0, upTo: 50, request: failed)
+        await cache.requestEnded(failed)
+        await upload(cache, bytes(10, from: 90), path: path, offset: 90)
+        #expect(await cache.requests.count == 0)
+
+        await download(cache, bytes(50, from: 3), path: path)
+        #expect(await cache.cachedRanges(path: path) == [0 ..< 50, 90 ..< 100])
+    }
+
+    @Test("a stat or listing fetched before a change is refused when it arrives after it")
+    func metadataAfterChange() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: true))
+        let file = "/d/file"
+
+        // Stat'ed before a delete through the client, stored after it: the cache must not answer that it exists.
+        let statBeforeDelete = CacheRequestID()
+        #expect(await cache.retrieveFileStat(path: file, followLink: true, request: statBeforeDelete) == nil)
+        await cache.invalidate(path: file)
+        await cache.storeFileStat(regularFile(file, size: 10), path: file, followLink: true, request: statBeforeDelete)
+        await cache.requestEnded(statBeforeDelete)
+        #expect(await cachedStat(cache, path: file) == nil)
+
+        // Listed before a rename of an entry in it, stored after it.
+        let listingBeforeRename = CacheRequestID()
+        _ = await cache.retrieveDirectoryListing(path: "/d", recursive: false, request: listingBeforeRename)
+        await cache.didRename(from: file, to: "/elsewhere")
+        await cache.storeDirectoryListing(
+            [regularFile(file, size: 10)],
+            path: "/d",
+            recursive: false,
+            request: listingBeforeRename
+        )
+        await cache.requestEnded(listingBeforeRename)
+        #expect(await cachedListing(cache, path: "/d") == nil)
+        #expect(await cachedStat(cache, path: file) == nil)
+
+        // A recursive listing covers changes deep under its directory too.
+        let recursiveListing = CacheRequestID()
+        _ = await cache.retrieveDirectoryListing(path: "/", recursive: true, request: recursiveListing)
+        await upload(cache, bytes(10), path: "/d/sub/deep")
+        await cache.storeDirectoryListing([], path: "/", recursive: true, request: recursiveListing)
+        await cache.requestEnded(recursiveListing)
+        #expect(await cachedListing(cache, path: "/", recursive: true) == nil)
+
+        // Fetched after the change, they are kept.
+        await stat(cache, nil, path: file)
+        #expect(await cachedStat(cache, path: file) == .doesNotExist)
+    }
+
+    @Test("stats of an open file carry no request and are always kept")
+    func statsWithoutRequest() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: false))
+        let file = "/d/file"
+        await cache.invalidate(path: file)
+        await cache.storeFileStat(regularFile(file, size: 10), path: file, followLink: true, request: nil)
+        #expect(await cachedStat(cache, path: file) == .exists(regularFile(file, size: 10)))
     }
 }
 
@@ -435,11 +607,11 @@ struct InMemoryCacheMetadataTests {
     @Test("with neverAnswer, stats and listings always go to the server")
     func neverAnswer() async {
         let cache = makeCache()
-        await cache.storeFileStat(regularFile("/f", size: 10), path: "/f", followLink: true)
-        await cache.storeDirectoryListing([regularFile("/f", size: 10)], path: "/", recursive: false)
+        await stat(cache, regularFile("/f", size: 10), path: "/f", followLink: true)
+        await list(cache, [regularFile("/f", size: 10)], path: "/", recursive: false)
 
-        #expect(await cache.retrieveFileStat(path: "/f", followLink: true) == nil)
-        #expect(await cache.retrieveDirectoryListing(path: "/", recursive: false) == nil)
+        #expect(await cachedStat(cache, path: "/f", followLink: true) == nil)
+        #expect(await cachedListing(cache, path: "/", recursive: false) == nil)
     }
 
     @Test("stored stats and listings answer until they expire, and missing paths only when asked to")
@@ -449,29 +621,163 @@ struct InMemoryCacheMetadataTests {
 
         for includingMissing in [false, true] {
             let cache = makeCache(metadata: .answer(for: 0.5, includingMissing: includingMissing))
-            await cache.storeFileStat(file, path: "/d/f", followLink: true)
-            await cache.storeFileStat(nil, path: "/gone", followLink: true)
-            await cache.storeDirectoryListing([file, link], path: "/d", recursive: false)
+            await stat(cache, file, path: "/d/f", followLink: true)
+            await stat(cache, nil, path: "/gone", followLink: true)
+            await list(cache, [file, link], path: "/d", recursive: false)
 
-            #expect(await cache.retrieveFileStat(path: "/d/f", followLink: true) == .exists(file))
-            #expect(await cache.retrieveDirectoryListing(path: "/d", recursive: false) == [file, link])
-            #expect(await cache.retrieveDirectoryListing(path: "/d", recursive: true) == nil)
+            #expect(await cachedStat(cache, path: "/d/f", followLink: true) == .exists(file))
+            #expect(await cachedListing(cache, path: "/d", recursive: false) == [file, link])
+            #expect(await cachedListing(cache, path: "/d", recursive: true) == nil)
 
             // From the listing: a link is described as itself, so only a stat that does not follow it is answered.
-            #expect(await cache.retrieveFileStat(path: "/d/link", followLink: false) == .exists(link))
-            #expect(await cache.retrieveFileStat(path: "/d/link", followLink: true) == nil)
+            #expect(await cachedStat(cache, path: "/d/link", followLink: false) == .exists(link))
+            #expect(await cachedStat(cache, path: "/d/link", followLink: true) == nil)
 
             let missing: CachedFileStat? = includingMissing ? .doesNotExist : nil
-            #expect(await cache.retrieveFileStat(path: "/gone", followLink: true) == missing)
-            #expect(await cache.retrieveFileStat(path: "/d/missing", followLink: true) == missing)
-            #expect(await cache.retrieveFileStat(path: "/elsewhere", followLink: true) == nil)
+            #expect(await cachedStat(cache, path: "/gone", followLink: true) == missing)
+            #expect(await cachedStat(cache, path: "/d/missing", followLink: true) == missing)
+            #expect(await cachedStat(cache, path: "/elsewhere", followLink: true) == nil)
 
             try await Task.sleep(nanoseconds: 600_000_000)
-            #expect(await cache.retrieveFileStat(path: "/d/f", followLink: true) == nil)
-            #expect(await cache.retrieveFileStat(path: "/gone", followLink: true) == nil)
-            #expect(await cache.retrieveFileStat(path: "/d/missing", followLink: true) == nil)
-            #expect(await cache.retrieveDirectoryListing(path: "/d", recursive: false) == nil)
+            #expect(await cachedStat(cache, path: "/d/f", followLink: true) == nil)
+            #expect(await cachedStat(cache, path: "/gone", followLink: true) == nil)
+            #expect(await cachedStat(cache, path: "/d/missing", followLink: true) == nil)
+            #expect(await cachedListing(cache, path: "/d", recursive: false) == nil)
         }
+    }
+}
+
+// MARK: Metadata after writes
+
+@Suite("InMemorySFTPReadCache: metadata after writes")
+struct InMemoryCacheMetadataAfterWritesTests {
+    @Test("a write drops the file's stored stats, both followLink keys, and its parent's listing")
+    func writeDropsMetadata() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: false))
+        let file = "/d/file"
+        await stat(cache, regularFile(file, size: 10), path: file, followLink: true)
+        await stat(cache, regularFile(file, size: 10), path: file, followLink: false)
+        await list(cache, [regularFile(file, size: 10)], path: "/d")
+        await list(cache, [regularFile("/other/x", size: 1)], path: "/other")
+
+        await upload(cache, bytes(20), path: file)
+
+        #expect(await cachedStat(cache, path: file, followLink: true) == nil)
+        #expect(await cachedStat(cache, path: file, followLink: false) == nil)
+        #expect(await cachedListing(cache, path: "/d") == nil)
+        #expect(await cachedListing(cache, path: "/other") != nil)
+    }
+
+    @Test("a stat showing a new version drops the other stat and the listings that disagree with it")
+    func newVersionDropsDisagreeingMetadata() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: true))
+        let file = "/d/file"
+        let old = regularFile(file, size: 10)
+        let new = regularFile(file, size: 30, modificationTime: 2000)
+        await stat(cache, old, path: file, followLink: false)
+        await list(cache, [old], path: "/d")
+        await list(cache, [regularFile("/d", size: 4096), old], path: "/", recursive: true)
+
+        // The same version keeps them.
+        await cache.storeFileStat(old, path: file, followLink: true, request: nil)
+        #expect(await cachedStat(cache, path: file, followLink: false) == .exists(old))
+        #expect(await cachedListing(cache, path: "/d") != nil)
+
+        // A new one drops them: the lstat, the parent's listing, and the recursive listing above it.
+        await cache.storeFileStat(new, path: file, followLink: true, request: nil)
+        #expect(await cachedStat(cache, path: file, followLink: true) == .exists(new))
+        #expect(await cachedStat(cache, path: file, followLink: false) == nil)
+        #expect(await cachedListing(cache, path: "/d") == nil)
+        #expect(await cachedListing(cache, path: "/", recursive: true) == nil)
+
+        // A link's own stat says nothing about what it points to.
+        let link = "/d/link"
+        await stat(cache, symbolicLink(link), path: link, followLink: false)
+        await cache.storeFileStat(regularFile(link, size: 99), path: link, followLink: true, request: nil)
+        #expect(await cachedStat(cache, path: link, followLink: false) == .exists(symbolicLink(link)))
+    }
+
+    @Test("a listing drops the stored stats of the entries it shows otherwise")
+    func listingDropsDisagreeingStats() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: true))
+        await stat(cache, regularFile("/d/a", size: 10), path: "/d/a")
+        await stat(cache, regularFile("/d/b", size: 10), path: "/d/b")
+        await stat(cache, regularFile("/d/c", size: 10), path: "/d/c")
+
+        await list(cache, [regularFile("/d/a", size: 10), regularFile("/d/b", size: 20)], path: "/d")
+
+        #expect(await cache.stats[.init(path: "/d/a", followLink: true)] != nil)
+        #expect(await cache.stats[.init(path: "/d/b", followLink: true)] == nil)
+        #expect(await cache.stats[.init(path: "/d/c", followLink: true)] == nil)
+        #expect(await cachedStat(cache, path: "/d/b") == .exists(regularFile("/d/b", size: 20)))
+        #expect(await cachedStat(cache, path: "/d/c") == .doesNotExist)
+    }
+
+    @Test("appending drops the stored metadata but keeps the bytes before the old end, once the size adds up")
+    func appendKeepsExistingBytes() async {
+        let cache = makeCache(metadata: .answer(for: 60, includingMissing: false))
+        let file = "/d/file"
+        await cacheFile(cache, path: file, contents: bytes(100))
+        await list(cache, [regularFile(file, size: 100)], path: "/d")
+
+        await cache.didAppend(path: file, byteCount: 30)
+        await cache.didAppend(path: file, byteCount: 20)
+        #expect(await cachedStat(cache, path: file) == nil)
+        #expect(await cachedListing(cache, path: "/d") == nil)
+        #expect(await cache.cachedRanges(path: file) == [0 ..< 100])
+
+        // The close stat shows the file grown by exactly what was appended.
+        await cache.storeFileStat(
+            regularFile(file, size: 150, modificationTime: 2000),
+            path: file,
+            followLink: true,
+            request: nil
+        )
+        #expect(await retrieve(cache, path: file, upTo: 100) == bytes(100))
+
+        // Grown by something else as well: the bytes may no longer be what the file holds.
+        await cache.didAppend(path: file, byteCount: 10)
+        await cache.storeFileStat(
+            regularFile(file, size: 170, modificationTime: 3000),
+            path: file,
+            followLink: true,
+            request: nil
+        )
+        #expect(await cache.cachedRanges(path: file) == [])
+    }
+}
+
+// MARK: Renames and accounting
+
+@Suite("InMemorySFTPReadCache: renames and byte accounting")
+struct InMemoryCacheRenameAccountingTests {
+    @Test("moving entries over existing ones keeps the stored byte count exact")
+    func moveOverExistingEntry() async {
+        let cache = makeCache()
+        await cacheFile(cache, path: "/x", contents: bytes(10, from: 1))
+        await cacheFile(cache, path: "/y", contents: bytes(30, from: 2))
+        await cacheFile(cache, path: "/d1/a", contents: bytes(5, from: 3))
+        await cacheFile(cache, path: "/d2/a", contents: bytes(7, from: 4))
+        #expect(await cache.storedByteCount == 52)
+
+        await cache.moveEntries(from: "/x", to: "/y")
+        await cache.moveEntries(from: "/d1", to: "/d2")
+
+        #expect(await cache.storedByteCount == 15)
+        #expect(await byteCountIsConsistent(cache))
+        #expect(await retrieve(cache, path: "/y", upTo: 100) == bytes(10, from: 1))
+        #expect(await retrieve(cache, path: "/d2/a", upTo: 100) == bytes(5, from: 3))
+    }
+
+    @Test("renames keep the stored byte count exact, the destination included")
+    func renameAccounting() async {
+        let cache = makeCache()
+        await cacheFile(cache, path: "/x", contents: bytes(10, from: 1))
+        await cacheFile(cache, path: "/y", contents: bytes(30, from: 2))
+
+        await cache.didRename(from: "/x", to: "/y")
+        #expect(await cache.storedByteCount == 10)
+        #expect(await byteCountIsConsistent(cache))
     }
 }
 
@@ -498,6 +804,23 @@ struct InMemoryCacheBookkeepingTests {
         #expect(log.generation(of: "/elsewhere") == log.clock)
     }
 
+    @Test("the latest change at or under a directory includes changes deep below it, and none beside it")
+    func changeLogBelow() {
+        var log = ChangeLog()
+        log.recordChange(at: "/d/sub/file")
+        let deep = log.clock
+
+        #expect(log.generation(of: "/d") == 0)
+        #expect(log.latestChange(atOrUnder: "/d") == deep)
+        #expect(log.latestChange(atOrUnder: "/d/sub") == deep)
+        #expect(log.latestChange(atOrUnder: "/") == deep)
+        #expect(log.latestChange(atOrUnder: "/dd") == 0)
+        #expect(log.latestChange(atOrUnder: "/d/other") == 0)
+
+        log.recordChange(at: "/")
+        #expect(log.latestChange(atOrUnder: "/d/other") == log.clock)
+    }
+
     @Test("the change log stays bounded by treating everything as changed")
     func changeLogBound() {
         var log = ChangeLog()
@@ -505,39 +828,193 @@ struct InMemoryCacheBookkeepingTests {
             log.recordChange(at: "/file\(index)")
         }
         #expect(log.generation(of: "/never-changed") == log.clock)
+        #expect(log.latestChange(atOrUnder: "/never-changed") == log.clock)
     }
 
-    @Test("reads at one position keep the oldest generation until every one of them stored its bytes")
-    func pendingReadsAtOnePosition() {
-        var reads = PendingReads()
-        reads.record(path: "/f", offset: 0, generation: 3)
-        reads.record(path: "/f", offset: 0, generation: 5)
+    @Test("a request keeps the clock of its first lookup until it ends")
+    func requestLogLifecycle() {
+        var requests = RequestLog()
+        let request = CacheRequestID()
+        requests.begin(request, at: 3)
+        requests.begin(request, at: 5)
 
-        #expect(reads.take(path: "/f", offset: 0) == 3)
-        #expect(reads.take(path: "/f", offset: 0) == 3)
-        #expect(reads.take(path: "/f", offset: 0) == nil)
-        #expect(reads.take(path: "/f", offset: 1) == nil)
+        #expect(requests.clock(of: request) == 3)
+        requests.end(request)
+        #expect(requests.clock(of: request) == nil)
+        #expect(requests.count == 0)
+        #expect(requests.clock(of: CacheRequestID()) == nil)
     }
 
-    @Test("past the limit the oldest reads are forgotten, and their generation remembered")
-    func pendingReadsBound() {
-        var reads = PendingReads()
-        for offset in 0 ..< UInt64(PendingReads.limit) {
-            reads.record(path: "/f", offset: offset, generation: 7 + offset)
+    @Test("past the limit the oldest requests are forgotten, so a client that never ends them cannot grow the log")
+    func requestLogBound() {
+        var requests = RequestLog()
+        let ids = (0 ... RequestLog.limit).map { _ in CacheRequestID() }
+        for (index, id) in ids.enumerated() {
+            requests.begin(id, at: UInt64(index))
         }
-        #expect(reads.forgottenGeneration == nil)
 
-        reads.record(path: "/f", offset: UInt64(PendingReads.limit), generation: 9999)
-        #expect(reads.forgottenGeneration == 7)
-        #expect(reads.take(path: "/f", offset: 0) == nil)
-        #expect(reads.take(path: "/f", offset: 1) == 8)
+        #expect(requests.count == RequestLog.limit)
+        #expect(requests.clock(of: ids[0]) == nil)
+        #expect(requests.clock(of: ids[1]) == 1)
 
-        // Reads that store their bytes leave nothing behind to forget.
-        var prompt = PendingReads()
-        for offset in 0 ..< UInt64(4 * PendingReads.limit) {
-            prompt.record(path: "/g", offset: offset, generation: 1)
-            #expect(prompt.take(path: "/g", offset: offset) == 1)
+        for _ in 0 ..< 4 * RequestLog.limit {
+            requests.begin(CacheRequestID(), at: 0)
         }
-        #expect(prompt.forgottenGeneration == nil)
+        #expect(requests.count == RequestLog.limit)
+
+        // Requests that end leave nothing behind.
+        var prompt = RequestLog()
+        for _ in 0 ..< 4 * RequestLog.limit {
+            let id = CacheRequestID()
+            prompt.begin(id, at: 1)
+            prompt.end(id)
+        }
+        #expect(prompt.count == 0)
+    }
+
+    @Test("request identifiers are unique")
+    func requestIDsAreUnique() {
+        let ids = (0 ..< 1000).map { _ in CacheRequestID() }
+        #expect(Set(ids).count == ids.count)
+    }
+}
+
+// MARK: Open files
+
+@Suite("OpenFileRegistry: paths of open files")
+struct OpenFileRegistryTests {
+    @Test("renames move open files at or under the source, and replace those at the destination")
+    func renames() {
+        let registry = OpenFileRegistry()
+        let file = registry.register(path: "/a")
+        let nested = registry.register(path: "/d1/sub/f")
+        let replaced = registry.register(path: "/b")
+        let beside = registry.register(path: "/d10/f")
+
+        _ = registry.finishRename(registry.beginRename(from: "/a", to: "/b"))
+        _ = registry.finishRename(registry.beginRename(from: "/d1", to: "/d2"))
+
+        #expect(registry.path(of: file) == "/b")
+        #expect(registry.path(of: nested) == "/d2/sub/f")
+        #expect(registry.path(of: replaced) == nil)
+        #expect(registry.path(of: beside) == "/d10/f")
+    }
+
+    @Test("deletes stop the files at or under the path from reporting")
+    func deletes() {
+        let registry = OpenFileRegistry()
+        let file = registry.register(path: "/d/f")
+        let other = registry.register(path: "/e/f")
+
+        #expect(registry.stopReporting(atOrUnder: ["/d"]) == [])
+        #expect(registry.path(of: file) == nil)
+        #expect(registry.beginReport(file, .stat, since: nil) == nil)
+        #expect(registry.path(of: other) == "/e/f")
+
+        registry.unregister(other)
+        #expect(registry.path(of: other) == nil)
+    }
+
+    @Test("a report that overlaps a rename names the paths to invalidate, whichever side ends first")
+    func reportsOverlappingRenames() throws {
+        let registry = OpenFileRegistry()
+        let file = registry.register(path: "/a")
+
+        // Before and after: nothing to do.
+        let quiet = try #require(registry.beginReport(file, .stat, since: nil))
+        #expect(registry.endReport(file, quiet) == [])
+
+        // Started before the rename, ended while it is in progress: the rename invalidates once through.
+        let early = try #require(registry.beginReport(file, .stat, since: nil))
+        let rename = registry.beginRename(from: "/a", to: "/b")
+        #expect(registry.endReport(file, early) == [])
+        #expect(registry.finishRename(rename) == ["/a", "/b"])
+        #expect(registry.path(of: file) == "/b")
+
+        // Started while a rename is in progress, ended after it: the report invalidates.
+        let second = registry.beginRename(from: "/b", to: "/c")
+        let during = try #require(registry.beginReport(file, .stat, since: nil))
+        #expect(during.path == "/b")
+        #expect(registry.finishRename(second) == [])
+        #expect(registry.endReport(file, during) == ["/b", "/c"])
+
+        // Started before a rename that is through by its end: the report invalidates.
+        let before = try #require(registry.beginReport(file, .stat, since: nil))
+        _ = registry.finishRename(registry.beginRename(from: "/c", to: "/d"))
+        #expect(registry.endReport(file, before) == ["/c", "/d"])
+
+        // Deleted while the report was on its way.
+        let deleted = try #require(registry.beginReport(file, .stat, since: nil))
+        _ = registry.stopReporting(atOrUnder: ["/d"])
+        #expect(registry.endReport(file, deleted) == ["/d"])
+    }
+
+    @Test("a stat a change at the file's path overlapped, from before its server call, names the path")
+    func statsOverlappingChanges() throws {
+        let registry = OpenFileRegistry()
+        let file = registry.register(path: "/d/f")
+        let sameFile = registry.register(path: "/d/f")
+
+        // A stat the server answered before a change at the path, reported after it.
+        let beforeChange = registry.changeCounts(of: file)
+        registry.noteChanges(atOrUnder: ["/d/f"])
+        let late = try #require(registry.beginReport(file, .stat, since: beforeChange))
+        #expect(registry.endReport(file, late) == ["/d/f"])
+
+        // A change of the directory above counts, one beside the file does not.
+        let beforeBeside = registry.changeCounts(of: file)
+        registry.noteChanges(atOrUnder: ["/d/g", "/d/f2"])
+        let unaffected = try #require(registry.beginReport(file, .stat, since: beforeBeside))
+        #expect(registry.endReport(file, unaffected) == [])
+
+        let beforeDirectory = registry.changeCounts(of: file)
+        registry.noteChanges(atOrUnder: ["/d"])
+        let underDirectory = try #require(registry.beginReport(file, .stat, since: beforeDirectory))
+        #expect(registry.endReport(file, underDirectory) == ["/d/f"])
+
+        // A write, or new attributes, through another handle of the file count too.
+        for kind in [OpenFileRegistry.ReportKind.write, .attributes] {
+            let statSnapshot = registry.changeCounts(of: sameFile)
+            let change = try #require(registry.beginReport(file, kind, since: registry.changeCounts(of: file)))
+            #expect(registry.endReport(file, change) == [])
+            let stat = try #require(registry.beginReport(sameFile, .stat, since: statSnapshot))
+            #expect(registry.endReport(sameFile, stat) == ["/d/f"])
+        }
+
+        // A file that stopped reporting has nothing to snapshot.
+        _ = registry.stopReporting(atOrUnder: ["/d"])
+        #expect(registry.changeCounts(of: file) == nil)
+    }
+
+    @Test("written bytes are overlapped by changes other than writes, and reads and invalidations only by renames")
+    func writesAndReadsOverlappingChanges() throws {
+        let registry = OpenFileRegistry()
+        let file = registry.register(path: "/d/f")
+        let sameFile = registry.register(path: "/d/f")
+
+        // Writes through two handles whose server calls overlap leave each other alone.
+        let firstSnapshot = registry.changeCounts(of: file)
+        let secondSnapshot = registry.changeCounts(of: sameFile)
+        let first = try #require(registry.beginReport(file, .write, since: firstSnapshot))
+        let second = try #require(registry.beginReport(sameFile, .write, since: secondSnapshot))
+        #expect(registry.endReport(file, first) == [])
+        #expect(registry.endReport(sameFile, second) == [])
+
+        // A write the server acknowledged before new attributes through the other handle, reported after them.
+        let beforeAttributes = registry.changeCounts(of: file)
+        let attributes = try #require(registry.beginReport(sameFile, .attributes, since: nil))
+        #expect(registry.endReport(sameFile, attributes) == [])
+        let late = try #require(registry.beginReport(file, .write, since: beforeAttributes))
+        #expect(registry.endReport(file, late) == ["/d/f"])
+
+        // Changes leave reads and invalidations alone; a rename does not.
+        for kind in [OpenFileRegistry.ReportKind.read, .invalidation] {
+            let report = try #require(registry.beginReport(file, kind, since: nil))
+            registry.noteChanges(atOrUnder: ["/d"])
+            #expect(registry.endReport(file, report) == [])
+        }
+        let read = try #require(registry.beginReport(file, .read, since: nil))
+        _ = registry.finishRename(registry.beginRename(from: "/d", to: "/e"))
+        #expect(registry.endReport(file, read) == ["/d/f", "/e/f"])
     }
 }

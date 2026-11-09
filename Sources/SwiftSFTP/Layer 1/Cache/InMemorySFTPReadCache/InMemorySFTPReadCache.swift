@@ -34,7 +34,13 @@ import PathWorks
 /// versions of a file with the same size written within the same second look alike to every policy that relies on
 /// them.
 ///
-/// Bytes downloaded by a read that started before a change are not kept, even when they reach the cache after it.
+/// Bytes, stats, and listings fetched for a request whose lookup came before a change at their path are not kept, even
+/// when they reach the cache after it, and downloaded bytes go only to a file the cache tracked when the read looked it
+/// up. The cache remembers every open request until the client ends it, up to a limit past which the oldest are
+/// forgotten and their stores refused.
+///
+/// Bytes appended through the client keep the bytes before them: once a stat shows the file grown by exactly the bytes
+/// appended since the previous one, the cache keeps what it held as part of the new version.
 ///
 /// ## Control connection
 ///
@@ -78,7 +84,9 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
     var nextEntryID: UInt64 = 0
     var changeLog = ChangeLog()
-    var pendingReads = PendingReads()
+
+    /// Requests whose lookup the cache answered, until the client ends them.
+    var requests = RequestLog()
 
     /// Stored stats to answer from, by normalized path.
     var stats: [StatKey: StoredStat] = [:]
@@ -195,45 +203,48 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
     // MARK: SFTPBlockLevelReadCache: Blocks
 
-    /// Keeps downloaded bytes, unless the file changed since the read that fetched them started, and written bytes,
-    /// when ``Configuration/keepsUploads`` is on.
+    /// Keeps downloaded bytes, when the request that fetched them is still open, the file its lookup found is still
+    /// tracked, and nothing changed at the file since, its version included; and written bytes, when
+    /// ``Configuration/keepsUploads`` is on.
     ///
     /// Bytes past the file's known size, and bytes of files over the size limits, are not kept.
-    public func storeBlock(_ data: Data, path: String, offset: UInt64, source: CacheBlockSource) async {
+    public func storeBlock(
+        _ data: Data,
+        path: String,
+        offset: UInt64,
+        source: CacheBlockSource,
+        request: CacheRequestID?
+    ) async {
         guard !data.isEmpty else {
             return
         }
 
         switch source {
         case .download:
-            storeDownload(data, key: rememberedKey(for: path), offset: offset)
+            storeDownload(data, path: path, offset: offset, request: request)
 
         case .upload:
-            await storeUpload(data, key: resolvedKey(for: path), offset: offset)
+            await storeUpload(data, key: resolvedKey(for: path), path: normalize(path), offset: offset)
         }
     }
 
     /// Hands back the cached run starting at `offset`, when it is at least ``Configuration/minimumHitLength`` long or
     /// reaches the end of the file, after checking the file against the server if the trust policy says it is due.
-    public func retrieveBlock(path: String, offset: UInt64, upTo: Int) async -> Data? {
+    public func retrieveBlock(path: String, offset: UInt64, upTo: Int, request: CacheRequestID) async -> Data? {
         guard upTo > 0, configuration.byteBudget > 0 else {
             return nil
         }
 
         let key = await resolvedKey(for: path)
-        guard let found = probe(key, offset: offset) else {
-            return nil
-        }
-
         var answer: Data?
-        if found.holdsOffset, await verify(key: key) {
+        if let found = probe(key, offset: offset), found.holdsOffset, await verify(key: key) {
             answer = hit(key, offset: offset, upTo: upTo)
         }
 
-        // The client reads the rest from the server and hands it over: remember the generation it reads at.
-        let resume = offset + UInt64(answer?.count ?? 0)
-        if answer?.count ?? 0 < upTo, probe(key, offset: resume) != nil {
-            pendingReads.record(path: key, offset: resume, generation: changeLog.generation(of: key))
+        // The client reads the rest from the server and hands it over: remember when, and into which tracked file,
+        // after every wait above.
+        if answer?.count ?? 0 < upTo {
+            requests.begin(request, at: changeLog.clock, entry: files[key]?.id)
         }
 
         return answer
@@ -243,16 +254,29 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
     /// Compares the stat with the version the file's blocks came from, dropping them if it changed, and keeps it to
     /// answer from when ``Configuration/metadata`` says so.
-    public func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool) async {
+    ///
+    /// A stat made for a request is refused when anything changed at or under its path since the request's lookup, or
+    /// when the request is no longer open.
+    public func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async {
         let normalized = normalize(path)
-        if case .answer = configuration.metadata {
-            stats[StatKey(path: normalized, followLink: followLink)] = StoredStat(metadata: result, time: Self.uptime())
-            pruneMetadata()
+
+        // A link's own attributes say nothing about the file it points to.
+        let describesFile = result.map { followLink || !$0.isSymLink } ?? false
+        let key = describesFile ? await resolvedKey(for: path) : rememberedKey(for: path) ?? normalized
+
+        // Nothing waits from here on, so the check holds for everything stored.
+        if let request {
+            guard let started = requests.clock(of: request),
+                  changeLog.latestChange(atOrUnder: normalized) <= started,
+                  changeLog.generation(of: key) <= started else {
+                return
+            }
         }
+
+        storeStat(result, path: normalized, followLink: followLink)
 
         guard let result else {
             // Nothing at the path, so nothing under it either.
-            let key = rememberedKey(for: path) ?? normalized
             if removeEntries(atOrUnder: key) {
                 changeLog.recordChange(at: key)
             }
@@ -260,12 +284,10 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
             return
         }
 
-        // A link's own attributes say nothing about the file it points to.
-        if !followLink, result.isSymLink {
+        guard describesFile else {
             return
         }
 
-        let key = await resolvedKey(for: path)
         if result.isRegularFile {
             applyVersion(result.attributes, key: key, createIfMissing: true)
         }
@@ -276,28 +298,37 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
     /// Compares every listed file the cache tracks with the version its blocks came from, drops tracked files the
     /// directory no longer holds, and keeps the listing to answer from when ``Configuration/metadata`` says so.
-    public func storeDirectoryListing(_ entries: Set<FileMetadata>, path: String, recursive: Bool) async {
+    ///
+    /// A listing is refused when anything changed at or under its directory since the request's lookup, or when the
+    /// request is no longer open.
+    public func storeDirectoryListing(
+        _ entries: Set<FileMetadata>,
+        path: String,
+        recursive: Bool,
+        request: CacheRequestID
+    ) async {
         let directory = normalize(path)
-        if case .answer = configuration.metadata {
-            var byPath: [String: FileMetadata] = [:]
-            for entry in entries {
-                byPath[normalize(entry.fullPath)] = entry
-            }
-            listings[ListingKey(path: directory, recursive: recursive)] = StoredListing(
-                entries: entries,
-                byPath: byPath,
-                time: Self.uptime()
-            )
-            pruneMetadata()
-        }
-
-        guard !files.isEmpty else {
-            return
-        }
 
         // A recursive listing descends only into directories, never through links, so an entry's real path is the
         // directory's real path followed by the rest of the entry's path.
-        let blockDirectory = await resolvedKey(for: directory)
+        let tracksFiles = !files.isEmpty
+        let blockDirectory = tracksFiles ? await resolvedKey(for: directory) : directory
+
+        // Nothing waits from here on, so the check holds for everything stored.
+        guard let started = requests.clock(of: request),
+              changeLog.latestChange(atOrUnder: directory) <= started,
+              changeLog.latestChange(atOrUnder: blockDirectory) <= started else {
+            return
+        }
+
+        if case .answer = configuration.metadata {
+            storeListing(entries, path: directory, recursive: recursive)
+        }
+
+        guard tracksFiles else {
+            return
+        }
+
         var children = Set<String>()
         for entry in entries {
             let listed = normalize(entry.fullPath)
@@ -331,63 +362,43 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
     /// Answers from a stored stat of the path, or a stored listing of its directory, as ``Configuration/metadata``
     /// allows.
-    public func retrieveFileStat(path: String, followLink: Bool) async -> CachedFileStat? {
-        guard case let .answer(maximumAge, includingMissing) = configuration.metadata else {
-            return nil
+    public func retrieveFileStat(path: String, followLink: Bool, request: CacheRequestID) async -> CachedFileStat? {
+        let answer = storedStat(path: normalize(path), followLink: followLink)
+        if answer == nil {
+            requests.begin(request, at: changeLog.clock)
         }
-
-        let normalized = normalize(path)
-        let now = Self.uptime()
-
-        if let stored = stats[StatKey(path: normalized, followLink: followLink)], now - stored.time < maximumAge {
-            if let metadata = stored.metadata {
-                return .exists(metadata)
-            }
-            return includingMissing ? .doesNotExist : nil
-        }
-
-        // An entry that is not a link is the same whether the stat follows links or not.
-        if followLink, let stored = stats[StatKey(path: normalized, followLink: false)], now - stored.time < maximumAge,
-           let metadata = stored.metadata, !metadata.isSymLink {
-            return .exists(metadata)
-        }
-
-        // The listing of the parent directory, which lists links themselves rather than what they point to.
-        let parent = CachePath.parent(of: normalized)
-        guard parent != normalized else {
-            return nil
-        }
-
-        for recursive in [false, true] {
-            guard let listing = listings[ListingKey(path: parent, recursive: recursive)],
-                  now - listing.time < maximumAge else {
-                continue
-            }
-
-            if let metadata = listing.byPath[normalized] {
-                return followLink && metadata.isSymLink ? nil : .exists(metadata)
-            }
-            return includingMissing ? .doesNotExist : nil
-        }
-
-        return nil
+        return answer
     }
 
     /// Answers from a stored listing of the same directory and depth, as ``Configuration/metadata`` allows.
-    public func retrieveDirectoryListing(path: String, recursive: Bool) async -> Set<FileMetadata>? {
+    public func retrieveDirectoryListing(
+        path: String,
+        recursive: Bool,
+        request: CacheRequestID
+    ) async -> Set<FileMetadata>? {
         guard case let .answer(maximumAge, _) = configuration.metadata,
               let listing = listings[ListingKey(path: normalize(path), recursive: recursive)],
               Self.uptime() - listing.time < maximumAge else {
+            requests.begin(request, at: changeLog.clock)
             return nil
         }
 
         return listing.entries
     }
 
+    /// Forgets the request, so a store for it is refused from now on.
+    public func requestEnded(_ request: CacheRequestID) async {
+        requests.end(request)
+    }
+
     // MARK: SFTPBlockLevelReadCache: Changes
 
     /// Drops whatever `to` held, then moves the blocks and versions at and under `from` to the same places under
     /// `to`.
+    ///
+    /// With ``Configuration/deduplicatesSymlinks``, the real paths of both ends are resolved first. A change at either
+    /// end that arrives meanwhile, such as a write the client made after the rename, may be newer than the blocks
+    /// being moved, so the blocks are dropped instead.
     public func didRename(from: String, to: String) async {
         let source = normalize(from)
         let destination = normalize(to)
@@ -395,14 +406,15 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
             return
         }
 
-        // Whatever the destination held is gone. Reads of either path in flight are stale.
+        // Whatever the destination held is gone. Requests about either path in flight are stale.
         changeLog.recordChange(at: source)
         changeLog.recordChange(at: destination)
-        removeEntries(atOrUnder: destination)
+        let renamedAt = changeLog.clock
 
+        // Every wait comes first: the source no longer exists, so it resolves through what the cache remembers, or
+        // through its directory.
         var moves = [(from: source, to: destination)]
         if configuration.deduplicatesSymlinks, let control {
-            // The source no longer exists, so it resolves through what the cache remembers, or through its directory.
             let resolvedSource = if let known = resolutions[source] {
                 known
             }
@@ -413,17 +425,29 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
                 ?? destination
 
             if resolvedSource != source || resolvedDestination != destination, resolvedSource != resolvedDestination {
-                changeLog.recordChange(at: resolvedSource)
-                changeLog.recordChange(at: resolvedDestination)
-                if resolvedDestination != destination {
-                    removeEntries(atOrUnder: resolvedDestination)
-                }
                 moves.append((resolvedSource, resolvedDestination))
             }
         }
 
+        // One step from here on, with nothing in between: drop the destinations, then move the sources over them.
+        let changedMeanwhile = moves.contains { move in
+            changeLog.latestChange(atOrUnder: move.from) > renamedAt
+                || changeLog.latestChange(atOrUnder: move.to) > renamedAt
+        }
+
         for move in moves {
-            moveEntries(from: move.from, to: move.to)
+            changeLog.recordChange(at: move.from)
+            changeLog.recordChange(at: move.to)
+            removeEntries(atOrUnder: move.to)
+            if changedMeanwhile {
+                removeEntries(atOrUnder: move.from)
+            }
+        }
+
+        if !changedMeanwhile {
+            for move in moves {
+                moveEntries(from: move.from, to: move.to)
+            }
         }
 
         dropMetadata(around: source)
@@ -432,6 +456,32 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
             atOrUnder: [source, destination],
             targetsAtOrUnder: moves.flatMap { [$0.from, $0.to] }
         )
+    }
+
+    /// Drops the stored stats and listings of the file at `path`, and keeps its cached bytes: appending left them as
+    /// they were. The next stat that shows the size those bytes and the appended ones add up to keeps them as part of
+    /// the new version.
+    public func didAppend(path: String, byteCount: UInt64) async {
+        let normalized = normalize(path)
+        let key = await resolvedKey(for: path)
+
+        changeLog.recordChange(at: normalized)
+        if key != normalized {
+            changeLog.recordChange(at: key)
+        }
+        dropMetadata(around: normalized)
+
+        updateEntry(key) { entry in
+            var appends = entry.appends ?? Appends(base: entry.knownSize, byteCount: 0)
+            appends.byteCount += byteCount
+            entry.appends = appends
+            entry.knownSize = entry.knownSize.map { $0 + byteCount }
+            entry.digest = nil
+            entry.contentEpoch += 1
+            if case .hashOnServer = configuration.trustPolicy {
+                entry.lastCheck = nil
+            }
+        }
     }
 
     /// Drops the blocks at and under `path`, and the stored stats and listings the change makes stale.
@@ -486,21 +536,16 @@ extension InMemorySFTPReadCache {
         return run
     }
 
-    func storeDownload(_ data: Data, key: String?, offset: UInt64) {
-        // Without a remembered resolution, the path changed since the read that downloaded the bytes resolved it.
-        guard let key else {
-            return
-        }
-
-        let generation = changeLog.generation(of: key)
-        let accepted = if let readGeneration = pendingReads.take(path: key, offset: offset) {
-            readGeneration == generation
-        }
-        else {
-            files[key]?.validatedGeneration == generation
-                && pendingReads.forgottenGeneration.map { generation <= $0 } ?? true
-        }
-        guard accepted else {
+    /// Keeps downloaded bytes, when `request` is still open, the file its lookup found is still tracked, and nothing
+    /// changed at the file since the lookup.
+    func storeDownload(_ data: Data, path: String, offset: UInt64, request: CacheRequestID?) {
+        // Without a remembered resolution, the path changed since the read that downloaded the bytes resolved it. A
+        // file tracked only since the lookup has a version the bytes may predate: a new version records a change, a
+        // new entry does not.
+        guard let request, let lookup = requests.lookup(of: request), let key = rememberedKey(for: path),
+              let entry = files[key], entry.id == lookup.entry,
+              changeLog.generation(of: key) <= lookup.clock,
+              changeLog.generation(of: normalize(path)) <= lookup.clock else {
             return
         }
 
@@ -537,9 +582,19 @@ extension InMemorySFTPReadCache {
         enforceBudget(protecting: key)
     }
 
-    func storeUpload(_ data: Data, key: String, offset: UInt64) {
-        // Bytes downloaded before this write landed must not be stored over it.
+    /// Keeps written bytes, when ``Configuration/keepsUploads`` is on, or drops the file's blocks, and drops the
+    /// stored stats and listings the write makes stale.
+    ///
+    /// - Parameters:
+    ///   - key: The block key of the file.
+    ///   - path: The normalized path the client wrote to.
+    func storeUpload(_ data: Data, key: String, path: String, offset: UInt64) {
+        // Bytes, stats, and listings fetched before this write landed must not be stored over it.
         changeLog.recordChange(at: key)
+        if path != key {
+            changeLog.recordChange(at: path)
+        }
+        dropMetadata(around: path)
 
         guard configuration.keepsUploads else {
             updateEntry(key) { entry in
@@ -641,7 +696,8 @@ extension InMemorySFTPReadCache {
 extension InMemorySFTPReadCache {
     /// Compares a stat of the file at `key` with the version its blocks came from, dropping the blocks if it changed.
     ///
-    /// Blocks written through the client since the last stat belong to the new version, so they are kept.
+    /// Blocks written through the client since the last stat belong to the new version, so they are kept, and so are
+    /// the blocks before bytes the client appended.
     func applyVersion(_ attributes: FileAttributes, key: String, createIfMissing: Bool) {
         let version = FileVersion(attributes)
         guard files[key] != nil else {
@@ -658,7 +714,14 @@ extension InMemorySFTPReadCache {
             }
             else {
                 changeLog.recordChange(at: key)
-                entry.blocks.keepOnlyUploaded()
+                // Appending through the client left the bytes before the old end as they were, as long as nothing
+                // else changed the size.
+                if let appends = entry.appends, let base = appends.base, version.size == base + appends.byteCount {
+                    entry.blocks.keepOnlyUploaded(andBefore: base)
+                }
+                else {
+                    entry.blocks.keepOnlyUploaded()
+                }
                 entry.version = version
                 entry.digest = nil
                 entry.contentEpoch += 1
@@ -666,11 +729,11 @@ extension InMemorySFTPReadCache {
                 entry.lastCheck = nil
             }
 
+            entry.appends = nil
             entry.knownSize = version.size
             if let size = version.size {
                 entry.blocks.truncate(to: size)
             }
-            entry.validatedGeneration = changeLog.generation(of: key)
 
             // A stat is all a statOnServer check does.
             if configuration.trustPolicy == .statOnServer {
@@ -696,7 +759,6 @@ extension InMemorySFTPReadCache {
             version: version,
             knownSize: version?.size,
             lastUsed: tick,
-            validatedGeneration: changeLog.generation(of: key),
             lastCheck: checked ? Self.uptime() : nil,
             statSinceCheck: !checked
         )
@@ -752,20 +814,26 @@ extension InMemorySFTPReadCache {
         return !keys.isEmpty
     }
 
-    /// Moves every file at or under `from` to the same place under `to`, bytes and version included.
+    /// Moves every file at or under `from` to the same place under `to`, bytes and version included, over any file
+    /// already there.
     func moveEntries(from: String, to: String) {
         let moving = files.keys.filter { CachePath.isPath($0, atOrUnder: from) }
         var moved: [(String, FileEntry)] = []
         for key in moving {
             if let entry = files.removeValue(forKey: key) {
+                storedByteCount -= entry.blocks.byteCount
                 moved.append((CachePath.rebase(key, from: from, to: to), entry))
             }
         }
 
         for (key, entry) in moved {
+            if let replaced = files.removeValue(forKey: key) {
+                storedByteCount -= replaced.blocks.byteCount
+            }
+
             var entry = entry
-            entry.validatedGeneration = changeLog.generation(of: key)
             entry.contentEpoch += 1
+            storedByteCount += entry.blocks.byteCount
             files[key] = entry
         }
     }
@@ -774,6 +842,142 @@ extension InMemorySFTPReadCache {
 // MARK: Metadata
 
 extension InMemorySFTPReadCache {
+    /// The answer a stored stat of the normalized `path`, or a stored listing of its directory, gives, if
+    /// ``Configuration/metadata`` allows answering.
+    func storedStat(path: String, followLink: Bool) -> CachedFileStat? {
+        guard case let .answer(maximumAge, includingMissing) = configuration.metadata else {
+            return nil
+        }
+
+        let now = Self.uptime()
+
+        if let stored = stats[StatKey(path: path, followLink: followLink)], now - stored.time < maximumAge {
+            if let metadata = stored.metadata {
+                return .exists(metadata)
+            }
+            return includingMissing ? .doesNotExist : nil
+        }
+
+        // An entry that is not a link is the same whether the stat follows links or not.
+        if followLink, let stored = stats[StatKey(path: path, followLink: false)], now - stored.time < maximumAge,
+           let metadata = stored.metadata, !metadata.isSymLink {
+            return .exists(metadata)
+        }
+
+        // The listing of the parent directory, which lists links themselves rather than what they point to.
+        let parent = CachePath.parent(of: path)
+        guard parent != path else {
+            return nil
+        }
+
+        for recursive in [false, true] {
+            guard let listing = listings[ListingKey(path: parent, recursive: recursive)],
+                  now - listing.time < maximumAge else {
+                continue
+            }
+
+            if let metadata = listing.byPath[path] {
+                return followLink && metadata.isSymLink ? nil : .exists(metadata)
+            }
+            return includingMissing ? .doesNotExist : nil
+        }
+
+        return nil
+    }
+
+    /// Keeps a stat of the normalized `path` to answer from, when ``Configuration/metadata`` says so, and drops the
+    /// stored stat and listings that describe the entry otherwise.
+    func storeStat(_ result: FileMetadata?, path: String, followLink: Bool) {
+        guard case .answer = configuration.metadata else {
+            return
+        }
+
+        stats[StatKey(path: path, followLink: followLink)] = StoredStat(metadata: result, time: Self.uptime())
+
+        let other = StatKey(path: path, followLink: !followLink)
+        if let stored = stats[other], Self.contradicts(stored.metadata, followLink: !followLink, result, followLink) {
+            stats[other] = nil
+        }
+
+        // Listings describe entries the way a stat that does not follow links does.
+        let parent = CachePath.parent(of: path)
+        listings = listings.filter { key, listing in
+            let lists = key.path == parent || (key.recursive && CachePath.isPath(path, atOrUnder: key.path))
+            return !(lists && key.path != path
+                && Self.contradicts(listing.byPath[path], followLink: false, result, followLink))
+        }
+
+        pruneMetadata()
+    }
+
+    /// Keeps a listing of the normalized `path` to answer from, and drops the stored stats of the entries it covers
+    /// that describe them otherwise.
+    func storeListing(_ entries: Set<FileMetadata>, path: String, recursive: Bool) {
+        var byPath: [String: FileMetadata] = [:]
+        for entry in entries {
+            byPath[normalize(entry.fullPath)] = entry
+        }
+        listings[ListingKey(path: path, recursive: recursive)] = StoredListing(
+            entries: entries,
+            byPath: byPath,
+            time: Self.uptime()
+        )
+
+        stats = stats.filter { key, stored in
+            let covered = recursive
+                ? key.path != path && CachePath.isPath(key.path, atOrUnder: path)
+                : key.path != path && CachePath.parent(of: key.path) == path
+            return !(covered && Self.contradicts(stored.metadata, followLink: key.followLink, byPath[key.path], false))
+        }
+
+        pruneMetadata()
+    }
+
+    /// Whether two answers about one path, each from a stat that did or did not follow links, cannot both be current.
+    ///
+    /// Answers that disagree on whether the entry exists, its type, its size, or its modification time contradict each
+    /// other, except where one follows a link the other describes as itself.
+    static func contradicts(
+        _ first: FileMetadata?,
+        followLink firstFollows: Bool,
+        _ second: FileMetadata?,
+        _ secondFollows: Bool
+    ) -> Bool {
+        if firstFollows != secondFollows {
+            // What a stat that does not follow links saw decides whether the other describes the same entry.
+            let (own, followed) = firstFollows ? (second, first) : (first, second)
+            guard let own else {
+                return followed != nil
+            }
+            if own.isSymLink {
+                return false
+            }
+            guard let followed else {
+                return true
+            }
+            return !describeSameVersion(own, followed)
+        }
+
+        switch (first, second) {
+        case (nil, nil):
+            return false
+
+        case let (first?, second?):
+            return !describeSameVersion(first, second)
+
+        default:
+            return true
+        }
+    }
+
+    /// Whether `first` and `second` show an entry of the same type, size, and modification time.
+    static func describeSameVersion(_ first: FileMetadata, _ second: FileMetadata) -> Bool {
+        first.isRegularFile == second.isRegularFile
+            && first.isDirectory == second.isDirectory
+            && first.isSymLink == second.isSymLink
+            && FileVersion(first.attributes) == FileVersion(second.attributes)
+    }
+
     /// Drops stored stats and listings a change at `path` makes stale: those at or under it, its parent's, and the
     /// recursive listings above it.
     func dropMetadata(around path: String) {

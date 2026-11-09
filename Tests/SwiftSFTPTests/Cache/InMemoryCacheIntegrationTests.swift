@@ -353,4 +353,198 @@ struct InMemoryCacheIntegrationTests {
             #expect(afterDelete.isEmpty)
         }
     }
+
+    @Test("a cancelled close still versions the written blocks, so a newer version from elsewhere drops them")
+    func cancelledCloseVersionsUploads() async throws {
+        let path = uniqueRemotePath("inmemory-cancelled-close")
+        let changed = overwritten(Self.payload, at: 0, with: Self.marker)
+
+        try await withClient { client in
+            let other = try await client.fork(loggedIn: true)
+            let cache = InMemorySFTPReadCache(configuration: .init())
+            client.attachCache(cache)
+
+            let handle = try await client.openFile(
+                [.create, .write, .truncate],
+                path: path,
+                permissions: .serverDefault
+            )
+            try await handle.write(Self.payload)
+            let close = Task {
+                while !Task.isCancelled {
+                    await Task.yield()
+                }
+                try await handle.close()
+            }
+            close.cancel()
+            try await close.value
+
+            // Same size, a later modification time, written by another client.
+            try await Task.sleep(nanoseconds: 1_100_000_000)
+            try await writeRemoteFile(other, path: path, contents: changed)
+            let read = try await readRemoteFile(client, path: path)
+
+            client.detachCache()
+            try await other.delete(path: path)
+            try await other.close()
+            try await cache.close()
+
+            #expect(read == changed)
+        }
+    }
+
+    @Test("with metadata answers, stats of either kind and listings show what the client wrote")
+    func metadataAfterWrites() async throws {
+        let directory = uniqueRemotePath("inmemory-metadata-writes")
+        let file = "\(directory)/file.bin"
+        let grown = UInt64(Self.payload.count + Self.marker.count)
+
+        try await withClient { client in
+            try await client.createDirectory(path: directory, makePath: false)
+            let cache = InMemorySFTPReadCache(configuration: .init(metadata: .answer(for: 60, includingMissing: false)))
+            client.attachCache(cache)
+
+            try await writeRemoteFile(client, path: file, contents: Self.payload)
+            _ = try await client.stat(path: file, followLink: false)
+            _ = try await client.stat(path: file, followLink: true)
+            _ = try await client.listDirectory(path: directory, recursive: false)
+
+            let handle = try await client.openFile(.write, path: file, permissions: [])
+            handle.offset = UInt64(Self.payload.count)
+            try await handle.write(Self.marker)
+            try await handle.close()
+
+            let linkStat = try await client.stat(path: file, followLink: false)
+            let stat = try await client.stat(path: file, followLink: true)
+            let listing = try await client.listDirectory(path: directory, recursive: false)
+
+            client.detachCache()
+            try await client.delete(path: directory)
+            try await cache.close()
+
+            #expect(linkStat?.attributes.fileSize == grown)
+            #expect(stat?.attributes.fileSize == grown)
+            #expect(listing.first?.attributes.fileSize == grown)
+        }
+    }
+
+    @Test("appending through the client keeps the cached bytes, and reads reach the appended ones")
+    func appendKeepsCachedBytes() async throws {
+        let path = uniqueRemotePath("inmemory-append")
+
+        try await withClient { client in
+            try await writeRemoteFile(client, path: path, contents: Self.payload)
+            let cache = InMemorySFTPReadCache(configuration: .init())
+            client.attachCache(cache)
+
+            _ = try await readRemoteFile(client, path: path)
+            let handle = try await client.openFile([.write, .append], path: path, permissions: [])
+            try await handle.write(Self.marker)
+            try await handle.close()
+            let kept = await cache.cachedRanges(path: path)
+
+            let read = try await readRemoteFile(client, path: path)
+
+            client.detachCache()
+            try await client.delete(path: path)
+            try await cache.close()
+
+            #expect(kept.first == 0 ..< UInt64(Self.payload.count))
+            #expect(read == Self.payload + Self.marker)
+        }
+    }
+
+    @Test("a file renamed while open goes on caching its writes under its new path")
+    func renameWhileOpen() async throws {
+        let source = uniqueRemotePath("inmemory-rename-open-source")
+        let destination = uniqueRemotePath("inmemory-rename-open-destination")
+        let total = UInt64(Self.payload.count + Self.marker.count)
+
+        try await withClient { client in
+            let other = try await client.fork(loggedIn: true)
+            let cache = InMemorySFTPReadCache(configuration: .init())
+            client.attachCache(cache)
+
+            let handle = try await client.openFile([.create, .write], path: source, permissions: .serverDefault)
+            try await handle.write(Self.payload)
+            try await client.rename(from: source, to: destination)
+            try await handle.write(Self.marker)
+            try await handle.close()
+
+            let atSource = await cache.cachedRanges(path: source)
+            let atDestination = await cache.cachedRanges(path: destination)
+
+            // Only the cache still holds the written bytes now.
+            try await overwriteKeepingVersion(other, path: destination, offset: 0, with: Self.marker)
+            let read = try await readRemoteFile(client, path: destination)
+
+            client.detachCache()
+            try await other.delete(path: destination)
+            try await other.close()
+            try await cache.close()
+
+            #expect(atSource.isEmpty)
+            #expect(atDestination == [0 ..< total])
+            #expect(read == Self.payload + Self.marker)
+        }
+    }
+
+    @Test("with deduplicatesSymlinks, a write landing while a rename resolves its paths is not covered by moved blocks")
+    func renameInterleavedWithWrite() async throws {
+        try await withStalledConnection(
+            "inmemory-rename-interleaved",
+            megabytes: 1,
+            stallAfterBytes: .max,
+            operationsTimeOut: 10
+        ) { wedged in
+            let client = wedged.client
+            let source = wedged.remotePath + "-x"
+            let destination = wedged.remotePath + "-y"
+            try await writeRemoteFile(client, path: source, contents: Self.payload)
+            try await writeRemoteFile(client, path: destination, contents: Self.payload.prefix(10))
+
+            let cache = try await InMemorySFTPReadCache(
+                forking: client,
+                configuration: .init(deduplicatesSymlinks: true)
+            )
+            let control = try #require(await cache.control)
+            client.attachCache(cache)
+            _ = try await readRemoteFile(client, path: source)
+            _ = try await readRemoteFile(client, path: destination)
+
+            // The cache resolves the destination over its control connection, which the stalled server keeps waiting.
+            // Each connection is relayed one more answer after the stall: spend them.
+            wedged.proxy.stall()
+            _ = try await client.realPath(path: ".")
+            _ = try await control.realPath(path: ".")
+
+            let before = await cache.changeLog.clock
+            let rename = Task {
+                await cache.didRename(from: source, to: destination)
+            }
+            while await cache.changeLog.clock < before + 2 {
+                try await Task.sleep(nanoseconds: 1_000_000)
+            }
+
+            // A write through the client to the new path, reported while the rename waits.
+            await cache.storeBlock(Self.marker, path: destination, offset: 0, source: .upload, request: nil)
+            wedged.proxy.resume()
+            await rename.value
+
+            let request = CacheRequestID()
+            let served = await cache.retrieveBlock(path: destination, offset: 0, upTo: 1000, request: request)
+            await cache.requestEnded(request)
+            let held = await cache.files.values.reduce(0) { $0 + $1.blocks.byteCount }
+            let counted = await cache.storedByteCount
+
+            client.detachCache()
+            try await cache.close()
+            try await client.delete(path: source)
+            try await client.delete(path: destination)
+
+            // The source's bytes, from before the write, must not be handed out for the destination.
+            #expect(served == nil || served?.prefix(Self.marker.count) == Self.marker)
+            #expect(counted == held)
+        }
+    }
 }

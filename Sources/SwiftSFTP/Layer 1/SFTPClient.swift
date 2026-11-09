@@ -22,8 +22,14 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
 
     // MARK: Cache
 
-    /// The attached cache, or `nil`. Protected by `internalStateQueue`. See ``attachCache(_:)``.
-    nonisolated(unsafe) var _cache: (any SFTPBlockLevelReadCache)?
+    /// The attached cache and the registry of files open with it, or `nil`. Protected by `internalStateQueue`. See
+    /// ``attachCache(_:)``.
+    nonisolated(unsafe) var _cache: CacheAttachment?
+    /// Changes of abandoned calls finished or dropped since the cache last heard of them. Protected by
+    /// `finishedChangesLock`, never by the session I/O lock, so handing them over never waits on a transfer. See
+    /// ``reportFinishedChanges()``.
+    nonisolated(unsafe) var _finishedChanges: [CacheChangeReport] = []
+    let finishedChangesLock = NSLock()
 
     // MARK: Configuration
 
@@ -52,7 +58,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     /// Whether the last blocking call gave up waiting for the peer. Guarded by `sessionIOLock`.
     nonisolated(unsafe) var _peerStoppedResponding = false
     /// SFTP calls given up mid-wait, by the libssh2 state machine they hold. Guarded by `sessionIOLock`. See
-    /// ``runSFTPCall(_:on:slice:discarding:_:)``.
+    /// ``runSFTPCall(_:on:slice:reporting:discarding:_:)``.
     nonisolated(unsafe) var _abandonedCalls: [SFTPCallKind: AbandonedSFTPCall] = [:]
     /// The write call holding a half-sent packet, if any. Guarded by `sessionIOLock`. See
     /// ``finishInterruptedSend(slice:)``.

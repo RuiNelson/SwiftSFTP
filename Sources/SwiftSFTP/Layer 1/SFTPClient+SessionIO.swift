@@ -34,16 +34,20 @@ extension SFTPClient {
     /// ``SFTPOpen(sftp:filename:flags:mode:openType:)`` only sees the SFTP status, which libssh2 resets to `.ok` at the
     /// start of every open. A failure that never got a status back — a timeout, a dropped connection — would otherwise
     /// surface as `.sftp(status: .ok)` instead of the session error that caused it.
+    ///
+    /// - Parameter report: The paths the open may change on the server and the cache to tell, for an open that creates
+    /// or truncates; see ``runSFTPCall(_:on:slice:reporting:discarding:_:)``.
     func openHandle(
         path: String,
         flags: OpenFlags,
         mode: POSIXPermissions,
-        openType: LibSSH2SFTPOpenType
+        openType: LibSSH2SFTPOpenType,
+        reporting report: CacheChangeReport? = nil
     ) throws -> LibSSH2SFTPHandle {
         let sftp = try sftp
         let session = session
 
-        return try runSFTPCall(.open, discarding: { [unowned self] handle, slice in
+        return try runSFTPCall(.open, reporting: report, discarding: { [unowned self] handle, slice in
             closeDiscardedHandle(handle, slice: slice)
         }) {
             do {

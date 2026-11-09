@@ -18,11 +18,13 @@ public final class SFTPFile: SFTPFileProtocol {
 
     // MARK: Configuration
 
-    /// The sanitized path the file was opened with, as sent to the server.
-    private let path: String
     private let flags: OpenFlags
     /// The parent's cache when the file was opened, kept until the file closes. See ``SFTPClientWithCache``.
     private let cache: (any SFTPBlockLevelReadCache)?
+    /// The registry of files open with ``cache``, which keeps the path the file reports under.
+    private let openFiles: OpenFileRegistry?
+    /// The file's registration in ``openFiles``.
+    private let registration: UInt64?
     private let trapOnDeInitWithoutClose: Bool
     private let logger: Logger?
 
@@ -46,28 +48,90 @@ public final class SFTPFile: SFTPFileProtocol {
 
     // MARK: Initialization
 
+    /// - Parameters:
+    ///   - path: The sanitized path the file was opened with, as sent to the server.
+    ///   - cache: The parent's cache when the file was opened, which the file registers with.
     init(
         parent: SFTPClient,
         handle: LibSSH2SFTPHandle,
         path: String,
         flags: OpenFlags,
-        cache: (any SFTPBlockLevelReadCache)?,
+        cache: CacheAttachment?,
         logger: Logger?,
         trapOnDeInitWithoutClose: Bool
     ) {
         self.parent = parent
         self.handle = handle
-        self.path = path
         self.flags = flags
-        self.cache = cache
+        self.cache = cache?.cache
+        openFiles = cache?.openFiles
+        registration = cache?.openFiles.register(path: path)
         self.logger = logger
         self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
     }
 
     deinit {
+        if let registration {
+            openFiles?.unregister(registration)
+        }
+
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPFile` was destroyed without calling `close()` before.")
             raise(SIGTRAP)
+        }
+    }
+}
+
+// MARK: Cache reports
+
+private extension SFTPFile {
+    /// The path the file reports to the cache under, which follows renames through the parent and its forks, or `nil`
+    /// when the file uses no cache or stopped reporting: it closed, or was deleted or replaced while open.
+    var cachePath: String? {
+        registration.flatMap { openFiles?.path(of: $0) }
+    }
+
+    /// The changes counted against the file so far, taken before a server call whose answer the file reports; see
+    /// ``OpenFileRegistry``.
+    var changeSnapshot: OpenFileRegistry.ChangeCounts? {
+        registration.flatMap { openFiles?.changeCounts(of: $0) }
+    }
+
+    /// Hands the cache a report about the file, under the path it has now.
+    ///
+    /// A rename or a delete of the file through the parent or a fork can overlap the report, which may then land under
+    /// a path the file has left. Another change at the file's path, reported through the parent or a fork after
+    /// `snapshot` was taken, can make the report describe the file as it was before that change. The paths the report
+    /// may have reached wrongly either way are invalidated afterwards.
+    ///
+    /// - Parameters:
+    ///   - kind: What the report is about.
+    ///   - snapshot: ``changeSnapshot`` before the server call the report is about, or `nil` for a report about no
+    ///     server answer.
+    ///   - body: Makes the report, given the cache and the path.
+    func report(
+        _ kind: OpenFileRegistry.ReportKind,
+        since snapshot: OpenFileRegistry.ChangeCounts? = nil,
+        _ body: (any SFTPBlockLevelReadCache, String) async -> Void
+    ) async {
+        guard let cache, let openFiles, let registration,
+              let ticket = openFiles.beginReport(registration, kind, since: snapshot) else {
+            return
+        }
+
+        await body(cache, ticket.path)
+        await endReport(ticket)
+    }
+
+    /// Ends a report of the file, invalidating the paths a rename, a delete, or another change that overlapped it may
+    /// have left wrong.
+    func endReport(_ ticket: OpenFileRegistry.ReportTicket) async {
+        guard let cache, let openFiles, let registration else {
+            return
+        }
+
+        for path in openFiles.endReport(registration, ticket) {
+            await cache.invalidate(path: path)
         }
     }
 }
@@ -101,12 +165,10 @@ private extension SFTPFile {
     }
 
     /// Moves the position to `newOffset`, or notes it for when a half-sent packet is out. Callers must hold the
-    /// parent's
-    /// session I/O lock.
+    /// parent's session I/O lock.
     func moveOffset(to newOffset: UInt64) {
         // A seek drops the requests queued on the handle, the one libssh2 has half sent among them, and the next
-        // request
-        // on the channel would then be handed that packet instead of its own.
+        // request on the channel would then be handed that packet instead of its own.
         guard !parent.hasInterruptedSend(on: handle) else {
             requestedOffset = newOffset
             return
@@ -279,7 +341,8 @@ public extension SFTPFile {
     }
 
     func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data? {
-        guard let cache else {
+        // A file not opened for reading fails its reads at the server, whatever the cache holds.
+        guard flags.contains(.read), let cache, let openFiles, let registration else {
             return try await readFromServer(upTo: upTo, readAheadLimit: readAheadLimit, from: nil)?.data
         }
 
@@ -289,10 +352,42 @@ public extension SFTPFile {
             return nil
         }
 
-        // What the cache has from the position on, then the rest from the server.
+        // A rename or a delete of the file while the read is on its way can leave its bytes under a path it has left.
+        guard let ticket = openFiles.beginReport(registration, .read, since: nil) else {
+            return try await readFromServer(upTo: upTo, readAheadLimit: readAheadLimit, from: nil)?.data
+        }
+
+        let result: Result<Data?, any Error>
+        do {
+            result = try await .success(parent.withCacheRequest(on: cache) { request in
+                try await read(
+                    upTo: upTo,
+                    readAheadLimit: readAheadLimit,
+                    through: cache,
+                    path: ticket.path,
+                    request: request
+                )
+            })
+        }
+        catch {
+            result = .failure(error)
+        }
+
+        await endReport(ticket)
+        return try result.get()
+    }
+
+    /// Reads what `cache` has from the position on, then the rest from the server, handing those bytes to the cache.
+    private func read(
+        upTo: Int,
+        readAheadLimit: UInt64?,
+        through cache: any SFTPBlockLevelReadCache,
+        path: String,
+        request: CacheRequestID
+    ) async throws -> Data? {
         let start = offset
-        let cached = await cache.retrieveBlock(path: path, offset: start, upTo: upTo).map { Data($0.prefix(upTo)) }
-            ?? Data()
+        let cached = await cache.retrieveBlock(path: path, offset: start, upTo: upTo, request: request)
+            .map { Data($0.prefix(upTo)) } ?? Data()
         let resume = start + UInt64(cached.count)
 
         guard cached.count < upTo else {
@@ -305,7 +400,8 @@ public extension SFTPFile {
             fetched = try await readFromServer(
                 upTo: upTo - cached.count,
                 readAheadLimit: readAheadLimit,
-                from: cached.isEmpty ? nil : resume
+                from: cached.isEmpty ? nil : resume,
+                restoringOnError: start
             )
         }
         catch is CancellationError where !cached.isEmpty {
@@ -318,17 +414,20 @@ public extension SFTPFile {
             return cached.isEmpty ? nil : cached
         }
 
-        await cache.storeBlock(fetched.data, path: path, offset: fetched.offset, source: .download)
+        await cache.storeBlock(fetched.data, path: path, offset: fetched.offset, source: .download, request: request)
         return cached + fetched.data
     }
 
     /// Reads up to `upTo` bytes from the server at the position, after moving it to `from` when given.
     ///
+    /// - Parameter restoringOnError: Where to put the position back when the read fails, or `nil` to leave it where
+    /// the failure left it.
     /// - Returns: Where the bytes start in the file and the bytes, or `nil` at EOF or when `upTo` is zero.
     private func readFromServer(
         upTo: Int,
         readAheadLimit: UInt64?,
-        from: UInt64?
+        from: UInt64?,
+        restoringOnError restore: UInt64? = nil
     ) async throws -> (offset: UInt64, data: Data)? {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
@@ -337,56 +436,75 @@ public extension SFTPFile {
                 return nil
             }
 
-            if let from {
-                moveOffset(to: from)
+            do {
+                return try readFromServer(upTo: upTo, readAheadLimit: readAheadLimit, from: from, slice: slice)
             }
-
-            // libssh2 keeps write and read requests in the same queue, and would take the acknowledgements of writes an
-            // interrupted write left in flight for answers to reads. Seeking to the position drops them first.
-            settlePosition(droppingReadAhead: false)
-
-            let fileOffset = internalStateQueue.sync {
-                SFTPTell(handle: handle)
+            catch {
+                if let restore {
+                    moveOffset(to: restore)
+                }
+                throw error
             }
-            let readAhead = parent.readAhead
-            var buffer = Data(count: upTo)
-            var filled = 0
-
-            while filled < upTo {
-                // Bytes already read have advanced the remote offset, so hand them back as a short read rather than
-                // dropping them; the caller observes cancellation on its next loop iteration.
-                if slice.token.isCancelled {
-                    guard filled == 0 else {
-                        break
-                    }
-                    throw CancellationError()
-                }
-
-                let length = readLength(remaining: upTo - filled, readAhead: readAhead, readAheadLimit: readAheadLimit)
-                readAheadPending = true
-
-                let count: Int
-                do {
-                    count = try buffer.withUnsafeMutableBytes { bytes in
-                        let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[filled ..< filled + length])
-                        return try slice { try SFTPRead(handle: handle, into: destination) }
-                    }
-                }
-                catch is CancellationError where filled > 0 {
-                    // Cancellation can also land while a call waits out a slice: the same short read applies.
-                    break
-                }
-
-                guard count > 0 else {
-                    break
-                }
-
-                filled += count
-            }
-
-            buffer.count = filled
-            return filled == 0 ? nil : (offset: fileOffset, data: buffer)
         }
+    }
+
+    /// The body of ``readFromServer(upTo:readAheadLimit:from:restoringOnError:)``. Callers must hold the parent's
+    /// session I/O lock.
+    private func readFromServer(
+        upTo: Int,
+        readAheadLimit: UInt64?,
+        from: UInt64?,
+        slice: SessionIOSlicer
+    ) throws -> (offset: UInt64, data: Data)? {
+        if let from {
+            moveOffset(to: from)
+        }
+
+        // libssh2 keeps write and read requests in the same queue, and would take the acknowledgements of writes an
+        // interrupted write left in flight for answers to reads. Seeking to the position drops them first.
+        settlePosition(droppingReadAhead: false)
+
+        let fileOffset = internalStateQueue.sync {
+            SFTPTell(handle: handle)
+        }
+        let readAhead = parent.readAhead
+        var buffer = Data(count: upTo)
+        var filled = 0
+
+        while filled < upTo {
+            // Bytes already read have advanced the remote offset, so hand them back as a short read rather than
+            // dropping them; the caller observes cancellation on its next loop iteration.
+            if slice.token.isCancelled {
+                guard filled == 0 else {
+                    break
+                }
+                throw CancellationError()
+            }
+
+            let length = readLength(remaining: upTo - filled, readAhead: readAhead, readAheadLimit: readAheadLimit)
+            readAheadPending = true
+
+            let count: Int
+            do {
+                count = try buffer.withUnsafeMutableBytes { bytes in
+                    let destination = UnsafeMutableRawBufferPointer(rebasing: bytes[filled ..< filled + length])
+                    return try slice { try SFTPRead(handle: handle, into: destination) }
+                }
+            }
+            catch is CancellationError where filled > 0 {
+                // Cancellation can also land while a call waits out a slice: the same short read applies.
+                break
+            }
+
+            guard count > 0 else {
+                break
+            }
+
+            filled += count
+        }
+
+        buffer.count = filled
+        return filled == 0 ? nil : (offset: fileOffset, data: buffer)
     }
 
     @discardableResult func write(_ data: Data) async throws -> Int {
@@ -396,6 +514,7 @@ public extension SFTPFile {
             }
         }
 
+        let snapshot = changeSnapshot
         let progress = WriteProgress()
         let result: Result<Int, any Error>
         do {
@@ -405,23 +524,36 @@ public extension SFTPFile {
             result = .failure(error)
         }
 
-        // With `.append` the server decides where the bytes land, so their offset is unknown, and the bytes already in
-        // the file stay as they were.
-        if let cache, !flags.contains(.append) {
-            // Bytes past the acknowledged ones may still reach the file after a failed write, over whatever the cache
-            // holds for their range.
-            if case .failure = result, progress.handedOver > progress.acknowledged {
+        let failed = if case .failure = result {
+            true
+        }
+        else {
+            false
+        }
+
+        // Bytes past the acknowledged ones may still reach the file after a failed write.
+        let inFlight = failed && progress.handedOver > progress.acknowledged
+        guard progress.acknowledged > 0 || inFlight else {
+            return try result.get()
+        }
+
+        await report(.write, since: snapshot) { cache, path in
+            if flags.contains(.append) {
+                // The server decides where the bytes land, so their offset is unknown, while the bytes already in the
+                // file stay as they were.
+                await cache.didAppend(path: path, byteCount: UInt64(progress.acknowledged))
+                return
+            }
+
+            // In-flight bytes may land over whatever the cache holds for their range.
+            if inFlight {
                 await cache.invalidate(path: path)
             }
 
             // Acknowledged bytes are in the file whatever went wrong after them.
             if progress.acknowledged > 0 {
-                await cache.storeBlock(
-                    Data(data.prefix(progress.acknowledged)),
-                    path: path,
-                    offset: progress.offset,
-                    source: .upload
-                )
+                let written = Data(data.prefix(progress.acknowledged))
+                await cache.storeBlock(written, path: path, offset: progress.offset, source: .upload, request: nil)
             }
         }
 
@@ -532,41 +664,99 @@ public extension SFTPFile {
 
 // MARK: SFTPFileProtocol + Lifecycle
 
+/// What ``SFTPFile/close()`` did under the session I/O lock, for the reports it makes once it is released.
+private struct CloseOutcome: Sendable {
+    /// Whether the file had already been closed, so there was nothing to do.
+    var alreadyClosed = false
+    /// Whether a write was attempted, so the cache needs the file's final attributes.
+    var wroteToFile = false
+    /// The file's final attributes, or `nil` when the stat was skipped or failed.
+    var finalAttributes: FileAttributes?
+    /// Why closing the handle failed, if it did.
+    var error: (any Error)?
+}
+
 public extension SFTPFile {
     func close() async throws {
-        // The written blocks belong to the file as it is now: the stat reports its final attributes to the cache. Not
-        // worth the wait on a connection that has stopped responding.
-        let reportsFinalAttributes = internalStateQueue.sync {
-            _wroteToFile && !_closed
-        }
-        if cache != nil, reportsFinalAttributes, !parent.closed, !parent.peerStoppedResponding {
-            _ = try? await stat
-        }
+        let snapshot = changeSnapshot
+        let reportsToCache = snapshot != nil
+        let outcome = try await parent.withUninterruptibleSessionIO { [self] () -> CloseOutcome in
+            var outcome = CloseOutcome()
 
-        try await parent.withUninterruptibleSessionIO { [self] in
-            try internalStateQueue.sync {
-                guard !_closed else {
-                    logger?.warning("Trying to close file handle that was already closed")
-                    return
-                }
+            // libssh2 frees the handle on every path that runs to completion, and a parent closed first already freed
+            // it with the session. Mark closed before either: no further use, and no trap on deinit after a
+            // parent-first shutdown.
+            let wasOpen = internalStateQueue.sync {
+                defer { _closed = true }
+                outcome.wroteToFile = _wroteToFile
+                return !_closed
+            }
+            guard wasOpen else {
+                logger?.warning("Trying to close file handle that was already closed")
+                outcome.alreadyClosed = true
+                return outcome
+            }
 
-                // libssh2 frees the handle on every path that runs to completion, and a parent closed first already
-                // freed it with the session. Mark closed before either: no further use, and no trap on deinit after a
-                // parent-first shutdown.
-                _closed = true
-
+            do {
                 try parent.checkOpenForFileOperation()
+            }
+            catch {
+                outcome.error = error
+                return outcome
+            }
 
-                // `SSH_FXP_CLOSE` needs an answer the server may never send. Cap the wait: closing a handle is not
-                // worth one whole `operationsTimeOut` when the connection has stopped responding. A close that gives up
-                // leaves the handle owned by libssh2, and the parent reclaims it once the socket is down.
-                let configured = SessionGetTimeout(session: parent.session)
-                let capped = teardownTimeoutMilliseconds(configured: configured)
-                SessionSetTimeout(session: parent.session, timeoutMilliseconds: capped)
-                defer { SessionSetTimeout(session: parent.session, timeoutMilliseconds: configured) }
+            // `SSH_FXP_CLOSE` needs an answer the server may never send. Cap the wait: closing a handle is not worth
+            // one whole `operationsTimeOut` when the connection has stopped responding. A close that gives up leaves
+            // the handle owned by libssh2, and the parent reclaims it once the socket is down.
+            let configured = SessionGetTimeout(session: parent.session)
+            defer { SessionSetTimeout(session: parent.session, timeoutMilliseconds: configured) }
 
+            // The written blocks belong to the file as it is now: a stat reports its final attributes to the cache. It
+            // gets the same capped budget as the close, and is skipped on a connection that already stopped
+            // responding.
+            if reportsToCache, outcome.wroteToFile, !parent.peerStoppedResponding {
+                outcome.finalAttributes = finalAttributes(configuredTimeout: configured)
+            }
+
+            SessionSetTimeout(
+                session: parent.session,
+                timeoutMilliseconds: teardownTimeoutMilliseconds(configured: configured)
+            )
+            do {
                 try parent.closeHandle(handle)
             }
+            catch {
+                outcome.error = error
+            }
+            return outcome
+        }
+
+        if !outcome.alreadyClosed, outcome.wroteToFile {
+            if let attributes = outcome.finalAttributes {
+                // Opening the file followed any link at its path.
+                await report(.stat, since: snapshot) { cache, path in
+                    await cache.storeFileStat(
+                        FileMetadata(sanitizedPath: path, attributes: attributes),
+                        path: path,
+                        followLink: true,
+                        request: nil
+                    )
+                }
+            }
+            else {
+                // Without the final attributes, the cache cannot tell which version the written blocks belong to.
+                await report(.invalidation) { cache, path in
+                    await cache.invalidate(path: path)
+                }
+            }
+        }
+
+        if let registration {
+            openFiles?.unregister(registration)
+        }
+
+        if let error = outcome.error {
+            throw error
         }
     }
 
@@ -577,23 +767,75 @@ public extension SFTPFile {
     }
 }
 
+// MARK: Final attributes
+
+private extension SFTPFile {
+    /// Stats the file before ``close()`` closes it, within the capped teardown budget, or returns `nil` when the stat
+    /// fails. Callers must hold the parent's session I/O lock, and restore the session timeout afterwards.
+    ///
+    /// - Parameter configured: The session's configured timeout, where `0` means none.
+    func finalAttributes(configuredTimeout configured: Int) -> FileAttributes? {
+        SessionSetTimeout(
+            session: parent.session,
+            timeoutMilliseconds: teardownTimeoutMilliseconds(configured: configured)
+        )
+
+        do {
+            let handle = handle
+            let attributes = try parent.runSFTPCall(.fstat, on: handle) { try SFTPFStat(handle: handle) }
+            parent.notePeerResponded(true)
+            return attributes
+        }
+        catch {
+            // The close that follows then gives up at once instead of waiting out its own cap.
+            if Self.isTimeout(error) {
+                parent.notePeerResponded(false)
+            }
+            logger?.debug("Could not stat the file before closing it: \(error)")
+            return nil
+        }
+    }
+}
+
 // MARK: SFTPFileProtocol + Attributes
 
 public extension SFTPFile {
     func set(_ attributes: FileAttributes) async throws {
-        try await parent.withCancellableSessionIO { [self] slice in
-            try checkClosed()
-            let handle = handle
-            try parent.runSFTPCall(.fstat, on: handle, slice: slice) {
-                try SFTPFSetStat(handle: handle, attributes: attributes)
+        // The change may reach the server even when the call fails, or after it was given up.
+        let changeReport = cache.flatMap { cache in
+            openFiles.flatMap { openFiles in
+                cachePath.map { CacheChangeReport(attachment: .init(cache: cache, openFiles: openFiles), paths: [$0]) }
             }
         }
 
-        await cache?.invalidate(path: path)
+        let failure: (any Error)?
+        do {
+            try await parent.withCancellableSessionIO { [self] slice in
+                try checkClosed()
+                let handle = handle
+                try parent.runSFTPCall(.fstat, on: handle, slice: slice, reporting: changeReport) {
+                    try SFTPFSetStat(handle: handle, attributes: attributes)
+                }
+            }
+            failure = nil
+        }
+        catch {
+            failure = error
+        }
+
+        // Counted as a change, so reports of the file that it overlapped are invalidated too.
+        await report(.attributes) { cache, path in
+            await cache.invalidate(path: path)
+        }
+
+        if let failure {
+            throw failure
+        }
     }
 
     var stat: FileAttributes {
         get async throws {
+            let snapshot = changeSnapshot
             let attributes = try await parent.withCancellableSessionIO { [self] slice in
                 try checkClosed()
                 let handle = handle
@@ -601,11 +843,14 @@ public extension SFTPFile {
             }
 
             // Opening the file followed any link at its path.
-            await cache?.storeFileStat(
-                FileMetadata(sanitizedPath: path, attributes: attributes),
-                path: path,
-                followLink: true
-            )
+            await report(.stat, since: snapshot) { cache, path in
+                await cache.storeFileStat(
+                    FileMetadata(sanitizedPath: path, attributes: attributes),
+                    path: path,
+                    followLink: true,
+                    request: nil
+                )
+            }
 
             return attributes
         }

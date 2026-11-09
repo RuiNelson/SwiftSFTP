@@ -33,6 +33,7 @@ struct BlockLevelCacheTests {
                 .retrieveBlock(path: path, offset: 0, upTo: 1000),
                 .storeBlock(path: path, offset: 0, data: Self.payload.prefix(1000), source: .download),
             ])
+            #expect(await cache.requestContractViolations() == [])
         }
     }
 
@@ -63,6 +64,7 @@ struct BlockLevelCacheTests {
                 .retrieveBlock(path: path, offset: 16, upTo: 16),
                 .storeBlock(path: path, offset: 16, data: Self.payload[16 ..< 32], source: .download),
             ])
+            #expect(await cache.requestContractViolations() == [])
         }
     }
 
@@ -90,6 +92,7 @@ struct BlockLevelCacheTests {
                 .retrieveBlock(path: path, offset: 0, upTo: 100),
                 .storeBlock(path: path, offset: 10, data: Self.payload[10 ..< 100], source: .download),
             ])
+            #expect(await cache.requestContractViolations() == [])
         }
     }
 
@@ -124,7 +127,7 @@ struct BlockLevelCacheTests {
         }
     }
 
-    @Test("writes to a file opened for appending do not go to the cache")
+    @Test("writes to a file opened for appending report how much they appended, not their bytes")
     func append() async throws {
         let path = uniqueRemotePath("cache-append")
 
@@ -141,10 +144,8 @@ struct BlockLevelCacheTests {
 
             let events = await cache.events
             #expect(events.filter(\.isBlockEvent).isEmpty)
-            guard case .storeFileStat(path: path, followLink: true, size: _) = events.last else {
-                Issue.record("Closing did not report the file's attributes: \(events)")
-                return
-            }
+            #expect(events.filter(\.isChange) == [.didAppend(path: path, byteCount: 50)])
+            #expect(events.last == .storeFileStat(path: path, followLink: true, size: 150))
         }
     }
 
@@ -189,6 +190,7 @@ struct BlockLevelCacheTests {
                 .retrieveFileStat(path: file, followLink: true),
                 .retrieveDirectoryListing(path: directory, recursive: false),
             ])
+            #expect(await cache.requestContractViolations() == [])
         }
     }
 
@@ -227,13 +229,15 @@ struct BlockLevelCacheTests {
         }
     }
 
-    @Test("shell agent operations report the paths they write, also when they fail")
+    @Test("shell agent operations report the paths they write, also when they fail, and moves that succeed as renames")
     func shellAgentChanges() async throws {
         let directory = uniqueRemotePath("cache-shell")
         let source = "\(directory)/source.bin"
         let copied = "\(directory)/copied.bin"
         let moved = "\(directory)/moved.bin"
         let failed = "\(directory)/failed.bin"
+        let missing = "\(directory)/missing.bin"
+        let unmoved = "\(directory)/unmoved.bin"
 
         try await withClient { client in
             try await client.createDirectory(path: directory, makePath: false)
@@ -245,7 +249,10 @@ struct BlockLevelCacheTests {
                 try await agent.copy(from: source, to: copied)
                 try await agent.move(from: copied, to: moved)
                 await #expect(throws: (any Error).self) {
-                    try await agent.copy(from: "\(directory)/missing.bin", to: failed)
+                    try await agent.copy(from: missing, to: failed)
+                }
+                await #expect(throws: (any Error).self) {
+                    try await agent.move(from: missing, to: unmoved)
                 }
             }
 
@@ -254,9 +261,10 @@ struct BlockLevelCacheTests {
 
             #expect(await cache.events.filter(\.isChange) == [
                 .invalidate(path: copied),
-                .invalidate(path: copied),
-                .invalidate(path: moved),
+                .didRename(from: copied, to: moved),
                 .invalidate(path: failed),
+                .invalidate(path: missing),
+                .invalidate(path: unmoved),
             ])
         }
     }

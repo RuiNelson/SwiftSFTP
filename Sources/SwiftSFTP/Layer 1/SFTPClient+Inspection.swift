@@ -6,7 +6,7 @@ import PathWorks
 public extension SFTPClient {
     var currentWorkingDirectory: String {
         get async throws {
-            try withSessionIO {
+            try await withSessionIOReportingChanges {
                 try checkClosed()
                 let sftp = try sftp
                 return try runSFTPCall(.symlink) { try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) } ?? "."
@@ -24,18 +24,30 @@ public extension SFTPClient {
             sanitizedPath = cwd.appendingPathComponent(sanitizedPath)
         }
 
-        let cache = self.cache
-        if let entries = await cache?.retrieveDirectoryListing(path: sanitizedPath, recursive: recursive) {
+        let list = { [sanitizedPath] in
+            try await self.withSessionIOReportingChanges {
+                try self.checkClosed()
+                return try self.listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+            }
+        }
+
+        guard let cache else {
+            return try await list()
+        }
+
+        return try await withCacheRequest(on: cache) { request in
+            if let entries = await cache.retrieveDirectoryListing(
+                path: sanitizedPath,
+                recursive: recursive,
+                request: request
+            ) {
+                return entries
+            }
+
+            let entries = try await list()
+            await cache.storeDirectoryListing(entries, path: sanitizedPath, recursive: recursive, request: request)
             return entries
         }
-
-        let entries = try withSessionIO {
-            try checkClosed()
-            return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
-        }
-
-        await cache?.storeDirectoryListing(entries, path: sanitizedPath, recursive: recursive)
-        return entries
     }
 
     func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
@@ -64,29 +76,37 @@ public extension SFTPClient {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
-        let cache = self.cache
+        let statOnServer = {
+            try await self.withSessionIOReportingChanges {
+                try self.attributes(sanitizedPath: sanitizedPath, followLink: followLink)
+            }
+            .map { FileMetadata(sanitizedPath: sanitizedPath, attributes: $0) }
+        }
 
-        switch await cache?.retrieveFileStat(path: sanitizedPath, followLink: followLink) {
-        case let .exists(metadata):
+        guard let cache else {
+            return try await statOnServer()
+        }
+
+        return try await withCacheRequest(on: cache) { request in
+            switch await cache.retrieveFileStat(path: sanitizedPath, followLink: followLink, request: request) {
+            case let .exists(metadata):
+                return metadata
+
+            case .doesNotExist:
+                return nil
+
+            case nil:
+                break
+            }
+
+            let metadata = try await statOnServer()
+            await cache.storeFileStat(metadata, path: sanitizedPath, followLink: followLink, request: request)
             return metadata
-
-        case .doesNotExist:
-            return nil
-
-        case nil:
-            break
         }
-
-        let metadata = try attributes(sanitizedPath: sanitizedPath, followLink: followLink).map {
-            FileMetadata(sanitizedPath: sanitizedPath, attributes: $0)
-        }
-
-        await cache?.storeFileStat(metadata, path: sanitizedPath, followLink: followLink)
-        return metadata
     }
 
     func filesystemStat(path: String) async throws -> FilesystemStat {
-        try withSessionIO {
+        try await withSessionIOReportingChanges {
             try checkClosed()
             let sftp = try sftp
             return try runSFTPCall(.statvfs) { try SFTPStatVFS(sftp: sftp, path: path.sanitizePath) }
@@ -105,7 +125,7 @@ public extension SFTPClient {
     /// - Returns: The canonical absolute path.
     /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors, such as when the path cannot be resolved.
     func realPath(path: String) async throws -> String {
-        try withSessionIO {
+        try await withSessionIOReportingChanges {
             try checkClosed()
             let sftp = try sftp
             let resolved = try runSFTPCall(.symlink) {
@@ -121,9 +141,12 @@ public extension SFTPClient {
     }
 }
 
-// MARK: Private implementation
+// MARK: Server calls
 
-private extension SFTPClient {
+extension SFTPClient {
+    /// Stats `sanitizedPath` on the server, without the cache.
+    ///
+    /// - Returns: The attributes, or `nil` when nothing exists at the path.
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         try withSessionIO {
             try checkClosed()
@@ -156,7 +179,11 @@ private extension SFTPClient {
             }
         }
     }
+}
 
+// MARK: Private implementation
+
+private extension SFTPClient {
     func listDirectory(
         sanitizedPath: String,
         recursive: Bool,
