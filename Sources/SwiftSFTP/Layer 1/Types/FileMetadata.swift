@@ -46,6 +46,17 @@ public struct FileMetadata: Sendable, Codable, Equatable, Hashable {
 
         self.init(fileName: fileName, directory: directory, attributes: attributes)
     }
+
+    /// Creates metadata for a sanitized remote path, keeping the whole path as the file name when it has no last path
+    /// component to split off.
+    ///
+    /// - Parameters:
+    ///   - sanitizedPath: The remote path, as sent to the server.
+    ///   - attributes: SFTP attributes for the entry.
+    init(sanitizedPath: String, attributes: FileAttributes) {
+        self = FileMetadata(fullPath: sanitizedPath, attributes: attributes)
+            ?? FileMetadata(fileName: sanitizedPath, directory: "", attributes: attributes)
+    }
 }
 
 // MARK: Convenience

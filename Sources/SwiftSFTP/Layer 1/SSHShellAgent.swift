@@ -137,7 +137,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             verbose: reportProgress
         )
-        try runTransferCommand(command, progress: progress)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: progress)
+        }
     }
 
     public func move(from: String, to: String, progress: ShellAgentProgress? = nil) async throws {
@@ -148,7 +150,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             verbose: reportProgress
         )
-        try runTransferCommand(command, progress: progress)
+        try await reportingChanges(to: [from, to]) {
+            try runTransferCommand(command, progress: progress)
+        }
     }
 
     public func concat(files: [String], to: String) async throws {
@@ -157,7 +161,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             files: files,
             to: to
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func createZeros(file: String, length: Int64) async throws {
@@ -166,7 +172,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             length: length
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func createRandomData(file: String, length: Int64) async throws {
@@ -175,7 +183,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             length: length
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func tar(input: [String], output: String, compression: TarCompression) async throws {
@@ -185,7 +195,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             output: output,
             compression: compression
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func zip(
@@ -209,7 +221,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             compressionLevel: compressionLevel,
             tool: resolvedTool
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func sevenZip(input: [String], output: String, compressionLevel: Int) async throws {
@@ -228,7 +242,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             output: output,
             compressionLevel: compressionLevel
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func untar(file: String, to: String) async throws {
@@ -240,7 +256,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         }
         try await ensureDestinationDirectory(to)
         let command = try ShellAgentSupport.untarCommand(shellType: shellType, file: file, to: to)
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func unzip(file: String, to: String, tool: ZipTool = .poke) async throws {
@@ -259,7 +277,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             tool: resolvedTool
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func unSevenZip(file: String, to: String) async throws {
@@ -278,7 +298,36 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             to: to
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
+    }
+
+    /// Runs `operation`, then reports `paths` to the client's cache as changed, also when it fails: a command can write
+    /// part of its output before failing.
+    ///
+    /// A move is reported as two changed paths rather than a rename: when the destination is a directory, the command
+    /// moves the source into it.
+    private func reportingChanges(to paths: [String], _ operation: () throws -> Void) async throws {
+        do {
+            try operation()
+        }
+        catch {
+            await invalidateInCache(paths)
+            throw error
+        }
+
+        await invalidateInCache(paths)
+    }
+
+    private func invalidateInCache(_ paths: [String]) async {
+        guard let cache = client.cache else {
+            return
+        }
+
+        for path in paths {
+            await cache.invalidate(path: ShellAgentSupport.sftpPathForCache(path, shellType: shellType))
+        }
     }
 
     /// Ensures `path` exists as a directory via the parent SFTP client (`makePath: true`).
@@ -415,7 +464,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             headers: headers
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     /// Ensures the parent of a file path exists via SFTP (`makePath: true`).

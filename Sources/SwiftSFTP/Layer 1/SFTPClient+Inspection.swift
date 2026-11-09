@@ -24,10 +24,18 @@ public extension SFTPClient {
             sanitizedPath = cwd.appendingPathComponent(sanitizedPath)
         }
 
-        return try withSessionIO {
+        let cache = self.cache
+        if let entries = await cache?.retrieveDirectoryListing(path: sanitizedPath, recursive: recursive) {
+            return entries
+        }
+
+        let entries = try withSessionIO {
             try checkClosed()
             return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
         }
+
+        await cache?.storeDirectoryListing(entries, path: sanitizedPath, recursive: recursive)
+        return entries
     }
 
     func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {
@@ -56,12 +64,25 @@ public extension SFTPClient {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
-        guard let attributes = try attributes(sanitizedPath: sanitizedPath, followLink: followLink) else {
+        let cache = self.cache
+
+        switch await cache?.retrieveFileStat(path: sanitizedPath, followLink: followLink) {
+        case let .exists(metadata):
+            return metadata
+
+        case .doesNotExist:
             return nil
+
+        case nil:
+            break
         }
 
-        return FileMetadata(fullPath: sanitizedPath, attributes: attributes)
-            ?? FileMetadata(fileName: sanitizedPath, directory: "", attributes: attributes)
+        let metadata = try attributes(sanitizedPath: sanitizedPath, followLink: followLink).map {
+            FileMetadata(sanitizedPath: sanitizedPath, attributes: $0)
+        }
+
+        await cache?.storeFileStat(metadata, path: sanitizedPath, followLink: followLink)
+        return metadata
     }
 
     func filesystemStat(path: String) async throws -> FilesystemStat {

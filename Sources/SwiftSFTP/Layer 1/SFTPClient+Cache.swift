@@ -15,3 +15,14 @@ public extension SFTPClient {
         }
     }
 }
+
+// MARK: Internal access
+
+extension SFTPClient {
+    /// The attached cache, or `nil`. Must not be read on `internalStateQueue`.
+    var cache: (any SFTPBlockLevelReadCache)? {
+        internalStateQueue.sync {
+            _cache
+        }
+    }
+}

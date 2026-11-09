@@ -22,16 +22,21 @@ import Foundation
 /// ## Paths
 ///
 /// Paths arrive as the client sends them to the server, after sanitizing. The same file can arrive under different
-/// paths, relative or absolute, or through a symbolic link. Changes made on the server by anything other than this
-/// client and its forks are not reported.
+/// paths, relative or absolute, or through a symbolic link.
+///
+/// Changes made through the client's ``SSHShellAgent`` are reported with ``invalidate(path:)`` for every path an
+/// operation writes, the source and destination of a move included, whether the operation succeeds or not. Directories
+/// a command creates on the way to its destination are not reported, and neither are changes made on the server by
+/// anything other than this client and its forks.
 public protocol SFTPBlockLevelReadCache: Sendable {
     // MARK: Blocks
 
     /// Hands over bytes the client read from, or wrote to, the file at `path`.
     ///
     /// Written bytes are handed over once the server has acknowledged them, including the acknowledged part of a write
-    /// that fails or is cancelled. Bytes written to a file opened with ``LibSSH2SFTPFileOpenFlags/append`` are not
-    /// handed over, since the server decides where they land.
+    /// that fails or is cancelled. Such a write may still have bytes on their way past the acknowledged ones, so the
+    /// client first calls ``invalidate(path:)``. Bytes written to a file opened with
+    /// ``LibSSH2SFTPFileOpenFlags/append`` are not handed over, since the server decides where they land.
     ///
     /// - Parameters:
     ///   - data: The bytes, of any length.
@@ -105,8 +110,9 @@ public protocol SFTPBlockLevelReadCache: Sendable {
     /// Reports that the contents, attributes, or existence of `path` changed through the client.
     ///
     /// Covers `path`, everything under it, and the listing of its parent directory. The client calls this after
-    /// deletes, attribute changes (size changes included), and symbolic link or directory creation, and when it opens a
-    /// file with ``LibSSH2SFTPFileOpenFlags/create`` or ``LibSSH2SFTPFileOpenFlags/truncate``.
+    /// deletes, attribute changes (size changes included), symbolic link or directory creation, writes that fail with
+    /// bytes still on their way, and shell agent operations that write files, and when it opens a file with
+    /// ``LibSSH2SFTPFileOpenFlags/create`` or ``LibSSH2SFTPFileOpenFlags/truncate``.
     ///
     /// - Parameter path: Remote path that changed.
     func invalidate(path: String) async
