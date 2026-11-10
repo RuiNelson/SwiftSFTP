@@ -88,6 +88,7 @@ struct ReferenceCachePathTests {
                 metadata: .answer(for: 60, includingMissing: false),
                 resolvesRelativePaths: true
             ),
+            storage: InMemoryCacheStorage(),
             control: nil,
             workingDirectory: workingDirectory
         )
@@ -431,7 +432,9 @@ struct ReferenceCacheBudgetTests {
         #expect(await cache.storedByteCount == 0)
     }
 
-    @Test("a memory warning halves what is kept, least recently used first, and a critical one drops everything")
+    @Test(
+        "a memory warning halves the bytes kept, least recently used first, and a critical one drops every byte and stat"
+    )
     func memoryPressure() async {
         let cache = CacheFuzz.makeCache(byteBudget: 100, metadata: .answer(for: 60, includingMissing: false))
         for name in ["a", "b", "c"] {
@@ -447,15 +450,14 @@ struct ReferenceCacheBudgetTests {
         let inFlight = CacheRequestID()
         _ = await cache.retrieveBlock(path: "/c", offset: 30, upTo: 10, request: inFlight)
         await cache.relieveMemoryPressure(critical: true)
-        #expect(await cache.files.isEmpty)
         #expect(await cache.storedByteCount == 0)
+        #expect(await cache.cachedRanges(path: "/c") == [])
         #expect(await CacheFuzz.cachedStat(cache, path: "/a") == nil)
 
-        // What was in flight is refused, and the cache goes on working.
-        await CacheFuzz.stat(cache, CacheFuzz.file("/c", size: 30), path: "/c")
+        // Dropping bytes changes nothing on the server: what was in flight is kept, and the cache goes on working.
         await cache.storeBlock(CacheFuzz.bytes(10), path: "/c", offset: 0, source: .download, request: inFlight)
         await cache.requestEnded(inFlight)
-        #expect(await cache.cachedRanges(path: "/c") == [])
+        #expect(await cache.cachedRanges(path: "/c") == [0 ..< 10])
         await CacheFuzz.download(cache, CacheFuzz.bytes(30), path: "/c")
         #expect(await cache.cachedRanges(path: "/c") == [0 ..< 30])
         #expect(await cache.invariantViolations() == [])
@@ -492,8 +494,8 @@ struct ReferenceCacheBudgetTests {
 @Suite("ReferenceCache: more stores out of order")
 struct ReferenceCacheLateStoreTests {
     @Test(
-        "bytes read before a write, an append, a dropped cache, or a close are refused when they arrive after it",
-        arguments: ["write", "append", "memory", "close"]
+        "bytes read before a write, an append, or a close are refused when they arrive after it",
+        arguments: ["write", "append", "close"]
     )
     func storeAfterChange(change: String) async throws {
         let cache = CacheFuzz.makeCache()
@@ -509,10 +511,6 @@ struct ReferenceCacheLateStoreTests {
 
         case "append":
             await cache.didAppend(path: path, byteCount: 5)
-
-        case "memory":
-            await cache.relieveMemoryPressure(critical: true)
-            await CacheFuzz.stat(cache, CacheFuzz.file(path, size: 100), path: path)
 
         default:
             try await cache.close()
@@ -940,6 +938,7 @@ struct ReferenceCacheUncheckableTests {
                 trustPolicy: policy,
                 revalidationInterval: revalidationInterval
             ),
+            storage: InMemoryCacheStorage(),
             control: nil,
             workingDirectory: nil
         )

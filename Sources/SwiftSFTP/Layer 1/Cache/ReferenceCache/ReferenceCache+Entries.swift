@@ -3,10 +3,12 @@ import Foundation
 extension ReferenceCache {
     /// What the cache knows about one file.
     struct FileEntry {
-        /// Tells this entry apart from one created later at the same key.
-        let id: UInt64
+        /// Tells this entry apart from one created later at the same key, and names its bytes in the storage.
+        let id: CacheFileID
 
-        var blocks = FileBlocks()
+        /// Ranges written through the client since the last stat, sorted and merged. They belong to whatever version
+        /// the next stat shows, so a new version keeps the bytes the storage still holds in them.
+        var uploaded: [Range<UInt64>] = []
 
         /// The version the blocks came from, from the last stat or listing; `nil` before the first.
         var version: FileVersion?
@@ -18,7 +20,8 @@ extension ReferenceCache {
         /// Digest taken by ``TrustPolicy/hashOnServer(_:)`` for this version.
         var digest: Data?
 
-        /// Value of ``ReferenceCache/tick`` at the last use, for least-recently-used eviction.
+        /// Value of ``ReferenceCache/tick`` at the last use, for dropping the least recently used files past
+        /// ``ReferenceCache/entryLimit``.
         var lastUsed: UInt64
 
         /// Bytes the client appended since the last stat, or `nil` when it appended none.
@@ -37,11 +40,11 @@ extension ReferenceCache {
         /// Changes whenever the blocks stop matching what a check in flight looked at: dropped, rewritten, or moved.
         var contentEpoch: UInt64 = 0
 
-        /// Whether the file alone exceeded the byte budget, so it is not cached until its version changes.
+        /// Whether the storage could not hold the file, so it is not cached until its version changes.
         var isTooLarge = false
 
         init(
-            id: UInt64,
+            id: CacheFileID,
             version: FileVersion?,
             knownSize: UInt64?,
             lastUsed: UInt64,

@@ -43,9 +43,8 @@ private func makeCache(
     metadata: ReferenceCache.MetadataPolicy = .neverAnswer
 ) -> ReferenceCache {
     ReferenceCache(
+        storage: InMemoryCacheStorage(byteBudget: byteBudget, maximumFileSize: maximumFileSize),
         configuration: .init(
-            byteBudget: byteBudget,
-            maximumFileSize: maximumFileSize,
             minimumHitLength: minimumHitLength,
             metadata: metadata
         )
@@ -136,10 +135,9 @@ private func cacheFile(
     await download(cache, contents, path: path)
 }
 
-/// Whether ``ReferenceCache/storedByteCount`` matches the bytes its files hold.
+/// Whether the storage's byte count matches the bytes its files hold.
 private func byteCountIsConsistent(_ cache: ReferenceCache) async -> Bool {
-    let held = await cache.files.values.reduce(0) { $0 + $1.blocks.byteCount }
-    return await cache.storedByteCount == held
+    await cache.memoryStorage.invariantViolations().isEmpty
 }
 
 // MARK: Block storage
@@ -149,49 +147,49 @@ struct ReferenceCacheBlockStorageTests {
     @Test("runs merge: new bytes overwrite the bytes they overlap, and touching runs join")
     func blocksMerge() {
         var blocks = FileBlocks()
-        blocks.write(bytes(20, from: 10), at: 10, isUpload: false)
-        blocks.write(bytes(20, from: 50), at: 50, isUpload: false)
+        blocks.write(bytes(20, from: 10), at: 10)
+        blocks.write(bytes(20, from: 50), at: 50)
         #expect(blocks.ranges == [10 ..< 30, 50 ..< 70])
 
         // Overlaps both runs.
-        blocks.write(Data(repeating: 0xEE, count: 30), at: 25, isUpload: false)
+        blocks.write(Data(repeating: 0xEE, count: 30), at: 25)
         #expect(blocks.ranges == [10 ..< 70])
         #expect(blocks.byteCount == 60)
 
         // Touches the end, then lands before the start without touching it.
-        blocks.write(bytes(10, from: 70), at: 70, isUpload: false)
-        blocks.write(bytes(5, from: 0), at: 0, isUpload: false)
+        blocks.write(bytes(10, from: 70), at: 70)
+        blocks.write(bytes(5, from: 0), at: 0)
         #expect(blocks.ranges == [0 ..< 5, 10 ..< 80])
 
         // Inside one run, replaced in place.
-        blocks.write(Data(repeating: 0xAA, count: 4), at: 12, isUpload: false)
+        blocks.write(Data(repeating: 0xAA, count: 4), at: 12)
 
         let expected = bytes(2, from: 10) + Data(repeating: 0xAA, count: 4) + bytes(9, from: 16)
             + Data(repeating: 0xEE, count: 30) + bytes(15, from: 55) + bytes(10, from: 70)
-        #expect(blocks.run(at: 10, upTo: 1000, end: nil) == expected)
-        #expect(blocks.run(at: 3, upTo: 1000, end: nil) == bytes(2, from: 3))
-        #expect(blocks.run(at: 7, upTo: 1000, end: nil) == nil)
+        #expect(blocks.run(at: 10, upTo: 1000) == expected)
+        #expect(blocks.run(at: 3, upTo: 1000) == bytes(2, from: 3))
+        #expect(blocks.run(at: 7, upTo: 1000) == nil)
         #expect(blocks.byteCount == 75)
     }
 
-    @Test("written ranges are tracked apart, and downloads over them stop counting as written")
-    func uploadedRanges() {
+    @Test("retaining ranges keeps only their bytes, split runs included, and a single prefix trims in place")
+    func retainRanges() {
         var blocks = FileBlocks()
-        blocks.write(bytes(100), at: 0, isUpload: false)
-        blocks.write(Data(repeating: 1, count: 20), at: 10, isUpload: true)
-        blocks.write(Data(repeating: 2, count: 10), at: 50, isUpload: true)
-        blocks.write(bytes(5, from: 55), at: 55, isUpload: false)
-        #expect(blocks.uploaded == [10 ..< 30, 50 ..< 55])
+        blocks.write(bytes(100), at: 0)
+        blocks.write(Data(repeating: 1, count: 20), at: 10)
+        blocks.write(Data(repeating: 2, count: 10), at: 50)
 
-        blocks.keepOnlyUploaded()
+        blocks.retain([10 ..< 30, 50 ..< 55])
         #expect(blocks.ranges == [10 ..< 30, 50 ..< 55])
-        #expect(blocks.run(at: 50, upTo: 100, end: nil) == Data(repeating: 2, count: 5))
-        #expect(blocks.uploaded.isEmpty)
+        #expect(blocks.run(at: 50, upTo: 100) == Data(repeating: 2, count: 5))
         #expect(blocks.byteCount == 25)
 
-        blocks.truncate(to: 20)
+        blocks.retain([0 ..< 20])
         #expect(blocks.ranges == [10 ..< 20])
         #expect(blocks.byteCount == 10)
+
+        blocks.retain([])
+        #expect(blocks.isEmpty && blocks.byteCount == 0)
     }
 
     @Test("stored ranges merge in the cache, with later bytes over earlier ones")
@@ -307,6 +305,37 @@ struct ReferenceCacheBlockStorageTests {
         )
         #expect(await cache.cachedRanges(path: "/small") == [])
         #expect(await cache.storedByteCount == 0)
+    }
+
+    @Test("caches sharing a storage keep their files apart, share its budget, and close without touching each other")
+    func sharedStorage() async throws {
+        let storage = InMemoryCacheStorage(byteBudget: 100)
+        let first = ReferenceCache(storage: storage, configuration: .init(minimumHitLength: 0))
+        let second = ReferenceCache(storage: storage, configuration: .init(minimumHitLength: 0))
+
+        // The same path on two servers: two files.
+        await cacheFile(first, path: "/f", contents: bytes(40))
+        await cacheFile(second, path: "/f", contents: bytes(40, from: 100))
+        #expect(await retrieve(first, path: "/f", upTo: 40) == bytes(40))
+        #expect(await retrieve(second, path: "/f", upTo: 40) == bytes(40, from: 100))
+        #expect(storage.byteCount == 80)
+
+        // One budget: the second cache's next file pushes out the least recently used, which is the first cache's.
+        await cacheFile(second, path: "/g", contents: bytes(40, from: 200))
+        #expect(await first.cachedRanges(path: "/f") == [])
+        #expect(await second.cachedRanges(path: "/f") == [0 ..< 40])
+        #expect(await second.cachedRanges(path: "/g") == [0 ..< 40])
+
+        // Bytes the storage dropped are downloaded again into the same tracked file.
+        await download(first, bytes(40), path: "/f")
+        #expect(await first.cachedRanges(path: "/f") == [0 ..< 40])
+        #expect(await second.cachedRanges(path: "/f") == [])
+
+        // Closing drops only the closed cache's bytes.
+        try await first.close()
+        #expect(await second.cachedRanges(path: "/g") == [0 ..< 40])
+        #expect(await second.invariantViolations() == [])
+        #expect(storage.byteCount == 40)
     }
 }
 

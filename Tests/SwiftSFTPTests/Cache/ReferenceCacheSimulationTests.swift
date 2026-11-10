@@ -18,20 +18,26 @@ import Testing
 struct ReferenceCacheSimulationTests {
     /// A configuration drawn from `seed`, with budgets and limits small enough for eviction and refusals to happen
     /// within a few hundred steps.
-    static func configuration(seed: UInt64, answersMetadata: Bool) -> ReferenceCache.Configuration {
+    static func configuration(
+        seed: UInt64,
+        answersMetadata: Bool
+    ) -> (configuration: ReferenceCache.Configuration, limits: CacheSimulation.StorageLimits) {
         var generator = SeededGenerator(seed: seed ^ 0xC0FFEE)
         let budgets = [0, 96, 300, 1 << 20, 1 << 20]
         let fileSizes: [UInt64?] = [nil, nil, 60, 1000]
         let hitLengths = [0, 0, 1, 16, 64 * 1024]
 
-        return .init(
+        let limits = CacheSimulation.StorageLimits(
             byteBudget: generator.pick(budgets),
-            maximumFileSize: generator.pick(fileSizes),
+            maximumFileSize: generator.pick(fileSizes)
+        )
+        let configuration = ReferenceCache.Configuration(
             keepsUploads: generator.chance(0.7),
             minimumHitLength: generator.pick(hitLengths),
             trustPolicy: .trustReports,
             metadata: answersMetadata ? .answer(for: 3600, includingMissing: generator.chance(0.5)) : .neverAnswer
         )
+        return (configuration, limits)
     }
 
     /// The options the simulation of `seed` starts from. Every other seed is crowded: two places a file can be, so that
@@ -39,8 +45,10 @@ struct ReferenceCacheSimulationTests {
     ///
     /// - Parameter concurrent: Whether two to four operations are in flight together, rather than one.
     static func options(seed: UInt64, answersMetadata: Bool, concurrent: Bool) -> CacheSimulation.Options {
-        .init(
-            configuration: configuration(seed: seed, answersMetadata: answersMetadata),
+        let drawn = configuration(seed: seed, answersMetadata: answersMetadata)
+        return .init(
+            configuration: drawn.configuration,
+            limits: drawn.limits,
             concurrency: concurrent ? 2 + Int(seed / 2 % 3) : 1,
             crowded: seed % 2 == 1
         )

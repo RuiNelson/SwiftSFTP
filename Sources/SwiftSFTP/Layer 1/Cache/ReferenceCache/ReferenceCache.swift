@@ -1,12 +1,14 @@
 import Foundation
 import PathWorks
 
-/// A reference ``SFTPBlockLevelReadCache`` that keeps file contents, and optionally metadata, in memory.
+/// A reference ``SFTPBlockLevelReadCache`` that keeps file contents in a ``CacheStorage``, and optionally metadata in
+/// memory.
 ///
 /// Attach one cache to a client, and its forks, connected to one server:
 ///
 /// ```swift
 /// let cache = try await ReferenceCache(
+///     storage: InMemoryCacheStorage(byteBudget: 64 * 1024 * 1024),
 ///     forking: client,
 ///     configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 10)
 /// )
@@ -18,11 +20,12 @@ import PathWorks
 ///
 /// ## Storage
 ///
-/// The cache keeps the bytes the client reads and writes, up to ``Configuration/byteBudget``. To stay within it, it
-/// drops whole files, least recently used first, so a cached file never has holes that would break up sequential reads.
-/// It hands back cached bytes only in runs of at least ``Configuration/minimumHitLength``, and never past the size the
-/// file last had. On Apple platforms it also drops files when the system runs short of memory: down to half the budget
-/// on a warning, and everything when memory is critical.
+/// The cache keeps the bytes the client reads and writes in its ``CacheStorage``, which decides how many it keeps and
+/// which it drops; ``InMemoryCacheStorage`` by default. The cache decides which bytes are current: it stores and hands
+/// back only bytes of the version of a file it tracks, never past the size the file last had, and only in runs of at
+/// least ``Configuration/minimumHitLength``. Caches for several servers can share one storage.
+///
+/// On Apple platforms the cache drops the stats and listings it keeps when the system's memory is critical.
 ///
 /// ## Staying current
 ///
@@ -44,8 +47,8 @@ import PathWorks
 /// ## Control connection
 ///
 /// Checks against the server, relative path resolution, and symbolic link resolution need a connection of the cache's
-/// own, made with ``init(forking:configuration:)``. The cache owns that connection: closing the client the cache is
-/// attached to does not close it, ``close()`` does.
+/// own, made with ``init(storage:forking:configuration:)``. The cache owns that connection: closing the client the
+/// cache is attached to does not close it, ``close()`` does.
 public actor ReferenceCache: SFTPBlockLevelReadCache {
     // MARK: Limits
 
@@ -65,6 +68,9 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
 
     let configuration: Configuration
 
+    /// Where the bytes of tracked files are kept, by ``FileEntry/id``.
+    let storage: any CacheStorage
+
     /// The cache's own connection, without a cache attached.
     let control: SFTPClient?
 
@@ -78,13 +84,9 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// The block keys in ``files``, by the directory holding them.
     var filesByDirectory: [String: Set<String>] = [:]
 
-    /// Bytes held across all files.
-    var storedByteCount = 0
-
-    /// Counts uses, for least-recently-used eviction.
+    /// Counts uses, for dropping the least recently used files past ``entryLimit``.
     var tick: UInt64 = 0
 
-    var nextEntryID: UInt64 = 0
     var changeLog = ChangeLog()
 
     /// Requests whose lookup the cache answered, until the client ends them.
@@ -137,15 +139,17 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// Creates a cache without a control connection.
     ///
     /// The configuration must not need one: its trust policy must be ``TrustPolicy/trustReports``, and it must neither
-    /// resolve relative paths nor deduplicate symbolic links. Use ``init(forking:configuration:)`` otherwise.
+    /// resolve relative paths nor deduplicate symbolic links. Use ``init(storage:forking:configuration:)`` otherwise.
     ///
-    /// - Parameter configuration: How the cache stores, checks, and answers.
-    public init(configuration: Configuration) {
+    /// - Parameters:
+    ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
+    ///   - configuration: How the cache stores, checks, and answers.
+    public init(storage: any CacheStorage = InMemoryCacheStorage(), configuration: Configuration) {
         precondition(
             !configuration.needsControlConnection,
-            "This configuration needs a control connection: create the cache with init(forking:configuration:)"
+            "This configuration needs a control connection: create the cache with init(storage:forking:configuration:)"
         )
-        self.init(checkedConfiguration: configuration, control: nil, workingDirectory: nil)
+        self.init(checkedConfiguration: configuration, storage: storage, control: nil, workingDirectory: nil)
     }
 
     /// Creates a cache with a control connection of its own, forked from `client`.
@@ -155,10 +159,15 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// ``close()``. With ``Configuration/resolvesRelativePaths``, this reads the server's working directory too.
     ///
     /// - Parameters:
+    ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
     ///   - client: A logged-in client connected to the server whose files the cache keeps.
     ///   - configuration: How the cache stores, checks, and answers.
     /// - Throws: Errors from forking and logging in, or from reading the working directory.
-    public init(forking client: SFTPClient, configuration: Configuration) async throws {
+    public init(
+        storage: any CacheStorage = InMemoryCacheStorage(),
+        forking client: SFTPClient,
+        configuration: Configuration
+    ) async throws {
         let control = try await client.fork(loggedIn: true)
         precondition(
             !control.hasCacheAttached(),
@@ -176,12 +185,23 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
             }
         }
 
-        self.init(checkedConfiguration: configuration, control: control, workingDirectory: workingDirectory)
+        self.init(
+            checkedConfiguration: configuration,
+            storage: storage,
+            control: control,
+            workingDirectory: workingDirectory
+        )
     }
 
-    init(checkedConfiguration configuration: Configuration, control: SFTPClient?, workingDirectory: String?) {
+    init(
+        checkedConfiguration configuration: Configuration,
+        storage: any CacheStorage,
+        control: SFTPClient?,
+        workingDirectory: String?
+    ) {
         configuration.validate()
         self.configuration = configuration
+        self.storage = storage
         self.control = control
         self.workingDirectory = workingDirectory?.first == "/" ? workingDirectory : nil
 
@@ -189,14 +209,18 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
             let observer = MemoryPressureObserver()
             memoryPressureObserver = observer
             observer.start { [weak self] critical in
+                guard critical else {
+                    return
+                }
                 Task {
-                    await self?.relieveMemoryPressure(critical: critical)
+                    await self?.relieveMemoryPressure()
                 }
             }
         #endif
     }
 
-    /// Closes the control connection, if the cache has one, and drops everything cached.
+    /// Closes the control connection, if the cache has one, and drops everything cached, its files' bytes in the
+    /// storage included.
     ///
     /// The cache owns its control connection: closing the clients it is attached to does not close it, so call this
     /// when done with the cache. Detach the cache from every client first. A cache still attached goes on storing and
@@ -259,7 +283,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// Hands back the cached run starting at `offset`, when it is at least ``Configuration/minimumHitLength`` long or
     /// reaches the end of the file, after checking the file against the server if the trust policy says it is due.
     public func retrieveBlock(path: String, offset: UInt64, upTo: Int, request: CacheRequestID) async -> Data? {
-        guard upTo > 0, configuration.byteBudget > 0 else {
+        guard upTo > 0 else {
             return nil
         }
 
@@ -550,7 +574,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
                 entry.lastCheck = nil
             }
             if !isCacheable(entry) {
-                entry.blocks.removeAll()
+                dropBlocks(of: &entry)
             }
         }
     }
@@ -611,13 +635,23 @@ extension ReferenceCache {
         if let size = entry.knownSize, offset >= size {
             return nil
         }
-        return (entry.knownSize, entry.blocks.contains(offset))
+        return (entry.knownSize, storage.ranges(of: entry.id).contains { $0.contains(offset) })
     }
 
     /// The cached run of `key` at `offset`, if it is long enough to hand back.
     func hit(_ key: String, offset: UInt64, upTo: Int) -> Data? {
-        guard let entry = files[key], isCacheable(entry),
-              let run = entry.blocks.run(at: offset, upTo: upTo, end: entry.knownSize) else {
+        guard let entry = files[key], isCacheable(entry) else {
+            return nil
+        }
+
+        var limit = upTo
+        if let size = entry.knownSize {
+            guard offset < size else {
+                return nil
+            }
+            limit = Int(min(UInt64(upTo), size - offset))
+        }
+        guard let run = storage.read(entry.id, at: offset, upTo: limit), !run.isEmpty else {
             return nil
         }
 
@@ -640,31 +674,34 @@ extension ReferenceCache {
         guard let request, let lookup = requests.start(of: request), let key = rememberedKey(for: path),
               let entry = files[key], entry.id == lookup.entry,
               changeLog.generation(of: key) <= lookup.clock,
-              changeLog.generation(of: normalize(path)) <= lookup.clock else {
+              changeLog.generation(of: normalize(path)) <= lookup.clock,
+              isCacheable(entry) else {
             return
         }
 
-        tick += 1
-        let stored = updateEntry(key) { entry -> Bool in
-            guard isCacheable(entry) else {
-                return false
+        var bytes = data
+        if let size = entry.knownSize {
+            guard offset < size else {
+                return
             }
-
-            var bytes = data
-            if let size = entry.knownSize {
-                guard offset < size else {
-                    return false
-                }
-                if UInt64(bytes.count) > size - offset {
-                    bytes = bytes.prefix(Int(size - offset))
-                }
+            if UInt64(bytes.count) > size - offset {
+                bytes = bytes.prefix(Int(size - offset))
             }
-
-            entry.blocks.write(bytes, at: offset, isUpload: false)
-            entry.lastUsed = tick
-            return true
         }
-        guard stored == true else {
+
+        tick += 1
+        let kept = storage.write(bytes, at: offset, of: entry.id)
+        updateEntry(key) { entry in
+            entry.lastUsed = tick
+            if kept {
+                entry.uploaded = ByteRanges.subtracting(offset ..< offset + UInt64(bytes.count), from: entry.uploaded)
+            }
+            else {
+                entry.uploaded = []
+                entry.isTooLarge = true
+            }
+        }
+        guard kept else {
             return
         }
 
@@ -675,8 +712,6 @@ extension ReferenceCache {
            let entry = files[key], entry.digest == nil, !entry.lastCheckFailedToRun || isDue(entry) {
             startCheck(key: key)
         }
-
-        enforceBudget(protecting: key)
     }
 
     /// Keeps written bytes, when ``Configuration/keepsUploads`` is on, or drops the file's blocks, and drops the stored
@@ -695,7 +730,7 @@ extension ReferenceCache {
 
         guard configuration.keepsUploads else {
             updateEntry(key) { entry in
-                entry.blocks.removeAll()
+                dropBlocks(of: &entry)
                 entry.digest = nil
                 entry.contentEpoch += 1
             }
@@ -713,76 +748,53 @@ extension ReferenceCache {
                 entry.knownSize = end
             }
 
-            entry.blocks.write(data, at: offset, isUpload: true)
             entry.lastUsed = tick
             entry.digest = nil
             entry.contentEpoch += 1
             if case .hashOnServer = configuration.trustPolicy {
                 entry.lastCheck = nil
             }
-            if !isCacheable(entry) {
-                entry.blocks.removeAll()
+
+            guard isCacheable(entry) else {
+                dropBlocks(of: &entry)
+                return
+            }
+            if storage.write(data, at: offset, of: entry.id) {
+                entry.uploaded = ByteRanges.union(entry.uploaded, offset ..< end)
+            }
+            else {
+                entry.uploaded = []
+                entry.isTooLarge = true
             }
         }
-
-        enforceBudget(protecting: key)
     }
 
     /// Whether the cache stores and hands out bytes of `entry`.
     func isCacheable(_ entry: FileEntry) -> Bool {
-        !entry.isTooLarge && (entry.knownSize ?? 0) <= configuration.largestCacheableFile
+        !entry.isTooLarge && storage.accepts(fileSize: entry.knownSize ?? 0)
     }
 
-    /// Drops the bytes of the least recently used files, other than `protected`, until at most `target` bytes remain.
-    func evictBlocks(downTo target: Int, protecting protected: String? = nil) {
-        guard storedByteCount > target else {
-            return
-        }
-
-        let candidates = files
-            .compactMap { key, entry in key != protected && !entry.blocks.isEmpty ? (key, entry.lastUsed) : nil }
-            .sorted { $0.1 < $1.1 }
-        for (key, _) in candidates {
-            guard storedByteCount > target else {
-                break
-            }
-            updateEntry(key) { $0.blocks.removeAll() }
-        }
+    /// Drops the bytes of `entry` from the storage, and the ranges written to them.
+    func dropBlocks(of entry: inout FileEntry) {
+        storage.remove(entry.id)
+        entry.uploaded = []
     }
 
-    /// Brings the stored bytes within the budget after storing into `key`: drops `key` if it alone is over, and evicts
-    /// other files otherwise.
-    func enforceBudget(protecting key: String) {
-        guard storedByteCount > configuration.byteBudget else {
-            return
-        }
-
-        if let byteCount = files[key]?.blocks.byteCount, byteCount > configuration.byteBudget {
-            updateEntry(key) { entry in
-                entry.blocks.removeAll()
-                entry.isTooLarge = true
-            }
-            return
-        }
-
-        evictBlocks(downTo: configuration.byteBudget, protecting: key)
-    }
-
-    func relieveMemoryPressure(critical: Bool) {
-        if critical {
-            removeAll()
-        }
-        else {
-            evictBlocks(downTo: configuration.byteBudget / 2)
-        }
+    /// Drops the stored stats and listings, which may be large, when the system's memory is critical. The storage
+    /// relieves the pressure on bytes itself.
+    func relieveMemoryPressure() {
+        stats.removeAll()
+        listings.removeAll()
     }
 
     /// Drops everything cached. What the cache knows of paths that may no longer lead to the files opened through them
     /// stays: those files are still open.
     func removeAll() {
+        for entry in files.values {
+            storage.remove(entry.id)
+        }
         files.removeAll()
         filesByDirectory.removeAll()
-        storedByteCount = 0
         stats.removeAll()
         listings.removeAll()
         forgetLinkResolutions()
@@ -809,20 +821,19 @@ extension ReferenceCache {
 
         let now = Self.uptime()
         updateEntry(key) { entry in
-            if version.isSame(as: entry.version) {
-                entry.blocks.forgetUploads()
-            }
-            else {
+            // The ranges whose bytes stay, or `nil` for every byte.
+            var kept: [Range<UInt64>]?
+            if !version.isSame(as: entry.version) {
                 changeLog.recordChange(at: key)
-                // Appending through the client left the bytes before the old end as they were, as long as nothing else
-                // changed the size.
+                // Bytes written since the last stat belong to the new version. Appending through the client left the
+                // bytes before the old end as they were, as long as nothing else changed the size.
                 if let appends = entry.appends, let base = appends.base,
                    case let (sum, overflow) = base.addingReportingOverflow(appends.byteCount), !overflow,
                    version.size == sum {
-                    entry.blocks.keepOnlyUploaded(andBefore: base)
+                    kept = ByteRanges.union(entry.uploaded, 0 ..< base)
                 }
                 else {
-                    entry.blocks.keepOnlyUploaded()
+                    kept = entry.uploaded
                 }
                 entry.version = version
                 entry.digest = nil
@@ -831,10 +842,11 @@ extension ReferenceCache {
                 entry.lastCheck = nil
             }
 
+            entry.uploaded = []
             entry.appends = nil
             entry.knownSize = version.size
             if let size = version.size {
-                entry.blocks.truncate(to: size)
+                kept = ByteRanges.clamping(kept ?? [0 ..< .max], to: 0 ..< size)
             }
 
             // A stat is all a statOnServer check does.
@@ -847,17 +859,19 @@ extension ReferenceCache {
             }
 
             if !isCacheable(entry) {
-                entry.blocks.removeAll()
+                dropBlocks(of: &entry)
+            }
+            else if let kept {
+                storage.retain(kept, of: entry.id)
             }
         }
     }
 
     func createEntry(_ key: String, version: FileVersion?) {
-        nextEntryID += 1
         tick += 1
         let checked = configuration.trustPolicy == .statOnServer && version != nil
         insertEntry(key, FileEntry(
-            id: nextEntryID,
+            id: CacheFileID(),
             version: version,
             knownSize: version?.size,
             lastUsed: tick,
@@ -877,22 +891,16 @@ extension ReferenceCache {
         }
     }
 
-    /// Mutates the entry at `key` in place. The entry leaves the dictionary meanwhile, so changing its bytes never
-    /// copies them, and ``storedByteCount`` follows the change.
+    /// Mutates the entry at `key` in place.
     @discardableResult
     func updateEntry<Result>(_ key: String, _ body: (inout FileEntry) -> Result) -> Result? {
-        guard var entry = files.removeValue(forKey: key) else {
+        guard files[key] != nil else {
             return nil
         }
-
-        storedByteCount -= entry.blocks.byteCount
-        let result = body(&entry)
-        storedByteCount += entry.blocks.byteCount
-        files[key] = entry
-        return result
+        return body(&files[key]!)
     }
 
-    /// Stops tracking the file at `key`. Reads of it in flight are stale from now on.
+    /// Stops tracking the file at `key`, and drops its bytes. Reads of it in flight are stale from now on.
     func removeEntry(_ key: String) {
         guard takeEntry(key) != nil else {
             return
@@ -900,7 +908,7 @@ extension ReferenceCache {
         changeLog.recordChange(at: key)
     }
 
-    /// Stops tracking every file at or under `root`, without recording a change.
+    /// Stops tracking every file at or under `root`, and drops their bytes, without recording a change.
     ///
     /// - Returns: Whether any file was tracked there.
     @discardableResult
@@ -918,7 +926,7 @@ extension ReferenceCache {
         let moving = files.keys.filter { CachePath.isPath($0, atOrUnder: from) }
         var moved: [(String, FileEntry)] = []
         for key in moving {
-            if let entry = takeEntry(key) {
+            if let entry = takeEntry(key, keepingBytes: true) {
                 moved.append((CachePath.rebase(key, from: from, to: to), entry))
             }
         }
@@ -936,14 +944,14 @@ extension ReferenceCache {
     func insertEntry(_ key: String, _ entry: FileEntry) {
         files[key] = entry
         filesByDirectory[CachePath.parent(of: key), default: []].insert(key)
-        storedByteCount += entry.blocks.byteCount
     }
 
     /// Stops tracking the file at `key`, without recording a change.
     ///
+    /// - Parameter keepingBytes: Whether the file's bytes stay in the storage, for an entry that moves to another key.
     /// - Returns: The file's entry, or `nil` when no file was tracked there.
     @discardableResult
-    func takeEntry(_ key: String) -> FileEntry? {
+    func takeEntry(_ key: String, keepingBytes: Bool = false) -> FileEntry? {
         guard let entry = files.removeValue(forKey: key) else {
             return nil
         }
@@ -953,7 +961,9 @@ extension ReferenceCache {
         if filesByDirectory[directory]?.isEmpty == true {
             filesByDirectory[directory] = nil
         }
-        storedByteCount -= entry.blocks.byteCount
+        if !keepingBytes {
+            storage.remove(entry.id)
+        }
         return entry
     }
 
@@ -1397,6 +1407,6 @@ extension ReferenceCache {
 extension ReferenceCache {
     /// The cached ranges of the file at `path`, sorted.
     func cachedRanges(path: String) async -> [Range<UInt64>] {
-        await files[resolvedKey(for: path)]?.blocks.ranges ?? []
+        await files[resolvedKey(for: path)].map { storage.ranges(of: $0.id) } ?? []
     }
 }

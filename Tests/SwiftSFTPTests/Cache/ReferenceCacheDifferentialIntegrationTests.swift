@@ -45,6 +45,9 @@ struct ReferenceCacheDifferentialIntegrationTests {
         let name: String
         let configuration: ReferenceCache.Configuration
 
+        /// Most bytes the cache's storage keeps.
+        var byteBudget = 256 * 1024 * 1024
+
         /// Whether files are also reached through a symbolic link to their directory, and by relative paths.
         var usesAliases = false
 
@@ -61,7 +64,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
             configuration: .init(minimumHitLength: 0, metadata: .answer(for: 60, includingMissing: true))
         ),
         Setup(name: "uploads not kept", configuration: .init(keepsUploads: false, minimumHitLength: 0)),
-        Setup(name: "a budget of 20 KiB", configuration: .init(byteBudget: 20 * 1024, minimumHitLength: 0)),
+        Setup(name: "a budget of 20 KiB", configuration: .init(minimumHitLength: 0), byteBudget: 20 * 1024),
         Setup(
             name: "statOnServer before every hit",
             configuration: .init(minimumHitLength: 0, trustPolicy: .statOnServer, revalidationInterval: 0)
@@ -234,7 +237,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
         let paths = Paths(base: uniqueRemotePath("differential"), usesAliases: setup.usesAliases)
         var generator = SeededGenerator(seed: Self.seed)
 
-        try await withCachedClients(setup.configuration) { clients in
+        try await withCachedClients(setup.configuration, byteBudget: setup.byteBudget) { clients in
             try await clients.truth.createDirectory(path: paths.base, makePath: false)
             try await clients.truth.createDirectory(path: paths.directory, makePath: false)
             if setup.usesAliases {
@@ -330,7 +333,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
         let paths = Paths(base: uniqueRemotePath("differential-bursts"), usesAliases: false)
         var generator = SeededGenerator(seed: Self.seed)
 
-        try await withCachedClients(setup.configuration) { clients in
+        try await withCachedClients(setup.configuration, byteBudget: setup.byteBudget) { clients in
             try await clients.truth.createDirectory(path: paths.base, makePath: false)
             try await clients.truth.createDirectory(path: paths.directory, makePath: false)
 

@@ -1,9 +1,8 @@
 import Foundation
 
-/// The cached bytes of one file: sorted runs that neither overlap nor touch, plus the ranges written through the client
-/// since the file's last stat.
+/// The stored bytes of one file: sorted runs that neither overlap nor touch.
 struct FileBlocks {
-    /// A run of contiguous cached bytes.
+    /// A run of contiguous stored bytes.
     struct Segment: Equatable {
         /// Position of the first byte in the file.
         var start: UInt64
@@ -23,14 +22,11 @@ struct FileBlocks {
     /// Total bytes held.
     private(set) var byteCount = 0
 
-    /// Ranges written through the client since the file's last stat, sorted and merged.
-    private(set) var uploaded: [Range<UInt64>] = []
-
     var isEmpty: Bool {
         segments.isEmpty
     }
 
-    /// The cached ranges, sorted.
+    /// The stored ranges, sorted.
     var ranges: [Range<UInt64>] {
         segments.map { $0.start ..< $0.end }
     }
@@ -42,69 +38,28 @@ struct FileBlocks {
         segmentIndex(containing: offset) != nil
     }
 
-    /// A copy of the cached bytes starting exactly at `offset`, at most `upTo` of them and none at or past `end`.
+    /// A copy of the stored bytes starting exactly at `offset`, at most `upTo` of them.
     ///
     /// - Returns: The bytes, or `nil` when no run holds the byte at `offset`.
-    func run(at offset: UInt64, upTo: Int, end: UInt64?) -> Data? {
+    func run(at offset: UInt64, upTo: Int) -> Data? {
         guard upTo > 0, let index = segmentIndex(containing: offset) else {
             return nil
         }
 
         let segment = segments[index]
-        let stop = min(segment.end, end ?? .max)
-        guard stop > offset else {
-            return nil
-        }
-
-        let count = Int(min(UInt64(upTo), stop - offset))
+        let count = Int(min(UInt64(upTo), segment.end - offset))
         return copy(of: segment, from: offset, count: count)
-    }
-
-    /// Up to `count` ranges of at most `length` bytes, chosen at random among the cached bytes, with their contents.
-    func randomSamples(count: Int, length: Int) -> [(offset: UInt64, bytes: Data)] {
-        guard byteCount > 0, count > 0, length > 0 else {
-            return []
-        }
-
-        var generator = SystemRandomNumberGenerator()
-        return (0 ..< count).map { _ in
-            // Each segment is chosen in proportion to its size, then a window within it.
-            var position = Int.random(in: 0 ..< byteCount, using: &generator)
-            var chosen = segments[0]
-            for segment in segments {
-                if position < segment.bytes.count {
-                    chosen = segment
-                    break
-                }
-                position -= segment.bytes.count
-            }
-
-            let window = min(length, chosen.bytes.count)
-            let latestStart = chosen.bytes.count - window
-            let start = latestStart == 0 ? 0 : Int.random(in: 0 ... latestStart, using: &generator)
-            let offset = chosen.start + UInt64(start)
-            return (offset, copy(of: chosen, from: offset, count: window))
-        }
     }
 
     // MARK: Writing
 
-    /// Stores `data` at `offset`, over any bytes already cached there.
-    ///
-    /// - Parameter isUpload: Whether the bytes were written through the client. Downloaded bytes stop counting as
-    /// written since the last stat.
-    mutating func write(_ data: Data, at offset: UInt64, isUpload: Bool) {
+    /// Stores `data` at `offset`, over any bytes already stored there.
+    mutating func write(_ data: Data, at offset: UInt64) {
         guard !data.isEmpty else {
             return
         }
 
         let end = offset + UInt64(data.count)
-        if isUpload {
-            uploaded = Self.union(uploaded, offset ..< end)
-        }
-        else {
-            uploaded = Self.subtracting(offset ..< end, from: uploaded)
-        }
 
         // Overwriting bytes inside one run: replace them in place. No local copy of the run may hold its storage
         // meanwhile, or replacing would copy all of it.
@@ -161,13 +116,14 @@ struct FileBlocks {
         byteCount += merged.count - removed
     }
 
-    /// Drops every byte not written through the client since the last stat, other than those before `end`, and starts
-    /// counting writes afresh.
-    ///
-    /// - Parameter end: Position before which every byte is kept: where the file ended before the client appended to
-    /// it, or `0`.
-    mutating func keepOnlyUploaded(andBefore end: UInt64 = 0) {
-        let keptRanges = end > 0 ? Self.union(uploaded, 0 ..< end) : uploaded
+    /// Drops every byte outside `keptRanges`, which are sorted and neither overlap nor touch.
+    mutating func retain(_ keptRanges: [Range<UInt64>]) {
+        // Only cutting the end off: trim in place, so the runs before it are not copied.
+        if keptRanges.count <= 1, keptRanges.first?.lowerBound ?? 0 == 0 {
+            truncate(to: keptRanges.first?.upperBound ?? 0)
+            return
+        }
+
         var kept: [Segment] = []
         for range in keptRanges {
             for segment in segments where segment.start < range.upperBound && segment.end > range.lowerBound {
@@ -180,16 +136,18 @@ struct FileBlocks {
         // The kept ranges are merged, so the kept runs neither overlap nor touch.
         segments = kept
         byteCount = kept.reduce(0) { $0 + $1.bytes.count }
-        uploaded = []
     }
 
-    /// Starts counting writes afresh, keeping every byte.
-    mutating func forgetUploads() {
-        uploaded = []
+    /// Drops every byte.
+    mutating func removeAll() {
+        segments = []
+        byteCount = 0
     }
+
+    // MARK: Private
 
     /// Drops every byte at or past `size`.
-    mutating func truncate(to size: UInt64) {
+    private mutating func truncate(to size: UInt64) {
         while let index = segments.indices.last, segments[index].end > size {
             let count = segments[index].bytes.count
             if segments[index].start >= size {
@@ -203,18 +161,7 @@ struct FileBlocks {
                 byteCount -= count - kept
             }
         }
-
-        uploaded = Self.subtracting(size ..< .max, from: uploaded)
     }
-
-    /// Drops every byte.
-    mutating func removeAll() {
-        segments = []
-        byteCount = 0
-        uploaded = []
-    }
-
-    // MARK: Private
 
     /// Index of the run holding the byte at `offset`.
     private func segmentIndex(containing offset: UInt64) -> Int? {
@@ -253,51 +200,5 @@ struct FileBlocks {
         data.withUnsafeBytes { buffer in
             buffer.baseAddress.map { Data(bytes: $0, count: buffer.count) } ?? Data()
         }
-    }
-
-    /// `ranges` with `range` added, sorted and merged.
-    static func union(_ ranges: [Range<UInt64>], _ range: Range<UInt64>) -> [Range<UInt64>] {
-        var lower = range.lowerBound
-        var upper = range.upperBound
-        var result: [Range<UInt64>] = []
-        var inserted = false
-        for existing in ranges {
-            if existing.upperBound < lower {
-                result.append(existing)
-            }
-            else if existing.lowerBound > upper {
-                if !inserted {
-                    result.append(lower ..< upper)
-                    inserted = true
-                }
-                result.append(existing)
-            }
-            else {
-                lower = min(lower, existing.lowerBound)
-                upper = max(upper, existing.upperBound)
-            }
-        }
-        if !inserted {
-            result.append(lower ..< upper)
-        }
-        return result
-    }
-
-    /// `ranges` without `range`.
-    static func subtracting(_ range: Range<UInt64>, from ranges: [Range<UInt64>]) -> [Range<UInt64>] {
-        var result: [Range<UInt64>] = []
-        for existing in ranges {
-            guard existing.overlaps(range) else {
-                result.append(existing)
-                continue
-            }
-            if existing.lowerBound < range.lowerBound {
-                result.append(existing.lowerBound ..< range.lowerBound)
-            }
-            if existing.upperBound > range.upperBound {
-                result.append(range.upperBound ..< existing.upperBound)
-            }
-        }
-        return result
     }
 }

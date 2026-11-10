@@ -83,14 +83,16 @@ struct ReferenceCacheInvariantFuzzTests {
             .answer(for: 3600, includingMissing: false),
             .answer(for: 0, includingMissing: true),
         ]
-        let configuration = ReferenceCache.Configuration(
+        let storage = InMemoryCacheStorage(
             byteBudget: generator.pick(budgets),
-            maximumFileSize: generator.pick(fileSizes),
+            maximumFileSize: generator.pick(fileSizes)
+        )
+        let configuration = ReferenceCache.Configuration(
             keepsUploads: generator.chance(0.7),
             minimumHitLength: generator.pick(hitLengths),
             metadata: generator.pick(policies)
         )
-        let cache = ReferenceCache(configuration: configuration)
+        let cache = ReferenceCache(storage: storage, configuration: configuration)
 
         var open: [CacheRequestID] = []
         var ended: [CacheRequestID] = []

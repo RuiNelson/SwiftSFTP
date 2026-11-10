@@ -1,20 +1,10 @@
 import Foundation
 
 public extension ReferenceCache {
-    /// How an ``ReferenceCache`` stores blocks, checks them against the server, and answers metadata lookups.
+    /// How a ``ReferenceCache`` caches blocks, checks them against the server, and answers metadata lookups.
+    ///
+    /// How many bytes are kept is up to the cache's ``CacheStorage``.
     struct Configuration: Sendable, Equatable {
-        /// Most bytes of file contents kept, across all files.
-        ///
-        /// When storing more would go over the budget, the cache drops whole files, least recently used first, so no
-        /// file is left with holes. A file larger than the budget is never cached. `0` turns block caching off.
-        public var byteBudget: Int
-
-        /// Size above which a file is not cached, or `nil` for no limit other than ``byteBudget``.
-        ///
-        /// The size comes from stats and directory listings, so a file whose size the cache has not seen yet is cached
-        /// until it does.
-        public var maximumFileSize: UInt64?
-
         /// Whether bytes written through the client are kept, so reading them back needs no download.
         ///
         /// When `false`, a write drops the cached blocks of the file it writes to.
@@ -71,8 +61,6 @@ public extension ReferenceCache {
         /// Creates a configuration.
         ///
         /// - Parameters:
-        ///   - byteBudget: Most bytes of file contents kept. 256 MiB by default.
-        ///   - maximumFileSize: Size above which a file is not cached; no limit by default.
         ///   - keepsUploads: Whether written bytes are kept. `true` by default.
         ///   - minimumHitLength: Shortest run of cached bytes handed back for a read. 64 KiB by default.
         ///   - trustPolicy: Checks made against the server. ``TrustPolicy/trustReports`` by default.
@@ -83,8 +71,6 @@ public extension ReferenceCache {
         ///   - resolvesRelativePaths: Whether relative paths are joined to the working directory. `false` by default.
         ///   - deduplicatesSymlinks: Whether paths are resolved through symbolic links. `false` by default.
         public init(
-            byteBudget: Int = 256 * 1024 * 1024,
-            maximumFileSize: UInt64? = nil,
             keepsUploads: Bool = true,
             minimumHitLength: Int = 64 * 1024,
             trustPolicy: TrustPolicy = .trustReports,
@@ -93,8 +79,6 @@ public extension ReferenceCache {
             resolvesRelativePaths: Bool = false,
             deduplicatesSymlinks: Bool = false
         ) {
-            self.byteBudget = byteBudget
-            self.maximumFileSize = maximumFileSize
             self.keepsUploads = keepsUploads
             self.minimumHitLength = minimumHitLength
             self.trustPolicy = trustPolicy
@@ -105,7 +89,7 @@ public extension ReferenceCache {
         }
     }
 
-    /// What an ``ReferenceCache`` does to make sure cached blocks still match the file on the server.
+    /// What a ``ReferenceCache`` does to make sure cached blocks still match the file on the server.
     ///
     /// Whatever the policy, the cache compares every stat and directory listing the client makes, and the final stat
     /// the client makes when it closes a file it wrote, with the size and modification time of the version its blocks
@@ -151,7 +135,7 @@ public extension ReferenceCache {
         case sampleBlocks(count: Int)
     }
 
-    /// Whether an ``ReferenceCache`` answers stats and directory listings itself.
+    /// Whether a ``ReferenceCache`` answers stats and directory listings itself.
     enum MetadataPolicy: Sendable, Equatable {
         /// Never answers: every stat and listing goes to the server.
         ///
@@ -184,7 +168,6 @@ extension ReferenceCache.Configuration {
 
     /// Checks the values that have a valid range.
     func validate() {
-        precondition(byteBudget >= 0, "byteBudget must not be negative")
         precondition(minimumHitLength >= 0, "minimumHitLength must not be negative")
         if let revalidationInterval {
             precondition(revalidationInterval >= 0, "revalidationInterval must not be negative")
@@ -195,10 +178,5 @@ extension ReferenceCache.Configuration {
         if case let .answer(maximumAge, _) = metadata {
             precondition(maximumAge >= 0, "The metadata answer interval must not be negative")
         }
-    }
-
-    /// Size above which a file is not cached: the smaller of ``maximumFileSize`` and ``byteBudget``.
-    var largestCacheableFile: UInt64 {
-        min(maximumFileSize ?? .max, UInt64(byteBudget))
     }
 }

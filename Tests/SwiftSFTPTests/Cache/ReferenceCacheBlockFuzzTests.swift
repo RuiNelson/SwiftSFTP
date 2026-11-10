@@ -4,7 +4,7 @@ import Testing
 
 // MARK: Model
 
-/// What ``FileBlocks`` should hold, kept the slow and obvious way: one entry per byte.
+/// What a ``FileBlocks`` and its written ranges should hold, kept the slow and obvious way: one entry per byte.
 private struct ModelBlocks {
     var bytes: [UInt64: UInt8] = [:]
     var uploaded: Set<UInt64> = []
@@ -69,6 +69,98 @@ private struct ModelBlocks {
     }
 }
 
+// MARK: Harness
+
+/// A file's stored bytes and the ranges written to them, kept the way ``ReferenceCache`` keeps them: the bytes in
+/// ``FileBlocks``, the written ranges beside them.
+private struct CachedFile {
+    var blocks = FileBlocks()
+    var uploaded: [Range<UInt64>] = []
+
+    var ranges: [Range<UInt64>] {
+        blocks.ranges
+    }
+
+    var byteCount: Int {
+        blocks.byteCount
+    }
+
+    var isEmpty: Bool {
+        blocks.isEmpty
+    }
+
+    func contains(_ offset: UInt64) -> Bool {
+        blocks.contains(offset)
+    }
+
+    mutating func write(_ data: Data, at offset: UInt64, isUpload: Bool) {
+        guard !data.isEmpty else {
+            return
+        }
+        blocks.write(data, at: offset)
+        let range = offset ..< offset + UInt64(data.count)
+        uploaded = isUpload ? ByteRanges.union(uploaded, range) : ByteRanges.subtracting(range, from: uploaded)
+    }
+
+    /// What a new version keeps: the written ranges, and the bytes before `end`.
+    mutating func keepOnlyUploaded(andBefore end: UInt64 = 0) {
+        blocks.retain(ByteRanges.union(uploaded, 0 ..< end))
+        uploaded = []
+    }
+
+    mutating func forgetUploads() {
+        uploaded = []
+    }
+
+    mutating func truncate(to size: UInt64) {
+        blocks.retain(ByteRanges.clamping([0 ..< .max], to: 0 ..< size))
+        uploaded = ByteRanges.subtracting(size ..< .max, from: uploaded)
+    }
+
+    mutating func removeAll() {
+        blocks.removeAll()
+        uploaded = []
+    }
+
+    /// The run at `offset`, cut at `end` the way the cache cuts it at the file's known size.
+    func run(at offset: UInt64, upTo: Int, end: UInt64?) -> Data? {
+        var limit = upTo
+        if let end {
+            guard offset < end, upTo > 0 else {
+                return nil
+            }
+            limit = Int(min(UInt64(upTo), end - offset))
+        }
+        return blocks.run(at: offset, upTo: limit)
+    }
+
+    func randomSamples(count: Int, length: Int) -> [(offset: UInt64, bytes: Data)] {
+        ReferenceCache.sampleRanges(in: ranges, count: count, length: length).compactMap { range in
+            blocks.run(at: range.lowerBound, upTo: range.count).map { (range.lowerBound, $0) }
+        }
+    }
+
+    func invariantViolations() -> [String] {
+        var violations = blocks.invariantViolations()
+        var previousUpper: UInt64?
+        for range in uploaded {
+            if range.isEmpty {
+                violations.append("an empty written range at \(range.lowerBound)")
+            }
+            if let previousUpper, range.lowerBound <= previousUpper {
+                violations.append("the written range \(range) overlaps or touches the one ending at \(previousUpper)")
+            }
+            previousUpper = range.upperBound
+
+            let covered = blocks.segments.contains { $0.start <= range.lowerBound && $0.end >= range.upperBound }
+            if !covered, !range.isEmpty {
+                violations.append("the written range \(range) is not stored")
+            }
+        }
+        return violations
+    }
+}
+
 // MARK: Tests
 
 @Suite("ReferenceCache: block storage against a model")
@@ -83,9 +175,9 @@ struct ReferenceCacheBlockFuzzTests {
     func blocksMatchModel(seed: UInt64) {
         var generator = SeededGenerator(seed: seed)
         let base = generator.pick(Self.bases)
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         var model = ModelBlocks()
-        var saved: (blocks: FileBlocks, model: ModelBlocks, step: Int)?
+        var saved: (blocks: CachedFile, model: ModelBlocks, step: Int)?
         var handedOut: [(run: Data, copy: [UInt8], step: Int)] = []
 
         /// A position in a window narrow enough for writes to overlap, touch, and leave gaps.
@@ -211,7 +303,7 @@ struct ReferenceCacheBlockFuzzTests {
     @Test("samples for a check are cached bytes, at the positions they claim", arguments: CacheFuzz.seeds(40))
     func samplesAreCachedBytes(seed: UInt64) {
         var generator = SeededGenerator(seed: seed)
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         var model = ModelBlocks()
         #expect(blocks.randomSamples(count: 4, length: 16).isEmpty)
 
@@ -248,11 +340,11 @@ struct ReferenceCacheBlockFuzzTests {
                 guard !range.isEmpty else {
                     continue
                 }
-                ranges = FileBlocks.union(ranges, range)
+                ranges = ByteRanges.union(ranges, range)
                 positions.formUnion(range)
             }
             else {
-                ranges = FileBlocks.subtracting(range, from: ranges)
+                ranges = ByteRanges.subtracting(range, from: ranges)
                 positions.subtract(range)
             }
 
@@ -265,7 +357,7 @@ struct ReferenceCacheBlockFuzzTests {
 
     @Test("writes at the edges of runs: empty, touching on either side, spanning many, and exactly over one")
     func writeEdges() {
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         blocks.write(Data(), at: 10, isUpload: true)
         #expect(blocks.isEmpty && blocks.uploaded.isEmpty)
 
@@ -299,7 +391,7 @@ struct ReferenceCacheBlockFuzzTests {
 
     @Test("a run is cut at the end it is given, and nothing is handed out from that end on")
     func runEnds() {
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         blocks.write(CacheFuzz.bytes(20, from: 10), at: 10, isUpload: false)
 
         #expect(blocks.run(at: 10, upTo: 100, end: 15) == CacheFuzz.bytes(5, from: 10))
@@ -316,7 +408,7 @@ struct ReferenceCacheBlockFuzzTests {
 
     @Test("truncating at, inside, and past runs, and keeping written ranges that split a run")
     func truncateAndKeepEdges() {
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         blocks.write(CacheFuzz.bytes(10, from: 0), at: 0, isUpload: false)
         blocks.write(CacheFuzz.bytes(10, from: 20), at: 20, isUpload: true)
 
@@ -356,7 +448,7 @@ struct ReferenceCacheBlockFuzzTests {
 
     @Test("positions up to the last one a file can have are stored and read back")
     func farPositions() {
-        var blocks = FileBlocks()
+        var blocks = CachedFile()
         let far = UInt64.max - 20
 
         // The last byte a file can hold is at `.max - 1`: the run ends at `.max`.

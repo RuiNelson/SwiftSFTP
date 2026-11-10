@@ -78,7 +78,7 @@ struct RequestLog {
         /// ``ChangeLog/clock`` when the request started.
         let clock: UInt64
         /// ``ReferenceCache/FileEntry/id`` of the file a read's lookup found, or `nil`.
-        let entry: UInt64?
+        let entry: CacheFileID?
         /// Whether a lookup started the request, rather than ``SFTPBlockLevelReadCache/beginRequest(_:)``: its store
         /// then describes the path as it is, rather than a file open at it.
         let isLookup: Bool
@@ -104,7 +104,7 @@ struct RequestLog {
     /// again keeps its first start, so its store is checked against everything since.
     ///
     /// - Parameter isLookup: Whether a lookup started the request.
-    mutating func begin(_ request: CacheRequestID, at clock: UInt64, entry: UInt64? = nil, isLookup: Bool = true) {
+    mutating func begin(_ request: CacheRequestID, at clock: UInt64, entry: CacheFileID? = nil, isLookup: Bool = true) {
         guard records[request] == nil else {
             return
         }

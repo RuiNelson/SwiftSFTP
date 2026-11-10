@@ -127,7 +127,7 @@ extension ReferenceCache {
             }
 
         case let .sampleBlocks(count):
-            let samples = files[key]?.blocks.randomSamples(count: count, length: Self.sampleLength) ?? []
+            let samples = files[key].map { randomSamples(of: $0.id, count: count, length: Self.sampleLength) } ?? []
             let matches: Bool
             do {
                 matches = try await Self.serverHolds(samples, path: serverPath, control: control)
@@ -149,11 +149,48 @@ extension ReferenceCache {
         }
     }
 
+    /// Up to `count` ranges of at most `length` bytes of `file`, chosen at random among the bytes the storage holds,
+    /// with their contents.
+    func randomSamples(of file: CacheFileID, count: Int, length: Int) -> [(offset: UInt64, bytes: Data)] {
+        // The storage may drop the file between the calls: a sample it no longer holds is left out.
+        Self.sampleRanges(in: storage.ranges(of: file), count: count, length: length).compactMap { range in
+            storage.read(file, at: range.lowerBound, upTo: range.count).map { (range.lowerBound, $0) }
+        }
+    }
+
+    /// Up to `count` ranges of at most `length` bytes within `ranges`, chosen at random: each range in proportion to
+    /// its size, then a window within it.
+    static func sampleRanges(in ranges: [Range<UInt64>], count: Int, length: Int) -> [Range<UInt64>] {
+        let total = ranges.reduce(0) { $0 + $1.count }
+        guard total > 0, count > 0, length > 0 else {
+            return []
+        }
+
+        var generator = SystemRandomNumberGenerator()
+        return (0 ..< count).map { _ in
+            var position = Int.random(in: 0 ..< total, using: &generator)
+            var chosen = ranges[0]
+            for range in ranges {
+                if position < range.count {
+                    chosen = range
+                    break
+                }
+                position -= range.count
+            }
+
+            let window = min(length, chosen.count)
+            let latestStart = chosen.count - window
+            let start = latestStart == 0 ? 0 : Int.random(in: 0 ... latestStart, using: &generator)
+            let lower = chosen.lowerBound + UInt64(start)
+            return lower ..< lower + UInt64(window)
+        }
+    }
+
     // MARK: Private
 
     /// What a check started from, to tell whether its result still applies.
     struct CheckSnapshot {
-        let id: UInt64
+        let id: CacheFileID
         let contentEpoch: UInt64
     }
 
@@ -178,7 +215,7 @@ extension ReferenceCache {
         // Reads in flight may carry bytes of the content that failed.
         changeLog.recordChange(at: key)
         updateEntry(key) { entry in
-            entry.blocks.removeAll()
+            dropBlocks(of: &entry)
             entry.digest = nil
             entry.contentEpoch += 1
             // Not checked again before it is due, so a server that cannot be checked is not asked on every read.

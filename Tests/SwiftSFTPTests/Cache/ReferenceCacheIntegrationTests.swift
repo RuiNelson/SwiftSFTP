@@ -534,8 +534,7 @@ struct ReferenceCacheIntegrationTests {
             let request = CacheRequestID()
             let served = await cache.retrieveBlock(path: destination, offset: 0, upTo: 1000, request: request)
             await cache.requestEnded(request)
-            let held = await cache.files.values.reduce(0) { $0 + $1.blocks.byteCount }
-            let counted = await cache.storedByteCount
+            let storageViolations = await cache.memoryStorage.invariantViolations()
 
             client.detachCache()
             try await cache.close()
@@ -544,7 +543,7 @@ struct ReferenceCacheIntegrationTests {
 
             // The source's bytes, from before the write, must not be handed out for the destination.
             #expect(served == nil || served?.prefix(Self.marker.count) == Self.marker)
-            #expect(counted == held)
+            #expect(storageViolations == [])
         }
     }
 }

@@ -16,16 +16,19 @@ struct CachedClients {
     let gated: GatedCache
 }
 
-/// Runs `body` with a cache of `configuration` attached to a client, and closes everything afterwards.
+/// Runs `body` with a cache of `configuration`, storing up to `byteBudget` bytes, attached to a client, and closes
+/// everything afterwards.
 func withCachedClients(
     _ configuration: ReferenceCache.Configuration = .init(minimumHitLength: 0),
+    byteBudget: Int = 256 * 1024 * 1024,
     _ body: (CachedClients) async throws -> Void
 ) async throws {
     try await withClient { client in
         let truth = try await client.fork(loggedIn: true)
+        let storage = InMemoryCacheStorage(byteBudget: byteBudget)
         let cache = configuration.needsControlConnection
-            ? try await ReferenceCache(forking: client, configuration: configuration)
-            : ReferenceCache(configuration: configuration)
+            ? try await ReferenceCache(storage: storage, forking: client, configuration: configuration)
+            : ReferenceCache(storage: storage, configuration: configuration)
         let gated = GatedCache(cache)
         client.attachCache(gated)
 

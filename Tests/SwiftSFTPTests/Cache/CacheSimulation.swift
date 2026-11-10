@@ -369,8 +369,16 @@ struct SimulatedServer {
 /// own invariants are checked after every step, and whenever nothing is in flight an audit reads every file back
 /// through the cache.
 final class CacheSimulation {
+    /// The limits of the in-memory storage the cache keeps its bytes in.
+    struct StorageLimits: Sendable {
+        var byteBudget = 256 * 1024 * 1024
+        var maximumFileSize: UInt64?
+    }
+
     struct Options: CustomStringConvertible, Sendable {
         var configuration: ReferenceCache.Configuration
+
+        var limits = StorageLimits()
 
         /// Most operations in flight together.
         var concurrency = 1
@@ -417,7 +425,7 @@ final class CacheSimulation {
 
         var description: String {
             """
-            budget \(configuration.byteBudget), maximumFileSize \(configuration.maximumFileSize
+            budget \(limits.byteBudget), maximumFileSize \(limits.maximumFileSize
                 .map(String.init) ?? "nil"), \
             keepsUploads \(configuration.keepsUploads), minimumHitLength \(configuration.minimumHitLength), \
             metadata \(configuration.metadata), concurrency \(concurrency), crowded \(crowded), \
@@ -562,7 +570,13 @@ final class CacheSimulation {
         filePaths = (["/"] + directoryPaths).flatMap { directory in
             (options.crowded ? ["f"] : ["f", "g", "h"]).map { directory == "/" ? "/\($0)" : "\(directory)/\($0)" }
         }
-        cache = ReferenceCache(configuration: options.configuration)
+        cache = ReferenceCache(
+            storage: InMemoryCacheStorage(
+                byteBudget: options.limits.byteBudget,
+                maximumFileSize: options.limits.maximumFileSize
+            ),
+            configuration: options.configuration
+        )
         generator = SeededGenerator(seed: seed)
     }
 

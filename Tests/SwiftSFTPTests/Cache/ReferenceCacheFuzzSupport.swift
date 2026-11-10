@@ -255,9 +255,8 @@ enum CacheFuzz {
         metadata: ReferenceCache.MetadataPolicy = .neverAnswer
     ) -> ReferenceCache {
         ReferenceCache(
+            storage: InMemoryCacheStorage(byteBudget: byteBudget, maximumFileSize: maximumFileSize),
             configuration: .init(
-                byteBudget: byteBudget,
-                maximumFileSize: maximumFileSize,
                 keepsUploads: keepsUploads,
                 minimumHitLength: minimumHitLength,
                 metadata: metadata
@@ -269,7 +268,7 @@ enum CacheFuzz {
 // MARK: Invariants
 
 extension FileBlocks {
-    /// What is wrong with the runs and the written ranges, whatever was stored before: nothing, unless there is a bug.
+    /// What is wrong with the runs, whatever was stored before: nothing, unless there is a bug.
     func invariantViolations() -> [String] {
         var violations: [String] = []
         var total = 0
@@ -291,22 +290,6 @@ extension FileBlocks {
 
         if total != byteCount {
             violations.append("byteCount is \(byteCount), the runs hold \(total)")
-        }
-
-        var previousUpper: UInt64?
-        for range in uploaded {
-            if range.isEmpty {
-                violations.append("an empty written range at \(range.lowerBound)")
-            }
-            if let previousUpper, range.lowerBound <= previousUpper {
-                violations.append("the written range \(range) overlaps or touches the one ending at \(previousUpper)")
-            }
-            previousUpper = range.upperBound
-
-            let covered = segments.contains { $0.start <= range.lowerBound && $0.end >= range.upperBound }
-            if !covered, !range.isEmpty {
-                violations.append("the written range \(range) is not cached")
-            }
         }
 
         return violations
@@ -332,39 +315,47 @@ extension ReferenceCache {
     /// bug.
     func invariantViolations() -> [String] {
         var violations: [String] = []
-        var held = 0
-        var identifiers = Set<UInt64>()
+        var identifiers = Set<CacheFileID>()
 
         for (key, entry) in files {
-            held += entry.blocks.byteCount
-            violations += entry.blocks.invariantViolations().map { "\(key): \($0)" }
+            let ranges = storage.ranges(of: entry.id)
+            if let blocks = memoryStorage.blocks(of: entry.id) {
+                violations += blocks.invariantViolations().map { "\(key): \($0)" }
+            }
 
             if !identifiers.insert(entry.id).inserted {
                 violations.append("\(key): entry id \(entry.id) is used twice")
             }
-            if let size = entry.knownSize, let last = entry.blocks.ranges.last, last.upperBound > size {
+            if let size = entry.knownSize, let last = ranges.last, last.upperBound > size {
                 violations.append("\(key): holds bytes up to \(last.upperBound), past the known size \(size)")
             }
-            if entry.isTooLarge, !entry.blocks.isEmpty {
-                violations.append("\(key): holds \(entry.blocks.byteCount) bytes though it outgrew the budget")
+            if entry.isTooLarge, !ranges.isEmpty {
+                violations.append("\(key): holds bytes though the storage could not hold the file")
             }
             if entry.lastUsed > tick {
                 violations.append("\(key): last used at \(entry.lastUsed), after the clock \(tick)")
             }
-            if !configuration.keepsUploads, !entry.blocks.uploaded.isEmpty {
+            if !configuration.keepsUploads, !entry.uploaded.isEmpty {
                 violations.append("\(key): tracks written ranges though uploads are not kept")
+            }
+            var previousUpper: UInt64?
+            for range in entry.uploaded {
+                if range.isEmpty || previousUpper.map({ range.lowerBound <= $0 }) == true {
+                    violations.append("\(key): the written ranges \(entry.uploaded) are not sorted and merged")
+                    break
+                }
+                previousUpper = range.upperBound
             }
             if !CacheFuzz.sameScalars(CachePath.normalize(key), key) {
                 violations.append("\(key): the key is not a normalized path")
             }
         }
 
-        if held != storedByteCount {
-            violations.append("storedByteCount is \(storedByteCount), the files hold \(held)")
+        let orphans = memoryStorage.storedFiles.subtracting(identifiers)
+        if !orphans.isEmpty {
+            violations.append("the storage holds bytes of \(orphans.count) files the cache no longer tracks")
         }
-        if storedByteCount > configuration.byteBudget {
-            violations.append("\(storedByteCount) bytes stored, over the budget of \(configuration.byteBudget)")
-        }
+        violations += memoryStorage.invariantViolations()
         if files.count > Self.entryLimit {
             violations.append("\(files.count) files tracked, over the limit")
         }
@@ -400,12 +391,57 @@ extension ReferenceCache {
     /// The cached bytes of the file at the block key `key`, by position.
     func cachedBytes(key: String) -> [UInt64: UInt8] {
         var result: [UInt64: UInt8] = [:]
-        for segment in files[key]?.blocks.segments ?? [] {
+        for segment in files[key].flatMap({ memoryStorage.blocks(of: $0.id) })?.segments ?? [] {
             for (index, byte) in segment.bytes.enumerated() {
                 result[segment.start + UInt64(index)] = byte
             }
         }
         return result
+    }
+}
+
+extension InMemoryCacheStorage {
+    /// What is wrong with the storage's bookkeeping: nothing, unless there is a bug.
+    func invariantViolations() -> [String] {
+        var violations: [String] = []
+        var held = 0
+        for file in storedFiles {
+            guard let blocks = blocks(of: file) else {
+                continue
+            }
+            held += blocks.byteCount
+            if blocks.isEmpty {
+                violations.append("the storage keeps \(file) without bytes")
+            }
+        }
+        if held != byteCount {
+            violations.append("the storage counts \(byteCount) bytes, its files hold \(held)")
+        }
+        if byteCount > byteBudget {
+            violations.append("\(byteCount) bytes stored, over the budget of \(byteBudget)")
+        }
+        return violations
+    }
+}
+
+extension ReferenceCache {
+    /// The cache's storage, which the tests make in memory.
+    var memoryStorage: InMemoryCacheStorage {
+        storage as! InMemoryCacheStorage
+    }
+
+    /// Bytes the cache's storage holds.
+    var storedByteCount: Int {
+        memoryStorage.byteCount
+    }
+
+    /// Relieves memory pressure the way the system's warnings do: the storage drops bytes, and the cache drops its
+    /// stats and listings when memory is critical.
+    func relieveMemoryPressure(critical: Bool) {
+        memoryStorage.relieveMemoryPressure(critical: critical)
+        if critical {
+            relieveMemoryPressure()
+        }
     }
 }
 
