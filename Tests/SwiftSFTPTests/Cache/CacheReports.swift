@@ -37,13 +37,13 @@ struct CacheReportTests {
 
             // A stat and a listing missed, then answered, and a listing the server fails.
             let metadata = try #require(try await client.stat(path: file, followLink: true))
-            _ = try await client.listDirectory(path: directory, recursive: false)
+            _ = try await client.contentsOfDirectory(path: directory, recursive: false)
             await cache.answerStat(.doesNotExist, path: file)
             _ = try await client.stat(path: file, followLink: true)
             await cache.answerListing([], path: directory)
-            _ = try await client.listDirectory(path: directory, recursive: false)
+            _ = try await client.contentsOfDirectory(path: directory, recursive: false)
             await #expect(throws: (any Error).self) {
-                _ = try await client.listDirectory(path: "\(directory)/missing", recursive: false)
+                _ = try await client.contentsOfDirectory(path: "\(directory)/missing", recursive: false)
             }
             await cache.answerStat(.exists(metadata), path: file)
 
@@ -342,7 +342,9 @@ struct CacheReportTests {
             client.detachCache()
             try await client.delete(path: directory)
 
-            #expect(await cache.events == [])
+            // The command may have written the file in place, which the path still leads to: the write through the
+            // handle drops what the cache holds there, and is all the cache hears of the file.
+            #expect(await cache.events == [.invalidate(path: target)])
         }
     }
 

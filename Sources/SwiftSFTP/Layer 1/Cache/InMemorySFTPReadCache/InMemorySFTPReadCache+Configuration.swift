@@ -34,9 +34,9 @@ public extension InMemorySFTPReadCache {
         /// How long a check by ``trustPolicy`` stays good, or `nil` to check again only after the next stat of the
         /// file.
         ///
-        /// Before answering a read of a file whose last check is older than this, the cache checks the file again.
-        /// With `nil`, the cache checks a file once after each stat of it, which the client makes when it opens the
-        /// file, so roughly once per open. A file kept open is then not checked again until it is opened anew.
+        /// Before answering a read of a file whose last check is older than this, the cache checks the file again. With
+        /// `nil`, the cache checks a file once after each stat of it, which the client makes when it opens the file, so
+        /// roughly once per open. A file kept open is then not checked again until it is opened anew.
         ///
         /// The default, 30 seconds, bounds how long a file kept open goes unchecked, at the cost of one check per file
         /// every 30 seconds of reading. Ignored by ``TrustPolicy/trustReports``.
@@ -57,8 +57,15 @@ public extension InMemorySFTPReadCache {
         /// shares one cache entry with the file itself.
         ///
         /// The cache asks the server once for each new path, over its control connection, and remembers the answer
-        /// until a change through the client touches the path. Links changed by anything else are not noticed. Stats
+        /// until a change through the client touches the path. It asks again for paths through links after every
+        /// change, since a change may re-point a link on the way. Links changed by anything else are not noticed. Stats
         /// and listings are still answered per path, as given. Needs a control connection.
+        ///
+        /// The client follows a file open through a link by the link's path, not by its real path. Once a change
+        /// through the client may have made a link path lead elsewhere than the files opened through it, such as a
+        /// rename or a delete of what it led to, or a re-pointed link on the way, the cache stops answering and keeping
+        /// reads through that path, and a change reported through it drops every file it may have meant. Such a path is
+        /// read from the server from then on.
         public var deduplicatesSymlinks: Bool
 
         /// Creates a configuration.
@@ -127,10 +134,10 @@ public extension InMemorySFTPReadCache {
         /// Also hashes the file on the server, with ``SSHShellAgentProtocol/calculateHash(file:algorithm:)``, and
         /// compares the digest with the one taken when the file first got cached contents.
         ///
-        /// Notices any change to the file's contents, whatever its size and modification time, without downloading
-        /// it, and works with files only partly cached. It needs shell access on the server, with the hashing tools
-        /// the algorithm requires, and makes the server read the whole file on every check, so it suits small files
-        /// best. The first digest is taken in the background just after the first bytes are stored, so a change in the
+        /// Notices any change to the file's contents, whatever its size and modification time, without downloading it,
+        /// and works with files only partly cached. It needs shell access on the server, with the hashing tools the
+        /// algorithm requires, and makes the server read the whole file on every check, so it suits small files best.
+        /// The first digest is taken in the background just after the first bytes are stored, so a change in the
         /// meantime goes unnoticed; a write through the client has the next check take a new one. On a server without
         /// shell access every check fails, so cached blocks last only until the next check.
         case hashOnServer(CalculateHashAlgorithm)

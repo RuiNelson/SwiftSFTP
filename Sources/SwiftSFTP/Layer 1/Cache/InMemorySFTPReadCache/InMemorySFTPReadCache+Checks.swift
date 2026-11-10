@@ -35,8 +35,8 @@ extension InMemorySFTPReadCache {
             return true
         }
 
-        // Anything may have changed across the waits: decide on the state after them. A check whose result was
-        // dropped leaves the last check where it was. One that failed dropped the bytes it was about.
+        // Anything may have changed across the waits: decide on the state after them. A check whose result was dropped
+        // leaves the last check where it was. One that failed dropped the bytes it was about.
         let started = Self.uptime()
         await startCheck(key: key).value
         return files[key].map { ($0.lastCheck ?? -.infinity) >= started } ?? false
@@ -76,9 +76,10 @@ extension InMemorySFTPReadCache {
             return
         }
         guard let control, !isClosed else {
-            failCheck(key, snapshot)
+            failCheck(key, snapshot, ran: false)
             return
         }
+        let serverPath = CachePath.serverPath(ofKey: key)
 
         switch configuration.trustPolicy {
         case .trustReports:
@@ -87,10 +88,10 @@ extension InMemorySFTPReadCache {
         case .statOnServer:
             let metadata: FileMetadata?
             do {
-                metadata = try await control.stat(path: key, followLink: true)
+                metadata = try await control.stat(path: serverPath, followLink: true)
             }
             catch {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: false)
                 return
             }
 
@@ -98,7 +99,7 @@ extension InMemorySFTPReadCache {
                 return
             }
             guard let metadata, metadata.isRegularFile else {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: true)
                 return
             }
             applyVersion(metadata.attributes, key: key, createIfMissing: false)
@@ -106,10 +107,10 @@ extension InMemorySFTPReadCache {
         case let .hashOnServer(algorithm):
             let digest: Data
             do {
-                digest = try await hash(key, algorithm: algorithm, control: control)
+                digest = try await hash(serverPath, algorithm: algorithm, control: control)
             }
             catch {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: false)
                 return
             }
 
@@ -117,7 +118,7 @@ extension InMemorySFTPReadCache {
                 return
             }
             if let baseline = files[key]?.digest, baseline != digest {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: true)
                 return
             }
             updateEntry(key) { entry in
@@ -129,10 +130,10 @@ extension InMemorySFTPReadCache {
             let samples = files[key]?.blocks.randomSamples(count: count, length: Self.sampleLength) ?? []
             let matches: Bool
             do {
-                matches = try await Self.serverHolds(samples, path: key, control: control)
+                matches = try await Self.serverHolds(samples, path: serverPath, control: control)
             }
             catch {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: false)
                 return
             }
 
@@ -143,7 +144,7 @@ extension InMemorySFTPReadCache {
                 updateEntry(key) { markChecked(&$0) }
             }
             else {
-                failCheck(key, snapshot)
+                failCheck(key, snapshot, ran: true)
             }
         }
     }
@@ -163,10 +164,13 @@ extension InMemorySFTPReadCache {
     private func markChecked(_ entry: inout FileEntry) {
         entry.lastCheck = Self.uptime()
         entry.statSinceCheck = false
+        entry.lastCheckFailedToRun = false
     }
 
     /// Drops the bytes of the file at `key` after a failed check, unless the file changed since the check started.
-    private func failCheck(_ key: String, _ snapshot: CheckSnapshot) {
+    ///
+    /// - Parameter ran: Whether the check found the file changed, rather than could not be made.
+    private func failCheck(_ key: String, _ snapshot: CheckSnapshot, ran: Bool) {
         guard isCurrent(key, snapshot) else {
             return
         }
@@ -179,11 +183,12 @@ extension InMemorySFTPReadCache {
             entry.contentEpoch += 1
             // Not checked again before it is due, so a server that cannot be checked is not asked on every read.
             markChecked(&entry)
+            entry.lastCheckFailedToRun = !ran
         }
     }
 
-    /// The digest of the file at `key`, computed on the server through the control connection's shell agent.
-    private func hash(_ key: String, algorithm: CalculateHashAlgorithm, control: SFTPClient) async throws -> Data {
+    /// The digest of the file at `path`, computed on the server through the control connection's shell agent.
+    private func hash(_ path: String, algorithm: CalculateHashAlgorithm, control: SFTPClient) async throws -> Data {
         let task = shellAgentTask ?? Task {
             try await control.shellAgent()
         }
@@ -202,7 +207,7 @@ extension InMemorySFTPReadCache {
         }
 
         do {
-            return try await agent.calculateHash(file: key, algorithm: algorithm)
+            return try await agent.calculateHash(file: path, algorithm: algorithm)
         }
         catch {
             // A channel failure closes the agent: open another one at the next check.

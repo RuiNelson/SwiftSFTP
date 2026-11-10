@@ -186,7 +186,8 @@ struct StalledCacheReportTests {
             let eventsAfterTimeout = await cache.events
             wedged.proxy.resume()
 
-            // The open file may have lost its path: it stops reporting. A write does not finish the abandoned delete.
+            // The open file may have lost its path: it stops reporting, and a write through it only invalidates the
+            // path it may still be at. A write does not finish the abandoned delete.
             try await open.write(Data(repeating: 1, count: 10))
             let eventsAfterWrite = await cache.events
 
@@ -199,9 +200,9 @@ struct StalledCacheReportTests {
 
             #expect(Self.isTimeout(deleted), "expected a timeout, got \(deleted)")
             #expect(eventsAfterTimeout == [.invalidate(path: path)])
-            #expect(eventsAfterWrite == eventsAfterTimeout)
+            #expect(eventsAfterWrite == eventsAfterTimeout + [.invalidate(path: path)])
             #expect(afterDrain == nil)
-            #expect(eventsAfterDrain.filter(\.isChange) == [.invalidate(path: path), .invalidate(path: path)])
+            #expect(eventsAfterDrain.filter(\.isChange) == Array(repeating: .invalidate(path: path), count: 3))
         }
     }
 

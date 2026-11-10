@@ -161,7 +161,7 @@ struct BlockLevelCacheTests {
             client.attachCache(cache)
 
             let stat = try await client.stat(path: file, followLink: true)
-            let listing = try await client.listDirectory(path: directory, recursive: false)
+            let listing = try await client.contentsOfDirectory(path: directory, recursive: false)
 
             await cache.answerStat(.doesNotExist, path: file)
             let statDoesNotExist = try await client.stat(path: file, followLink: true)
@@ -171,7 +171,7 @@ struct BlockLevelCacheTests {
             let statExists = try await client.stat(path: file, followLink: true)
 
             await cache.answerListing([fake], path: directory)
-            let cachedListing = try await client.listDirectory(path: directory, recursive: false)
+            let cachedListing = try await client.contentsOfDirectory(path: directory, recursive: false)
 
             client.detachCache()
             try await client.delete(path: directory)

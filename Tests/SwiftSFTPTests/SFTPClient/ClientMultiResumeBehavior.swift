@@ -72,7 +72,7 @@ struct SFTPClientResumeBehavior {
 
             // A non-resumable transfer names its temporary after a UUID, so it neither reads nor removes this one.
             let directory = remotePath.replacingOccurrences(of: "/payload.bin", with: "")
-            let leftovers = try await client.listDirectory(path: directory, recursive: false)
+            let leftovers = try await client.contentsOfDirectory(path: directory, recursive: false)
                 .filter { $0.fileName.hasSuffix(ResumableTrailer.temporaryFileNameSuffix) }
             #expect(leftovers.count == 1, "the partial belongs to somebody else as far as this mode is concerned")
         }

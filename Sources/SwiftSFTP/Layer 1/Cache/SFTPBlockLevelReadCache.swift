@@ -21,45 +21,54 @@ import Foundation
 /// Every lookup starts a request with an identifier of its own: ``retrieveBlock(path:offset:upTo:request:)``,
 /// ``retrieveFileStat(path:followLink:request:)``, and ``retrieveDirectoryListing(path:recursive:request:)``. When the
 /// cache does not answer, or answers only part of a read, the client asks the server and hands over the answer with a
-/// store call that carries the same identifier. Then the client calls ``requestEnded(_:)`` for that identifier exactly
-/// once, after the store if there was one, however the request ended: answered by the cache, stored, at the end of the
-/// file, failed, or cancelled.
+/// store call that carries the same identifier. A stat of a file the client has open starts its request with
+/// ``beginRequest(_:)`` instead, since the client asks the server whatever the cache holds. Then the client calls
+/// ``requestEnded(_:)`` for that identifier exactly once, after the store if there was one, however the request ended:
+/// answered by the cache, stored, at the end of the file, failed, or cancelled.
 ///
 /// Calls of one request arrive in that order, but calls of different requests interleave freely: a request's store can
 /// arrive after an ``invalidate(path:)`` or ``didRename(from:to:)`` for the same path, reported by another task while
 /// the server answered. The answer may then describe the path as it was before that change. A cache that keeps answers
 /// tells such a store apart by what changed at the path between the request's lookup and its store, and refuses it.
 ///
-/// Reports without a lookup carry no identifier: bytes the client wrote, appends, and stats of a file it has open. The
-/// client hands those over once the server answered. A change at the file's path that the client or one of its forks
-/// reports while such a call is on its way, from its start to the end of its report, may leave the report describing
-/// the file as it was before that change. The client then follows the report with ``invalidate(path:)``: after a stat,
-/// for any such change, another write to the file included; after written or appended bytes, for changes other than
-/// writes.
+/// Reports of changes carry no identifier: bytes the client wrote, and appends. The client hands those over once the
+/// server answered. A change at the file's path that the client or one of its forks reports while such a call is on its
+/// way, from its start to the end of its report, may leave the report describing the file as it was before that change.
+/// The client then follows the report with ``invalidate(path:)``: after written bytes, for changes other than writes,
+/// and for writes through another handle to bytes it also wrote; after appends, for any other change. A stat of an open
+/// file that such a change overlaps is followed by ``invalidate(path:)`` too, for any change, another write to the file
+/// included.
 ///
 /// ## Paths
 ///
 /// Paths arrive as the client sends them to the server, after sanitizing. The same file can arrive under different
-/// paths, relative or absolute, or through a symbolic link.
+/// paths, relative or absolute, or through a symbolic link. Servers compare names byte by byte, so paths that `String`
+/// compares as equal because they differ only in Unicode normalization name different files.
 ///
 /// A file renamed through the client, or one of its forks, while open reports from then on under its new path, if it
 /// was renamed by the path it was opened with or by a directory above it. A file that a call through the client or one
 /// of its forks deleted or replaced while open, or may have, stops reporting: the client neither asks the cache about
-/// it nor hands over anything about it from then on. That covers deletes, renames onto the file, deletes and renames
-/// whose call fails, and shell agent operations that write at its path. A read or a report of the file on its way
-/// while it is renamed or deleted may reach the cache under the path the file left; the client then calls
-/// ``invalidate(path:)`` for that path, and for the file's new path after a rename. Renames and deletes reach open
-/// files only by the paths they were opened with: not through symbolic links, and not between a relative and an
-/// absolute path.
+/// it nor hands over anything about it from then on, except that a change through it, which may still reach a file a
+/// path leads to, is reported with ``invalidate(path:)`` for every path the file may be at. That covers deletes,
+/// renames onto the file, deletes and renames whose call fails, renames and deletes of the path while the file is being
+/// opened, and shell agent operations that write at its path. A read or a report of the file on its way while it is
+/// renamed or deleted may reach the cache under the path the file left; the client then calls ``invalidate(path:)`` for
+/// that path, and for the file's new path after a rename, and does not use what the cache answered. Renames and deletes
+/// reach open files only by the paths they were opened with: not through symbolic links, and not between a relative and
+/// an absolute path.
 ///
 /// ## Changes
 ///
-/// The client reports every change it makes. A change whose call fails may still have happened on the server: a
-/// timeout, a cancellation, or a lost connection can come after the server applied it. The client reports those too,
-/// with ``invalidate(path:)`` for every path the call may have changed, both paths of a rename. A call given up while
-/// it waits for the server stays pending in the connection, which finishes it before a later call other than a read or
-/// a write, or drops it when it closes. The client then reports its paths again, since the server may have applied the
-/// change only then.
+/// The client reports every change it makes. Two changes to related paths, such as a rename and a size change of the
+/// file it renames, may reach the cache in the other order than the server applied them. The client then follows the
+/// later report with ``invalidate(path:)`` for the paths either change may have left wrong, the paths a rename moved
+/// them to included.
+///
+/// A change whose call fails may still have happened on the server: a timeout, a cancellation, or a lost connection can
+/// come after the server applied it. The client reports those too, with ``invalidate(path:)`` for every path the call
+/// may have changed, both paths of a rename. A call given up while it waits for the server stays pending in the
+/// connection, which finishes it before a later call other than a read or a write, or drops it when it closes. The
+/// client then reports its paths again, since the server may have applied the change only then.
 ///
 /// Changes made through the client's ``SSHShellAgent`` are reported with ``invalidate(path:)`` for every path an
 /// operation writes, whether the operation succeeds or not. A move that succeeds is reported with
@@ -113,28 +122,30 @@ public protocol SFTPBlockLevelReadCache: Sendable {
     /// Hands over the result of a stat on `path`.
     ///
     /// A stat the client made because ``retrieveFileStat(path:followLink:request:)`` did not answer comes with that
-    /// request. A stat of a file the client has open comes without one, with `followLink` set, since opening the file
-    /// followed any link at its path. Before closing a file it wrote to, the client stats it that way and reports the
-    /// result here, describing the file the written blocks belong to; when that stat is skipped, because the server
-    /// stopped answering or the connection is closed, or fails, it calls ``invalidate(path:)`` instead.
+    /// request. A stat of a file the client has open comes with the request ``beginRequest(_:)`` started before the
+    /// client asked the server, with `followLink` set, since opening the file followed any link at its path. Before
+    /// closing a file it wrote to, the client stats it that way and reports the result here, describing the file the
+    /// written blocks belong to; when that stat is skipped, because the server stopped answering or the connection is
+    /// closed, or fails, it calls ``invalidate(path:)`` instead.
     ///
     /// - Parameters:
     ///   - result: Metadata of the entry, or `nil` when nothing exists at `path`.
     ///   - path: Remote path that was stat'ed.
     ///   - followLink: Whether a symbolic link at `path` was followed.
-    ///   - request: The request the stat answers, or `nil` for a stat of an open file.
-    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async
+    ///   - request: The request the stat answers.
+    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID) async
 
     /// Hands over the entries of a directory listing of `path`, made because
     /// ``retrieveDirectoryListing(path:recursive:request:)`` did not answer.
     ///
     /// - Parameters:
-    ///   - entries: The entries listed; with `recursive`, everything under `path`.
+    ///   - entries: The entries listed, in the order the server returned them; with `recursive`, everything under
+    ///     `path`. Entries whose names differ only in Unicode normalization are different entries.
     ///   - path: Remote path of the directory.
     ///   - recursive: Whether subdirectories were listed too.
     ///   - request: The request the listing answers.
     func storeDirectoryListing(
-        _ entries: Set<FileMetadata>,
+        _ entries: [FileMetadata],
         path: String,
         recursive: Bool,
         request: CacheRequestID
@@ -158,12 +169,19 @@ public protocol SFTPBlockLevelReadCache: Sendable {
     ///   - request: The request this lookup starts.
     /// - Returns: The cached entries, or `nil` to have the client ask the server and hand over its answer with
     /// ``storeDirectoryListing(_:path:recursive:request:)``.
-    func retrieveDirectoryListing(path: String, recursive: Bool, request: CacheRequestID) async -> Set<FileMetadata>?
+    func retrieveDirectoryListing(path: String, recursive: Bool, request: CacheRequestID) async -> [FileMetadata]?
+
+    /// Starts a request that no lookup starts: the client is about to ask the server for the attributes of a file it
+    /// has open, and hands them over with ``storeFileStat(_:path:followLink:request:)`` under `request`.
+    ///
+    /// - Parameter request: The request this call starts.
+    func beginRequest(_ request: CacheRequestID) async
 
     /// Reports that `request` is over: no store for it follows.
     ///
-    /// Called exactly once for every request a lookup started, after its store if there was one, whether the request
-    /// was answered by the cache, stored, reached the end of the file, failed, or was cancelled.
+    /// Called exactly once for every request a lookup or ``beginRequest(_:)`` started, after its store if there was
+    /// one, whether the request was answered by the cache, stored, reached the end of the file, failed, or was
+    /// cancelled.
     ///
     /// - Parameter request: The request that ended.
     func requestEnded(_ request: CacheRequestID) async

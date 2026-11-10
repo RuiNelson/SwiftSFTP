@@ -65,19 +65,27 @@ struct ChangeLog {
     }
 }
 
-/// The requests whose lookup the cache answered and that have not ended yet, with the clock value at each lookup, so a
-/// store is kept only if nothing changed at its path since, and for a read the file the cache tracked then, so its
-/// bytes go to no other.
+/// The requests whose lookup the cache answered, or that ``SFTPBlockLevelReadCache/beginRequest(_:)`` started, and that
+/// have not ended yet, with the clock value at each start, so a store is kept only if nothing changed at its path
+/// since, and for a read the file the cache tracked then, so its bytes go to no other.
 struct RequestLog {
     /// Most requests remembered. Past it, the oldest are forgotten first, and their stores refused: a client that never
     /// ends its requests cannot make the log grow without limit.
     static let limit = 4096
 
-    private struct Record {
-        /// ``ChangeLog/clock`` when the lookup was answered.
+    /// What a request started from.
+    struct Start {
+        /// ``ChangeLog/clock`` when the request started.
         let clock: UInt64
         /// ``InMemorySFTPReadCache/FileEntry/id`` of the file a read's lookup found, or `nil`.
         let entry: UInt64?
+        /// Whether a lookup started the request, rather than ``SFTPBlockLevelReadCache/beginRequest(_:)``: its store
+        /// then describes the path as it is, rather than a file open at it.
+        let isLookup: Bool
+    }
+
+    private struct Record {
+        let start: Start
         /// When the record was made, to forget the oldest first.
         let sequence: UInt64
     }
@@ -92,15 +100,20 @@ struct RequestLog {
         records.count
     }
 
-    /// Remembers that the lookup of `request` was answered at `clock`, finding the tracked file `entry`. A request
-    /// looked up again keeps its first lookup, so its store is checked against everything since.
-    mutating func begin(_ request: CacheRequestID, at clock: UInt64, entry: UInt64? = nil) {
+    /// Remembers that `request` started at `clock`, its lookup finding the tracked file `entry`. A request started
+    /// again keeps its first start, so its store is checked against everything since.
+    ///
+    /// - Parameter isLookup: Whether a lookup started the request.
+    mutating func begin(_ request: CacheRequestID, at clock: UInt64, entry: UInt64? = nil, isLookup: Bool = true) {
         guard records[request] == nil else {
             return
         }
 
         nextSequence += 1
-        records[request] = Record(clock: clock, entry: entry, sequence: nextSequence)
+        records[request] = Record(
+            start: Start(clock: clock, entry: entry, isLookup: isLookup),
+            sequence: nextSequence
+        )
         order.append((request, nextSequence))
 
         while records.count > Self.limit, orderStart < order.count {
@@ -111,24 +124,22 @@ struct RequestLog {
             }
         }
 
-        // Drop the order entries of records already ended or forgotten. At most `limit` records remain, so this runs
-        // at most once every `limit` new records.
+        // Drop the order entries of records already ended or forgotten. At most `limit` records remain, so this runs at
+        // most once every `limit` new records.
         if order.count > 2 * Self.limit {
             order = order[orderStart...].filter { records[$0.request]?.sequence == $0.sequence }
             orderStart = 0
         }
     }
 
-    /// The clock value when the lookup of `request` was answered, or `nil` when the request ended, was forgotten, or
-    /// never had a lookup.
+    /// The clock value when `request` started, or `nil` when the request ended, was forgotten, or never started.
     func clock(of request: CacheRequestID) -> UInt64? {
-        records[request]?.clock
+        records[request]?.start.clock
     }
 
-    /// The clock value when the lookup of `request` was answered and the tracked file it found, or `nil` when the
-    /// request ended, was forgotten, or never had a lookup.
-    func lookup(of request: CacheRequestID) -> (clock: UInt64, entry: UInt64?)? {
-        records[request].map { ($0.clock, $0.entry) }
+    /// What `request` started from, or `nil` when the request ended, was forgotten, or never started.
+    func start(of request: CacheRequestID) -> Start? {
+        records[request]?.start
     }
 
     /// Forgets `request`.

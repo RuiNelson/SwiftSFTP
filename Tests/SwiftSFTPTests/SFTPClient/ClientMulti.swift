@@ -161,7 +161,7 @@ struct SFTPClientMultiTransfers {
                 }
 
                 #expect(try await client.stat(path: remotePath, followLink: true) == nil)
-                let entries = try await client.listDirectory(path: directory, recursive: false)
+                let entries = try await client.contentsOfDirectory(path: directory, recursive: false)
                 #expect(entries.isEmpty)
             }
             catch {

@@ -168,7 +168,7 @@ enum CacheFuzz {
     /// Hands the cache a listing the way the client does when the cache does not answer.
     static func list(
         _ cache: any SFTPBlockLevelReadCache,
-        _ entries: Set<FileMetadata>,
+        _ entries: [FileMetadata],
         path: String,
         recursive: Bool = false
     ) async {
@@ -231,7 +231,7 @@ enum CacheFuzz {
         let request = CacheRequestID()
         let answer = await cache.retrieveDirectoryListing(path: path, recursive: recursive, request: request)
         await cache.requestEnded(request)
-        return answer
+        return answer.map(Set.init)
     }
 
     /// Has the cache learn that `path` is a regular file holding `contents`, then hands it those bytes as if
@@ -314,6 +314,20 @@ extension FileBlocks {
 }
 
 extension InMemorySFTPReadCache {
+    /// Hands over a stat, as the client does: under `request`, or, for `nil`, as the stat of an open file, under a
+    /// request of its own that begins just before.
+    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async {
+        if let request {
+            await storeFileStat(result, path: path, followLink: followLink, request: request)
+            return
+        }
+
+        let own = CacheRequestID()
+        await beginRequest(own)
+        await storeFileStat(result, path: path, followLink: followLink, request: own)
+        await requestEnded(own)
+    }
+
     /// What is wrong with the cache's state between two calls, whatever was called before: nothing, unless there is a
     /// bug.
     func invariantViolations() -> [String] {
@@ -552,14 +566,14 @@ final class GatedCache: SFTPBlockLevelReadCache, @unchecked Sendable {
         lock.withLock { answeredReads }
     }
 
-    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async {
+    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID) async {
         await pass(.storeFileStat, path)
         await inner.storeFileStat(result, path: path, followLink: followLink, request: request)
         await pass(.storeFileStat, path, after: true)
     }
 
     func storeDirectoryListing(
-        _ entries: Set<FileMetadata>,
+        _ entries: [FileMetadata],
         path: String,
         recursive: Bool,
         request: CacheRequestID
@@ -580,11 +594,15 @@ final class GatedCache: SFTPBlockLevelReadCache, @unchecked Sendable {
         path: String,
         recursive: Bool,
         request: CacheRequestID
-    ) async -> Set<FileMetadata>? {
+    ) async -> [FileMetadata]? {
         await pass(.retrieveDirectoryListing, path)
         let answer = await inner.retrieveDirectoryListing(path: path, recursive: recursive, request: request)
         await pass(.retrieveDirectoryListing, path, after: true)
         return answer
+    }
+
+    func beginRequest(_ request: CacheRequestID) async {
+        await inner.beginRequest(request)
     }
 
     func requestEnded(_ request: CacheRequestID) async {

@@ -340,7 +340,7 @@ struct ShellAgentIntegrationTests {
                 try await agent.untar(file: archivePath, to: extractDir)
 
                 // tar may store absolute paths; list extracted tree for the payload name.
-                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let entries = try await client.contentsOfDirectory(path: extractDir, recursive: true)
                 let match = entries.first(where: { $0.fileName == "payload.bin" })
                 let extractedPath = try #require(match?.fullPath)
 
@@ -429,7 +429,7 @@ struct ShellAgentIntegrationTests {
                     return
                 }
 
-                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let entries = try await client.contentsOfDirectory(path: extractDir, recursive: true)
                 let match = entries.first(where: { $0.fileName == "payload.bin" })
                 #expect(match != nil)
 
@@ -513,7 +513,7 @@ struct ShellAgentIntegrationTests {
                 let extractDir = "\(dir)/extracted"
                 try await agent.unSevenZip(file: archivePath, to: extractDir)
 
-                let entries = try await client.listDirectory(path: extractDir, recursive: true)
+                let entries = try await client.contentsOfDirectory(path: extractDir, recursive: true)
                 let match = entries.first(where: { $0.fileName == "payload.bin" })
                 #expect(match != nil)
 

@@ -30,8 +30,11 @@ extension InMemorySFTPReadCache {
         /// Whether a stat arrived since the last check.
         var statSinceCheck: Bool
 
-        /// Changes whenever the blocks stop matching what a check in flight looked at: dropped, rewritten, or
-        /// moved.
+        /// Whether the last check could not be made, as on a server without shell access, rather than finding the file
+        /// changed.
+        var lastCheckFailedToRun = false
+
+        /// Changes whenever the blocks stop matching what a check in flight looked at: dropped, rewritten, or moved.
         var contentEpoch: UInt64 = 0
 
         /// Whether the file alone exceeded the byte budget, so it is not cached until its version changes.
@@ -72,8 +75,8 @@ extension InMemorySFTPReadCache {
             modificationTime = attributes.flags.contains(.accessModificationTime) ? attributes.modificationTime : nil
         }
 
-        /// Whether both versions are known to be the same. A version missing its size or modification time is never
-        /// the same as another.
+        /// Whether both versions are known to be the same. A version missing its size or modification time is never the
+        /// same as another.
         func isSame(as other: FileVersion?) -> Bool {
             size != nil && modificationTime != nil && self == other
         }
@@ -97,11 +100,28 @@ extension InMemorySFTPReadCache {
     }
 
     struct StoredListing {
-        let entries: Set<FileMetadata>
+        let entries: [FileMetadata]
         /// The entries by normalized full path.
         let byPath: [String: FileMetadata]
         /// Uptime when it was stored.
         let time: TimeInterval
+    }
+
+    /// Whether files opened earlier through a path may be elsewhere than the path leads now, which only a symbolic link
+    /// on the way can bring about.
+    enum PathSafety: Equatable {
+        /// The path leads to the files opened through it.
+        case safe
+
+        /// Files opened through the path may be at these block keys instead.
+        case elsewhere(Set<String>)
+
+        /// Files opened through the path may be anywhere: more paths became unsafe than the cache remembers.
+        case anywhere
+
+        var isSafe: Bool {
+            self == .safe
+        }
     }
 
     struct RunningCheck {

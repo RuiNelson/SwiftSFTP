@@ -160,21 +160,22 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         let source = ShellAgentSupport.sftpPathForCache(from, shellType: shellType)
         let target = ShellAgentSupport.sftpPathForCache(to, shellType: shellType)
         let destination = await moveDestination(of: source, to: target)
+        let ticket = client.beginChange(attachment)
 
         do {
             try runTransferCommand(command, progress: progress)
         }
         catch {
             // Part of the move may have happened.
-            await client.reportChange(at: [source, target], to: attachment, removing: true)
+            await client.reportFailedRename(from: source, to: target, attachment: attachment, since: ticket)
             throw error
         }
 
         if let destination {
-            await client.reportRename(from: source, to: destination, attachment: attachment)
+            await client.reportRename(from: source, to: destination, attachment: attachment, since: ticket)
         }
         else {
-            await client.reportChange(at: [source, target], to: attachment, removing: true)
+            await client.reportFailedRename(from: source, to: target, attachment: attachment, since: ticket)
         }
     }
 
@@ -358,16 +359,17 @@ extension SSHShellAgent: SSHShellAgentProtocol {
     private func reportingChanges(to paths: [String], _ operation: () throws -> Void) async throws {
         let attachment = client.cacheAttachment
         let cachePaths = paths.map { ShellAgentSupport.sftpPathForCache($0, shellType: shellType) }
+        let ticket = client.beginChange(attachment)
 
         do {
             try operation()
         }
         catch {
-            await client.reportChange(at: cachePaths, to: attachment, removing: true)
+            await client.reportChange(at: cachePaths, to: attachment, removing: true, since: ticket)
             throw error
         }
 
-        await client.reportChange(at: cachePaths, to: attachment, removing: true)
+        await client.reportChange(at: cachePaths, to: attachment, removing: true, since: ticket)
     }
 
     /// Ensures `path` exists as a directory via the parent SFTP client (`makePath: true`).

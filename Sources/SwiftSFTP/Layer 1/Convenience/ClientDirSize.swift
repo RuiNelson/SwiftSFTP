@@ -18,7 +18,7 @@ extension SFTPClientProtocol {
     }
 
     private func directoryContentsSize(_ directory: String) async throws -> Int64 {
-        let entries = try await listDirectory(path: directory, recursive: false)
+        let entries = try await contentsOfDirectory(path: directory, recursive: false)
         var total: Int64 = 0
 
         for entry in entries {

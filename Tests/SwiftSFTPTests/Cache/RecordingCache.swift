@@ -45,6 +45,7 @@ actor RecordingCache: SFTPBlockLevelReadCache {
     /// A call that carries a request identifier.
     enum RequestCall: Equatable {
         case lookup(CacheRequestID)
+        case begin(CacheRequestID)
         case store(CacheRequestID?)
         case end(CacheRequestID)
     }
@@ -53,7 +54,7 @@ actor RecordingCache: SFTPBlockLevelReadCache {
     private(set) var requestCalls: [RequestCall] = []
     private var blocks: [String: (offset: UInt64, data: Data)] = [:]
     private var stats: [String: CachedFileStat] = [:]
-    private var listings: [String: Set<FileMetadata>] = [:]
+    private var listings: [String: [FileMetadata]] = [:]
 
     /// Whether the next store is held on its way in, before it is recorded.
     private var holdsNextStore = false
@@ -71,7 +72,7 @@ actor RecordingCache: SFTPBlockLevelReadCache {
         stats[path] = answer
     }
 
-    func answerListing(_ entries: Set<FileMetadata>, path: String) {
+    func answerListing(_ entries: [FileMetadata], path: String) {
         listings[path] = entries
     }
 
@@ -116,8 +117,8 @@ actor RecordingCache: SFTPBlockLevelReadCache {
         }
     }
 
-    /// What breaks the request contract in the calls so far: a store for a request without a lookup or after its end,
-    /// a request ended twice or without a lookup, and requests never ended.
+    /// What breaks the request contract in the calls so far: a store for a request without a lookup or after its end, a
+    /// request ended twice or without a lookup, and requests never ended.
     func requestContractViolations() -> [String] {
         var open = Set<CacheRequestID>()
         var ended = Set<CacheRequestID>()
@@ -125,7 +126,7 @@ actor RecordingCache: SFTPBlockLevelReadCache {
 
         for (index, call) in requestCalls.enumerated() {
             switch call {
-            case let .lookup(request):
+            case let .lookup(request), let .begin(request):
                 if open.contains(request) || ended.contains(request) {
                     violations.append("call \(index): a second lookup for one request")
                 }
@@ -175,13 +176,13 @@ actor RecordingCache: SFTPBlockLevelReadCache {
         return block.data
     }
 
-    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async {
+    func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID) async {
         await holdIfAsked()
         events.append(.storeFileStat(path: path, followLink: followLink, size: result?.attributes.fileSize))
         requestCalls.append(.store(request))
     }
 
-    func storeDirectoryListing(_ entries: Set<FileMetadata>, path: String, recursive: Bool, request: CacheRequestID) {
+    func storeDirectoryListing(_ entries: [FileMetadata], path: String, recursive: Bool, request: CacheRequestID) {
         events.append(.storeDirectoryListing(path: path, recursive: recursive, names: Set(entries.map(\.fileName))))
         requestCalls.append(.store(request))
     }
@@ -192,10 +193,14 @@ actor RecordingCache: SFTPBlockLevelReadCache {
         return stats[path]
     }
 
-    func retrieveDirectoryListing(path: String, recursive: Bool, request: CacheRequestID) -> Set<FileMetadata>? {
+    func retrieveDirectoryListing(path: String, recursive: Bool, request: CacheRequestID) -> [FileMetadata]? {
         events.append(.retrieveDirectoryListing(path: path, recursive: recursive))
         requestCalls.append(.lookup(request))
         return listings[path]
+    }
+
+    func beginRequest(_ request: CacheRequestID) {
+        requestCalls.append(.begin(request))
     }
 
     func requestEnded(_ request: CacheRequestID) {

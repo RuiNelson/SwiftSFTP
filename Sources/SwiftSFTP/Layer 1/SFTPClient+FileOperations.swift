@@ -131,7 +131,7 @@ public extension SFTPClient {
         }
 
         if metadata.isDirectory {
-            let children = try await listDirectory(path: sanitizedPath, recursive: false)
+            let children = try await contentsOfDirectory(path: sanitizedPath, recursive: false)
             for child in children {
                 try await delete(path: child.fullPath)
             }
@@ -216,8 +216,10 @@ public extension SFTPClient {
         let sanitizedPath = path.sanitizePath
 
         // The file keeps the cache attached now until it closes. Creating or truncating it may change it, or its
-        // directory's listing, also when the open fails.
+        // directory's listing, also when the open fails. It is registered before the server opens it, so that a rename
+        // or a delete of its path meanwhile reaches it.
         let attachment = cacheAttachment
+        let registration = attachment?.openFiles.beginOpen(path: sanitizedPath)
         let changes = !flags.isDisjoint(with: [.create, .truncate])
         let open = {
             try await self.withSessionIOReportingChanges {
@@ -231,19 +233,31 @@ public extension SFTPClient {
                 )
             }
         }
-        let handle = if changes {
-            try await reportingChange(at: [sanitizedPath], to: attachment, removing: false, open)
+        let handle: LibSSH2SFTPHandle
+        do {
+            handle = if changes {
+                try await reportingChange(at: [sanitizedPath], to: attachment, removing: false, open)
+            }
+            else {
+                try await open()
+            }
         }
-        else {
-            try await open()
+        catch {
+            if let registration {
+                attachment?.openFiles.unregister(registration)
+            }
+            throw error
         }
 
+        if let registration {
+            attachment?.openFiles.finishOpen(registration)
+        }
         return SFTPFile(
             parent: self,
             handle: handle,
-            path: sanitizedPath,
             flags: flags,
             cache: attachment,
+            registration: registration,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
@@ -256,44 +270,45 @@ private extension SFTPClient {
     /// Runs `change`, a call that changes `paths` on the server, then reports them to the cache in `attachment`, also
     /// when the call fails: a timeout, a cancellation, or a lost connection can come after the server applied it.
     ///
-    /// - Parameter removing: Whether the change may remove what is at `paths`, so that files open there stop
-    /// reporting.
+    /// - Parameter removing: Whether the change may remove what is at `paths`, so that files open there stop reporting.
     func reportingChange<R>(
         at paths: [String],
         to attachment: CacheAttachment?,
         removing: Bool,
         _ change: () async throws -> R
     ) async throws -> R {
+        let ticket = beginChange(attachment)
         let result: R
         do {
             result = try await change()
         }
         catch {
-            await reportChange(at: paths, to: attachment, removing: removing)
+            await reportChange(at: paths, to: attachment, removing: removing, since: ticket)
             throw error
         }
 
-        await reportChange(at: paths, to: attachment, removing: removing)
+        await reportChange(at: paths, to: attachment, removing: removing, removed: removing, since: ticket)
         return result
     }
 
     /// Runs `rename`, a rename of `from` to `to` on the server, then reports it to the cache in `attachment`. A rename
     /// that fails may still have happened, so both paths are reported as changed then, and files open at either stop
-    /// reporting.
+    /// reporting, keeping the paths they may be at.
     func reportingRename(
         from: String,
         to: String,
         attachment: CacheAttachment?,
         _ rename: () async throws -> Void
     ) async throws {
+        let ticket = beginChange(attachment)
         do {
             try await rename()
         }
         catch {
-            await reportChange(at: [from, to], to: attachment, removing: true)
+            await reportFailedRename(from: from, to: to, attachment: attachment, since: ticket)
             throw error
         }
 
-        await reportRename(from: from, to: to, attachment: attachment)
+        await reportRename(from: from, to: to, attachment: attachment, since: ticket)
     }
 }

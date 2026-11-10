@@ -44,7 +44,7 @@ struct Cookbook {
         print(home)
 
         // - List a directory
-        let contents = try await myClient.listDirectory(path: "./Fixtures")
+        let contents = try await myClient.contentsOfDirectory(path: "./Fixtures")
 
         // - Open a file handle
         let largestFile = contents.bySize.last!

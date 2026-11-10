@@ -193,7 +193,7 @@ struct InMemoryCacheInvariantFuzzTests {
                 }
                 let recursive = generator.chance(0.3)
                 let listing = request(&generator) ?? CacheRequestID()
-                await cache.storeDirectoryListing(entries, path: path, recursive: recursive, request: listing)
+                await cache.storeDirectoryListing(Array(entries), path: path, recursive: recursive, request: listing)
                 calls.append("storeDirectoryListing(\(entries.count) entries, \(path.debugDescription), \(recursive))")
 
             case 64 ..< 72:

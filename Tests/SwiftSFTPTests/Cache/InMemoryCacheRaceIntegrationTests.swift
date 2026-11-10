@@ -195,14 +195,14 @@ struct InMemoryCacheRaceIntegrationTests {
 
             let gate = clients.gated.hold(.storeDirectoryListing, path: directory)
             let client = clients.client
-            let listing = Task { try await client.listDirectory(path: directory, recursive: false) }
+            let listing = Task { try await client.contentsOfDirectory(path: directory, recursive: false) }
             try await gate.waitUntilReached()
 
             try await clients.fork.deleteFile(path: deleted)
             gate.open()
             _ = try await listing.value
 
-            let after = try await clients.client.listDirectory(path: directory, recursive: false)
+            let after = try await clients.client.contentsOfDirectory(path: directory, recursive: false)
             let stat = try await clients.client.stat(path: deleted, followLink: true)
             try await clients.truth.delete(path: directory)
 

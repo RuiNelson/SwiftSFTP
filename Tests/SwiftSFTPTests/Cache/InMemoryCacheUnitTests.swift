@@ -69,7 +69,7 @@ private func stat(
 /// Hands the cache a listing of `path` the way the client does when the cache does not answer.
 private func list(
     _ cache: InMemorySFTPReadCache,
-    _ entries: Set<FileMetadata>,
+    _ entries: [FileMetadata],
     path: String,
     recursive: Bool = false
 ) async {
@@ -122,7 +122,7 @@ private func cachedListing(
     let request = CacheRequestID()
     let answer = await cache.retrieveDirectoryListing(path: path, recursive: recursive, request: request)
     await cache.requestEnded(request)
-    return answer
+    return answer.map(Set.init)
 }
 
 /// Has the cache learn that `path` is a regular file of `size` bytes, then hands it `contents` as if downloaded.
@@ -986,25 +986,36 @@ struct OpenFileRegistryTests {
         #expect(registry.changeCounts(of: file) == nil)
     }
 
-    @Test("written bytes are overlapped by changes other than writes, and reads and invalidations only by renames")
+    @Test("writes are overlapped by other changes and same-byte writes; reads and invalidations only by renames")
     func writesAndReadsOverlappingChanges() throws {
         let registry = OpenFileRegistry()
         let file = registry.register(path: "/d/f")
         let sameFile = registry.register(path: "/d/f")
 
-        // Writes through two handles whose server calls overlap leave each other alone.
+        // Writes to different bytes through two handles whose server calls overlap leave each other alone.
         let firstSnapshot = registry.changeCounts(of: file)
         let secondSnapshot = registry.changeCounts(of: sameFile)
-        let first = try #require(registry.beginReport(file, .write, since: firstSnapshot))
-        let second = try #require(registry.beginReport(sameFile, .write, since: secondSnapshot))
+        let first = try #require(registry.beginReport(file, .write, since: firstSnapshot, range: 0 ..< 10))
+        let second = try #require(registry.beginReport(sameFile, .write, since: secondSnapshot, range: 10 ..< 20))
         #expect(registry.endReport(file, first) == [])
         #expect(registry.endReport(sameFile, second) == [])
+
+        // Writes to the same bytes may reach the cache in the other order than the server applied them: both name the
+        // path. So do appends, whose bytes land where the server decides.
+        for ranges in [(0 ..< 10, 5 ..< 15), (0 ..< 10, nil)] as [(Range<UInt64>, Range<UInt64>?)] {
+            let firstSnapshot = registry.changeCounts(of: file)
+            let secondSnapshot = registry.changeCounts(of: sameFile)
+            let first = try #require(registry.beginReport(file, .write, since: firstSnapshot, range: ranges.0))
+            let second = try #require(registry.beginReport(sameFile, .write, since: secondSnapshot, range: ranges.1))
+            #expect(registry.endReport(file, first) == ["/d/f"])
+            #expect(registry.endReport(sameFile, second) == ["/d/f"])
+        }
 
         // A write the server acknowledged before new attributes through the other handle, reported after them.
         let beforeAttributes = registry.changeCounts(of: file)
         let attributes = try #require(registry.beginReport(sameFile, .attributes, since: nil))
         #expect(registry.endReport(sameFile, attributes) == [])
-        let late = try #require(registry.beginReport(file, .write, since: beforeAttributes))
+        let late = try #require(registry.beginReport(file, .write, since: beforeAttributes, range: 0 ..< 10))
         #expect(registry.endReport(file, late) == ["/d/f"])
 
         // Changes leave reads and invalidations alone; a rename does not.

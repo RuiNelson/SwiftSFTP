@@ -445,6 +445,10 @@ final class CacheSimulation {
         /// Bytes asked for ahead of the position, as the server held them then, and where they start.
         var readAhead: (start: UInt64, data: Data)?
 
+        /// The changes counted against the file when the reads asked for ahead started, or `nil` when a read the cache
+        /// did not see started them.
+        var readAheadCounts: OpenFileRegistry.ChangeCounts?
+
         init(id: Int, inode: Int, registration: UInt64, reads: Bool, writes: Bool, appends: Bool) {
             self.id = id
             self.inode = inode
@@ -894,7 +898,7 @@ final class CacheSimulation {
     }
 
     /// Checks a listing the cache answered against what `path` listed since ``windowStart``.
-    private func checkListing(_ answer: Set<FileMetadata>, path: String, recursive: Bool, _ operation: Operation) {
+    private func checkListing(_ answer: [FileMetadata], path: String, recursive: Bool, _ operation: Operation) {
         let namespaces = server.namespaces(since: windowStart)
         let matches = zip(namespaces, server.links(since: windowStart)).contains { namespace, links in
             guard let listing = SimulatedServer.listing(of: path, recursive: recursive, in: namespace),
@@ -1308,7 +1312,7 @@ final class CacheSimulation {
         )
     }
 
-    /// The steps of `SFTPClient.listDirectory(path:recursive:)`.
+    /// The steps of `SFTPClient.contentsOfDirectory(path:recursive:)`.
     private func makeList(path: String, recursive: Bool) -> Operation {
         let request = CacheRequestID()
         var answered = false
@@ -1342,7 +1346,7 @@ final class CacheSimulation {
                     return
                 }
                 await simulation.cache.storeDirectoryListing(
-                    Set(entries.map { Self.metadata($0.key, $0.value) }),
+                    entries.map { Self.metadata($0.key, $0.value) },
                     path: path,
                     recursive: recursive,
                     request: request
@@ -1367,19 +1371,27 @@ final class CacheSimulation {
         let outcome = StatOutcome()
         let changes = create || truncate
         var inode: Int?
+        var registration: UInt64?
+        var change: OpenFileRegistry.ChangeTicket?
         var registered = false
 
         let register: Operation.Step = { simulation, operation in
-            guard let inode, !registered else {
+            guard let registration, !registered else {
                 return
             }
 
             registered = true
+            guard let inode else {
+                simulation.registry.unregister(registration)
+                return
+            }
+
+            simulation.registry.finishOpen(registration)
             simulation.nextIdentifier += 1
             let handle = Handle(
                 id: simulation.nextIdentifier,
                 inode: inode,
-                registration: simulation.registry.register(path: path),
+                registration: registration,
                 reads: reads,
                 writes: writes,
                 appends: appends
@@ -1410,12 +1422,18 @@ final class CacheSimulation {
                     }
                 }
 
+                // Registered before the server opens the file, as the client does.
+                registration = simulation.registry.beginOpen(path: path)
+                if changes {
+                    change = simulation.registry.beginChange()
+                }
                 inode = simulation.server.open(path, create: create, truncate: truncate)
                 simulation.note(
                     operation,
                     "server: open(create: \(create), truncate: \(truncate)) -> \(inode.map { "inode \($0)" } ?? "fails")"
                 )
                 if inode == nil, !changes {
+                    await register(simulation, operation)
                     operation.abandon()
                 }
                 if !simulation.options.racesOpens {
@@ -1423,14 +1441,19 @@ final class CacheSimulation {
                 }
             },
             { simulation, _ in
-                if changes {
-                    simulation.registry.noteChanges(atOrUnder: [path])
+                if let change {
+                    simulation.registry.noteChanges(atOrUnder: [path], change: change)
                 }
             },
             { simulation, operation in
                 if changes {
                     await simulation.cache.invalidate(path: path)
                     simulation.note(operation, "invalidate(\(path))")
+                }
+            },
+            { simulation, operation in
+                if let change {
+                    simulation.endChange(change, operation)
                 }
             },
             register,
@@ -1453,10 +1476,25 @@ final class CacheSimulation {
     /// Reads from the server at the handle's position, through the requests left in flight ahead of it if the
     /// simulation keeps any.
     ///
-    /// - Parameter seeking: Whether the handle's position was moved for this read, which drops those requests.
-    private func serverRead(_ handle: Handle, at offset: UInt64, upTo: Int, seeking: Bool) -> Data? {
+    /// - Parameters:
+    ///   - seeking: Whether the handle's position was moved for this read, which drops those requests.
+    ///   - counts: For bytes that go to the cache, the changes counted against the file once the cache was asked for
+    /// them: requests asked for ahead before a change counted since are dropped, as the client drops them.
+    private func serverRead(
+        _ handle: Handle,
+        at offset: UInt64,
+        upTo: Int,
+        seeking: Bool,
+        counts: OpenFileRegistry.ChangeCounts? = nil
+    ) -> Data? {
         guard options.readsAhead else {
             return server.read(handle.inode, at: offset, upTo: upTo)
+        }
+
+        let stale = counts != nil && handle.readAhead != nil && handle.readAheadCounts != counts
+        let seeking = seeking || stale
+        if seeking || handle.readAhead == nil {
+            handle.readAheadCounts = counts
         }
 
         var result = Data()
@@ -1489,6 +1527,8 @@ final class CacheSimulation {
         var ticket: OpenFileRegistry.ReportTicket?
         var cached = Data()
         var fetched: Data?
+        var isCurrent = false
+        var counts: OpenFileRegistry.ChangeCounts?
 
         let begin: Operation.Step = { simulation, operation in
             simulation.reads += 1
@@ -1518,7 +1558,18 @@ final class CacheSimulation {
             )
             let call = "retrieveBlock(\(ticket.path), offset: \(start), upTo: \(upTo))"
             simulation.note(operation, "\(call) -> \(Self.describe(answer))")
+
+            // The client drops what the cache answered when the file was renamed or deleted since the read began.
+            isCurrent = simulation.registry.isCurrent(handle.registration, ticket)
+            counts = isCurrent ? simulation.registry.changeCounts(of: handle.registration) : nil
             guard let answer else {
+                return
+            }
+            guard isCurrent else {
+                simulation.note(
+                    operation,
+                    "the file was renamed or deleted since the read began: the answer is dropped"
+                )
                 return
             }
 
@@ -1541,11 +1592,17 @@ final class CacheSimulation {
                 }
 
                 let from = start + UInt64(cached.count)
-                fetched = simulation.serverRead(handle, at: from, upTo: upTo - cached.count, seeking: !cached.isEmpty)
+                fetched = simulation.serverRead(
+                    handle,
+                    at: from,
+                    upTo: upTo - cached.count,
+                    seeking: !cached.isEmpty,
+                    counts: counts
+                )
                 simulation.note(operation, "server: read at \(from) -> \(Self.describe(fetched))")
             },
             { simulation, operation in
-                guard let ticket, let fetched else {
+                guard let ticket, let fetched, isCurrent else {
                     return
                 }
                 let from = start + UInt64(cached.count)
@@ -1643,21 +1700,33 @@ final class CacheSimulation {
                     simulation.note(operation, "server: wrote \(landed) bytes at \(offset) of inode \(handle.inode)")
                 },
                 { simulation, operation in
-                    ticket = simulation.registry.beginReport(handle.registration, .write, since: snapshot)
+                    ticket = simulation.registry.beginReport(
+                        handle.registration,
+                        .write,
+                        since: snapshot,
+                        range: offset ..< offset + UInt64(data.count)
+                    )
                     if ticket == nil {
                         simulation.noteDroppedReport(operation)
                         operation.abandon()
                     }
                 },
                 { simulation, operation in
-                    guard let ticket, fails else {
+                    guard let ticket else {
+                        return
+                    }
+                    if !ticket.reports {
+                        await simulation.invalidateSilenced(ticket, operation)
+                        return
+                    }
+                    guard fails else {
                         return
                     }
                     await simulation.cache.invalidate(path: ticket.path)
                     simulation.note(operation, "invalidate(\(ticket.path)), for the bytes still on their way")
                 },
                 { simulation, operation in
-                    guard let ticket, acknowledged > 0 else {
+                    guard let ticket, ticket.reports, acknowledged > 0 else {
                         return
                     }
                     await simulation.cache.storeBlock(
@@ -1713,6 +1782,10 @@ final class CacheSimulation {
                 guard let ticket else {
                     return
                 }
+                guard ticket.reports else {
+                    await simulation.invalidateSilenced(ticket, operation)
+                    return
+                }
                 await simulation.cache.didAppend(path: ticket.path, byteCount: UInt64(data.count))
                 simulation.note(operation, "didAppend(\(ticket.path), \(data.count))")
                 simulation.glue(operation)
@@ -1732,15 +1805,27 @@ final class CacheSimulation {
         var snapshot: OpenFileRegistry.ChangeCounts?
         var attributes: SimulatedServer.Stat?
         var ticket: OpenFileRegistry.ReportTicket?
+        var request: CacheRequestID?
         let statFails = generator.chance(0.1)
 
         let unregister: Operation.Step = { simulation, operation in
+            if let request {
+                await simulation.cache.requestEnded(request)
+            }
             simulation.registry.unregister(handle.registration)
             simulation.handles.removeAll { $0 === handle }
             simulation.note(operation, "closed")
         }
 
         let operation = makeOperation("close handle \(handle.id)", mutates: false, [
+            { simulation, _ in
+                // The final stat is a request of its own.
+                if handle.wroteToFile, simulation.registry.changeCounts(of: handle.registration) != nil {
+                    let begun = CacheRequestID()
+                    request = begun
+                    await simulation.cache.beginRequest(begun)
+                }
+            },
             { simulation, _ in
                 snapshot = simulation.registry.changeCounts(of: handle.registration)
             },
@@ -1757,6 +1842,9 @@ final class CacheSimulation {
                     return
                 }
 
+                if request == nil {
+                    attributes = nil
+                }
                 ticket = attributes == nil
                     ? simulation.registry.beginReport(handle.registration, .invalidation, since: nil)
                     : simulation.registry.beginReport(handle.registration, .stat, since: snapshot)
@@ -1766,12 +1854,12 @@ final class CacheSimulation {
                 }
 
                 operation.steps.append { simulation, operation in
-                    if let attributes {
+                    if let attributes, let request {
                         await simulation.cache.storeFileStat(
                             Self.metadata(ticket.path, attributes),
                             path: ticket.path,
                             followLink: true,
-                            request: nil
+                            request: request
                         )
                         simulation.note(operation, "storeFileStat(\(ticket.path)), the final one")
                     }
@@ -1798,7 +1886,17 @@ final class CacheSimulation {
         var attributes: SimulatedServer.Stat?
         var ticket: OpenFileRegistry.ReportTicket?
 
+        var request: CacheRequestID?
+
         let operation = makeOperation("fstat handle \(handle.id)", mutates: false, [
+            { simulation, _ in
+                // A request of its own, for a file that reports.
+                if simulation.registry.changeCounts(of: handle.registration) != nil {
+                    let begun = CacheRequestID()
+                    request = begun
+                    await simulation.cache.beginRequest(begun)
+                }
+            },
             { simulation, _ in
                 snapshot = simulation.registry.changeCounts(of: handle.registration)
             },
@@ -1806,21 +1904,20 @@ final class CacheSimulation {
                 attributes = simulation.server.stat(inode: handle.inode)
                 simulation.note(operation, "server: fstat -> \(Self.describe(attributes))")
             },
-            { simulation, operation in
-                ticket = simulation.registry.beginReport(handle.registration, .stat, since: snapshot)
-                if ticket == nil {
-                    operation.abandon()
+            { simulation, _ in
+                if request != nil {
+                    ticket = simulation.registry.beginReport(handle.registration, .stat, since: snapshot)
                 }
             },
             { simulation, operation in
-                guard let ticket, let attributes else {
+                guard let ticket, let attributes, let request else {
                     return
                 }
                 await simulation.cache.storeFileStat(
                     Self.metadata(ticket.path, attributes),
                     path: ticket.path,
                     followLink: true,
-                    request: nil
+                    request: request
                 )
                 simulation.note(operation, "storeFileStat(\(ticket.path)), of the open file")
                 simulation.glue(operation)
@@ -1828,6 +1925,11 @@ final class CacheSimulation {
             { simulation, operation in
                 if let ticket {
                     Self.endReport(handle, ticket, simulation, operation)
+                }
+                operation.steps.append { simulation, _ in
+                    if let request {
+                        await simulation.cache.requestEnded(request)
+                    }
                 }
             },
         ])
@@ -1859,8 +1961,10 @@ final class CacheSimulation {
                 guard let ticket else {
                     return
                 }
-                await simulation.cache.invalidate(path: ticket.path)
-                simulation.note(operation, "invalidate(\(ticket.path))")
+                for path in ticket.paths {
+                    await simulation.cache.invalidate(path: path)
+                    simulation.note(operation, "invalidate(\(path))")
+                }
             },
             { simulation, operation in
                 if let ticket {
@@ -1874,15 +1978,22 @@ final class CacheSimulation {
 
     /// The steps of `SFTPClient.setAttributes(path:attributes:)` with a new size.
     private func makeSetSize(path: String, size: UInt64) -> Operation {
+        var change: OpenFileRegistry.ChangeTicket?
         let operation = makeOperation("set size \(size) of \(path)", mutates: true, [
             { simulation, operation in
+                change = simulation.registry.beginChange()
                 let done = simulation.server.setSize(path: path, to: size)
                 simulation.note(operation, "server: setstat \(done ? "done" : "fails")")
             },
             { simulation, _ in
-                simulation.registry.noteChanges(atOrUnder: [path])
+                simulation.registry.noteChanges(atOrUnder: [path], change: change)
             },
             Self.invalidation(path),
+            { simulation, operation in
+                if let change {
+                    simulation.endChange(change, operation)
+                }
+            },
         ])
         operation.paths = [path]
         return operation
@@ -1890,17 +2001,30 @@ final class CacheSimulation {
 
     /// The steps of `SFTPClient.deleteFile(path:)`.
     private func makeDeleteFile(path: String) -> Operation {
+        var change: OpenFileRegistry.ChangeTicket?
+        var removed = false
         let operation = makeOperation("delete \(path)", mutates: true, [
             { simulation, operation in
+                change = simulation.registry.beginChange()
                 let done = simulation.server.unlink(path)
+                removed = done
                 simulation.note(operation, "server: unlink \(done ? "done" : "fails")")
             },
             { simulation, operation in
-                for stray in simulation.registry.stopReporting(atOrUnder: [path]).sorted() where stray != path {
+                // A delete the server confirmed leaves the files open there without a path.
+                let strays = simulation.registry
+                    .stopReporting(atOrUnder: [path], change: change, removed: removed)
+                    .sorted()
+                operation.steps.append(Self.invalidation(path))
+                for stray in strays where stray != path {
                     operation.steps.append(Self.invalidation(stray))
                 }
+                operation.steps.append { simulation, operation in
+                    if let change {
+                        simulation.endChange(change, operation)
+                    }
+                }
             },
-            Self.invalidation(path),
         ])
         operation.paths = [path]
         return operation
@@ -1908,17 +2032,30 @@ final class CacheSimulation {
 
     /// The steps of `SFTPClient.deleteDirectory(path:)`.
     private func makeDeleteDirectory(path: String) -> Operation {
+        var change: OpenFileRegistry.ChangeTicket?
+        var removed = false
         let operation = makeOperation("remove directory \(path)", mutates: true, [
             { simulation, operation in
+                change = simulation.registry.beginChange()
                 let done = simulation.server.removeDirectory(path)
+                removed = done
                 simulation.note(operation, "server: rmdir \(done ? "done" : "fails")")
             },
             { simulation, operation in
-                for stray in simulation.registry.stopReporting(atOrUnder: [path]).sorted() where stray != path {
+                // A delete the server confirmed leaves the files open there without a path.
+                let strays = simulation.registry
+                    .stopReporting(atOrUnder: [path], change: change, removed: removed)
+                    .sorted()
+                operation.steps.append(Self.invalidation(path))
+                for stray in strays where stray != path {
                     operation.steps.append(Self.invalidation(stray))
                 }
+                operation.steps.append { simulation, operation in
+                    if let change {
+                        simulation.endChange(change, operation)
+                    }
+                }
             },
-            Self.invalidation(path),
         ])
         operation.paths = [path]
         return operation
@@ -1927,6 +2064,7 @@ final class CacheSimulation {
     /// The steps of `SFTPClient.createDirectory(path:makePath:)` without making the path.
     private func makeCreateDirectory(path: String) -> Operation {
         let outcome = StatOutcome()
+        var change: OpenFileRegistry.ChangeTicket?
         let creating: [Operation.Step] = [
             { simulation, operation in
                 guard !outcome.exists else {
@@ -1934,13 +2072,19 @@ final class CacheSimulation {
                     operation.abandon()
                     return
                 }
+                change = simulation.registry.beginChange()
                 let done = simulation.server.makeDirectory(path)
                 simulation.note(operation, "server: mkdir \(done ? "done" : "fails")")
             },
             { simulation, _ in
-                simulation.registry.noteChanges(atOrUnder: [path])
+                simulation.registry.noteChanges(atOrUnder: [path], change: change)
             },
             Self.invalidation(path),
+            { simulation, operation in
+                if let change {
+                    simulation.endChange(change, operation)
+                }
+            },
         ]
         let steps = statSteps(path: path, followLink: false, outcome: outcome) + creating
 
@@ -1953,6 +2097,7 @@ final class CacheSimulation {
     private func makeRename(from: String, to: String) -> Operation {
         var renamed = false
         var rename: OpenFileRegistry.Rename?
+        var change: OpenFileRegistry.ChangeTicket?
 
         // A call that fails at the client, as on a timeout, whether or not the server renamed.
         let callFails = generator.chance(0.12)
@@ -1962,17 +2107,20 @@ final class CacheSimulation {
             mutates: true,
             [
                 { simulation, operation in
+                    change = simulation.registry.beginChange()
                     renamed = simulation.server.rename(from, to: to)
                     simulation.note(operation, "server: rename \(renamed ? "done" : "fails")")
                 },
                 { simulation, operation in
                     if renamed, !callFails {
-                        rename = simulation.registry.beginRename(from: from, to: to)
+                        rename = simulation.registry.beginRename(from: from, to: to, change: change)
                         return
                     }
 
                     // Both paths may have changed, and the files open at either stop reporting.
-                    let strays = simulation.registry.stopReporting(atOrUnder: [from, to]).sorted()
+                    let strays = simulation.registry
+                        .stopReportingAfterFailedRename(from: from, to: to, change: change)
+                        .sorted()
                     for stray in strays where stray != from && stray != to {
                         operation.steps.append(Self.invalidation(stray))
                     }
@@ -1997,6 +2145,11 @@ final class CacheSimulation {
                         await simulation.cache.invalidate(path: to)
                         simulation.note(operation, "invalidate(\(to))")
                     }
+                    operation.steps.append { simulation, operation in
+                        if let change {
+                            simulation.endChange(change, operation)
+                        }
+                    }
                 },
             ]
         )
@@ -2007,11 +2160,38 @@ final class CacheSimulation {
 
     /// An invalidation the client makes again later, when the connection finishes a call it had given up on.
     private func makeSpuriousInvalidation(path: String) -> Operation {
-        makeOperation("invalidate \(path) again", mutates: false, [
+        var change: OpenFileRegistry.ChangeTicket?
+        return makeOperation("invalidate \(path) again", mutates: false, [
             { simulation, _ in
-                simulation.registry.noteChanges(atOrUnder: [path])
+                let begun = simulation.registry.beginChange()
+                change = begun
+                simulation.registry.noteChanges(atOrUnder: [path], change: begun)
             },
             Self.invalidation(path),
+            { simulation, operation in
+                if let change {
+                    simulation.endChange(change, operation)
+                }
+            },
         ])
+    }
+
+    /// Ends a change by path, queueing the invalidations the registry asks for.
+    private func endChange(_ change: OpenFileRegistry.ChangeTicket, _ operation: Operation) {
+        let paths = registry.endChange(change)
+        if !paths.isEmpty {
+            note(operation, "a related change overlapped: \(paths) to invalidate")
+        }
+        for path in paths {
+            operation.steps.append(Self.invalidation(path))
+        }
+    }
+
+    /// Reports a change through a file that stopped reporting: invalidations of the paths it may still be at.
+    private func invalidateSilenced(_ ticket: OpenFileRegistry.ReportTicket, _ operation: Operation) async {
+        for path in ticket.paths {
+            await cache.invalidate(path: path)
+            note(operation, "invalidate(\(path)), where the silenced file may be")
+        }
     }
 }

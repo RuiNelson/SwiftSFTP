@@ -30,11 +30,13 @@ struct CacheAttachment: Sendable {
     let openFiles: OpenFileRegistry
 }
 
-/// The paths a call that changes the server may have changed, and the cache to tell when the call finishes after it
-/// was given up.
+/// The paths a call that changes the server may have changed, and the cache to tell when the call finishes after it was
+/// given up.
 struct CacheChangeReport: Sendable {
     let attachment: CacheAttachment
     let paths: [String]
+    /// The change in the registry, once the connection finished or dropped the call.
+    var change: OpenFileRegistry.ChangeTicket?
 }
 
 // MARK: Internal access
@@ -91,6 +93,11 @@ extension SFTPClient {
         attachment.map { CacheChangeReport(attachment: $0, paths: paths) }
     }
 
+    /// Starts a change by path in the registry of `attachment`, before its server call; see ``OpenFileRegistry``.
+    func beginChange(_ attachment: CacheAttachment?) -> OpenFileRegistry.ChangeTicket? {
+        attachment?.openFiles.beginChange()
+    }
+
     /// Reports a change at `paths`, made or possibly made through this client, to the cache in `attachment`.
     ///
     /// Files open at or under `paths` stop reporting when the change may have removed them. Otherwise the change counts
@@ -100,22 +107,51 @@ extension SFTPClient {
     ///   - paths: The paths that changed, or may have.
     ///   - attachment: The cache attached when the change was made, or `nil`.
     ///   - removing: Whether the change may have removed what is at `paths`, so that files open there stop reporting.
-    func reportChange(at paths: [String], to attachment: CacheAttachment?, removing: Bool) async {
+    ///   - removed: Whether the server confirmed it removed what was at `paths`, so files open there have no path left.
+    /// Otherwise a change through them goes on invalidating the path they had.
+    ///   - change: What ``beginChange(_:)`` returned before the server call, which this ends, or `nil` to start the
+    /// change now.
+    func reportChange(
+        at paths: [String],
+        to attachment: CacheAttachment?,
+        removing: Bool,
+        removed: Bool = false,
+        since change: OpenFileRegistry.ChangeTicket? = nil
+    ) async {
         guard let attachment else {
             return
         }
 
+        let change = change ?? attachment.openFiles.beginChange()
         var stray: [String] = []
         if removing {
-            stray = attachment.openFiles.stopReporting(atOrUnder: paths)
+            stray = attachment.openFiles.stopReporting(atOrUnder: paths, change: change, removed: removed)
         }
         else {
-            attachment.openFiles.noteChanges(atOrUnder: paths)
+            attachment.openFiles.noteChanges(atOrUnder: paths, change: change)
         }
 
-        for path in paths + stray.filter({ !paths.contains($0) }) {
-            await attachment.cache.invalidate(path: path)
+        await invalidate(paths + stray, in: attachment)
+        await invalidate(attachment.openFiles.endChange(change), in: attachment)
+    }
+
+    /// Reports a rename whose call failed, and may have renamed `from` to `to` or not, to the cache in `attachment`.
+    ///
+    /// Both paths are invalidated. Files open at or under either stop reporting, and keep the paths they may be at.
+    func reportFailedRename(
+        from: String,
+        to: String,
+        attachment: CacheAttachment?,
+        since change: OpenFileRegistry.ChangeTicket? = nil
+    ) async {
+        guard let attachment else {
+            return
         }
+
+        let change = change ?? attachment.openFiles.beginChange()
+        let stray = attachment.openFiles.stopReportingAfterFailedRename(from: from, to: to, change: change)
+        await invalidate([from, to] + stray, in: attachment)
+        await invalidate(attachment.openFiles.endChange(change), in: attachment)
     }
 
     /// Reports a rename the server confirmed to the cache in `attachment`, and moves the files open at or under `from`
@@ -123,15 +159,27 @@ extension SFTPClient {
     ///
     /// Reports those files hand over while the cache hears of the rename may land on either side of it, so the paths
     /// they reached are invalidated once it is through.
-    func reportRename(from: String, to: String, attachment: CacheAttachment?) async {
+    func reportRename(
+        from: String,
+        to: String,
+        attachment: CacheAttachment?,
+        since change: OpenFileRegistry.ChangeTicket? = nil
+    ) async {
         guard let attachment else {
             return
         }
 
-        let rename = attachment.openFiles.beginRename(from: from, to: to)
+        let change = change ?? attachment.openFiles.beginChange()
+        let rename = attachment.openFiles.beginRename(from: from, to: to, change: change)
         await attachment.cache.didRename(from: from, to: to)
 
-        for path in attachment.openFiles.finishRename(rename) {
+        await invalidate(attachment.openFiles.finishRename(rename), in: attachment)
+        await invalidate(attachment.openFiles.endChange(change), in: attachment)
+    }
+
+    /// Invalidates `paths` in the cache of `attachment`, each once.
+    private func invalidate(_ paths: [String], in attachment: CacheAttachment) async {
+        for path in CachePath.unique(paths) {
             await attachment.cache.invalidate(path: path)
         }
     }
@@ -144,15 +192,17 @@ extension SFTPClient {
         return try result.get()
     }
 
-    /// Queues the report of an abandoned call that was just finished or dropped: the server may have applied its
-    /// change only now. The change counts against the files open at its paths at once. Safe to call under the session
-    /// I/O lock.
+    /// Queues the report of an abandoned call that was just finished or dropped: the server may have applied its change
+    /// only now. The change counts against the files open at its paths at once. Safe to call under the session I/O
+    /// lock.
     func noteFinishedChange(_ report: CacheChangeReport?) {
-        guard let report else {
+        guard var report else {
             return
         }
 
-        report.attachment.openFiles.noteChanges(atOrUnder: report.paths)
+        let change = report.attachment.openFiles.beginChange()
+        report.attachment.openFiles.noteChanges(atOrUnder: report.paths, change: change)
+        report.change = change
         finishedChangesLock.withLock {
             _finishedChanges.append(report)
         }
@@ -167,8 +217,9 @@ extension SFTPClient {
         }
 
         for report in reports {
-            for path in report.paths {
-                await report.attachment.cache.invalidate(path: path)
+            await invalidate(report.paths, in: report.attachment)
+            if let change = report.change {
+                await invalidate(report.attachment.openFiles.endChange(change), in: report.attachment)
             }
         }
     }

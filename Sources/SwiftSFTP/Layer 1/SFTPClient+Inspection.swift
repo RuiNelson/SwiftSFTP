@@ -14,7 +14,7 @@ public extension SFTPClient {
         }
     }
 
-    func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
+    func contentsOfDirectory(path: String, recursive: Bool = false) async throws -> [FileMetadata] {
         try checkClosed()
 
         var sanitizedPath = path.sanitizePath
@@ -27,7 +27,14 @@ public extension SFTPClient {
         let list = { [sanitizedPath] in
             try await self.withSessionIOReportingChanges {
                 try self.checkClosed()
-                return try self.listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+                var entries: [FileMetadata] = []
+                try self.contentsOfDirectory(
+                    sanitizedPath: sanitizedPath,
+                    recursive: recursive,
+                    openedDirectories: [],
+                    into: &entries
+                )
+                return entries
             }
         }
 
@@ -184,13 +191,20 @@ extension SFTPClient {
 // MARK: Private implementation
 
 private extension SFTPClient {
-    func listDirectory(
+    /// Appends the entries of the directory at `sanitizedPath` to `entries`, in the order the server returns them, each
+    /// subdirectory's entries after its own when `recursive`.
+    ///
+    /// - Parameter openedDirectories: The directories being listed above this one, by their bytes: names that differ
+    /// only in Unicode normalization are different directories.
+    func contentsOfDirectory(
         sanitizedPath: String,
         recursive: Bool,
-        openedDirectories: Set<String>
-    ) throws -> Set<FileMetadata> {
-        guard openedDirectories.contains(sanitizedPath) == false else {
-            return []
+        openedDirectories: Set<[UInt8]>,
+        into entries: inout [FileMetadata]
+    ) throws {
+        let directoryBytes = Array(sanitizedPath.utf8)
+        guard openedDirectories.contains(directoryBytes) == false else {
+            return
         }
 
         let handle = try openHandle(path: sanitizedPath, flags: .read, mode: [], openType: .directory)
@@ -203,9 +217,8 @@ private extension SFTPClient {
             }
         }
 
-        var entries = Set<FileMetadata>()
         var openedDirectories = openedDirectories
-        openedDirectories.insert(sanitizedPath)
+        openedDirectories.insert(directoryBytes)
 
         while true {
             let entry = try runSFTPCall(.readdir, on: handle) {
@@ -224,19 +237,16 @@ private extension SFTPClient {
                 directory: sanitizedPath,
                 attributes: entry.attributes
             )
-            entries.insert(metadata)
+            entries.append(metadata)
 
             if recursive, metadata.isDirectory {
-                try entries.formUnion(
-                    listDirectory(
-                        sanitizedPath: metadata.fullPath,
-                        recursive: true,
-                        openedDirectories: openedDirectories
-                    )
+                try contentsOfDirectory(
+                    sanitizedPath: metadata.fullPath,
+                    recursive: true,
+                    openedDirectories: openedDirectories,
+                    into: &entries
                 )
             }
         }
-
-        return entries
     }
 }

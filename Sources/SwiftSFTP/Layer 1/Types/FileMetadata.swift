@@ -98,62 +98,27 @@ public extension FileMetadata {
     }
 }
 
-// MARK: Set<FileMetadata> Filtering & Sorting
+// MARK: Filtering & Sorting
 
-public extension Set<FileMetadata> {
-    /// Only the regular-file entries in the set.
-    var regularFiles: Set<FileMetadata> {
-        self.filter(\.isRegularFile)
-    }
-
-    /// Only the directory entries in the set.
-    var directories: Set<FileMetadata> {
-        self.filter(\.isDirectory)
-    }
-
-    /// Entries that are not directories (files, symlinks, and other types).
-    var nonDirectories: Set<FileMetadata> {
-        self.filter { $0.isDirectory == false }
-    }
-
+public extension Sequence<FileMetadata> {
     /// Entries sorted by full path in ascending order.
     var byPath: [FileMetadata] {
-        Array(self).sorted { a, b in
-            a.fullPath < b.fullPath
-        }
+        sorted { $0.fullPath < $1.fullPath }
     }
 
     /// Entries sorted by file name in ascending order.
     var byName: [FileMetadata] {
-        Array(self).sorted { a, b in
-            a.fileName < b.fileName
-        }
+        sorted { $0.fileName < $1.fileName }
     }
 
     /// Entries sorted by file size in ascending order.
     var bySize: [FileMetadata] {
-        Array(self).sorted { a, b in
-            a.attributes.fileSize < b.attributes.fileSize
-        }
-    }
-
-    /// Entries whose file name does not start with a dot, filtering only the immediate name.
-    var nonHiddenInDirectory: Set<FileMetadata> {
-        self.filter {
-            $0.fileName.hasPrefix(".") == false
-        }
-    }
-
-    /// Entries where no path component starts with a dot, filtering hidden directories too.
-    var nonHidden: Set<FileMetadata> {
-        self.filter { let pcs = $0.fullPath.pathComponents
-            return pcs.allSatisfy { $0.hasPrefix(".") == false }
-        }
+        sorted { $0.attributes.fileSize < $1.attributes.fileSize }
     }
 
     /// Entries sorted with directories first, then alphabetically by name within each group.
     var directoriesFirst: [FileMetadata] {
-        Array(self).sorted { a, b in
+        sorted { a, b in
             if a.isDirectory == b.isDirectory {
                 a.fileName < b.fileName
             }
@@ -161,5 +126,69 @@ public extension Set<FileMetadata> {
                 a.isDirectory
             }
         }
+    }
+}
+
+public extension Set<FileMetadata> {
+    /// Only the regular-file entries in the set.
+    var regularFiles: Set<FileMetadata> {
+        filter(\.isRegularFile)
+    }
+
+    /// Only the directory entries in the set.
+    var directories: Set<FileMetadata> {
+        filter(\.isDirectory)
+    }
+
+    /// Entries that are not directories (files, symlinks, and other types).
+    var nonDirectories: Set<FileMetadata> {
+        filter { $0.isDirectory == false }
+    }
+
+    /// Entries whose file name does not start with a dot, filtering only the immediate name.
+    var nonHiddenInDirectory: Set<FileMetadata> {
+        filter { !$0.isHiddenInDirectory }
+    }
+
+    /// Entries where no path component starts with a dot, filtering hidden directories too.
+    var nonHidden: Set<FileMetadata> {
+        filter { !$0.isHidden }
+    }
+}
+
+public extension [FileMetadata] {
+    /// Only the regular-file entries, in their order.
+    var regularFiles: [FileMetadata] {
+        filter(\.isRegularFile)
+    }
+
+    /// Only the directory entries, in their order.
+    var directories: [FileMetadata] {
+        filter(\.isDirectory)
+    }
+
+    /// Entries that are not directories (files, symlinks, and other types), in their order.
+    var nonDirectories: [FileMetadata] {
+        filter { $0.isDirectory == false }
+    }
+
+    /// Entries whose file name does not start with a dot, filtering only the immediate name.
+    var nonHiddenInDirectory: [FileMetadata] {
+        filter { !$0.isHiddenInDirectory }
+    }
+
+    /// Entries where no path component starts with a dot, filtering hidden directories too.
+    var nonHidden: [FileMetadata] {
+        filter { !$0.isHidden }
+    }
+}
+
+private extension FileMetadata {
+    var isHiddenInDirectory: Bool {
+        fileName.hasPrefix(".")
+    }
+
+    var isHidden: Bool {
+        fullPath.pathComponents.contains { $0.hasPrefix(".") }
     }
 }
