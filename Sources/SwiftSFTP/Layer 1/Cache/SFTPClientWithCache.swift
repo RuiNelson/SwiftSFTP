@@ -29,8 +29,8 @@ public protocol SFTPClientWithCache: Sendable {
     ///
     /// Files opened and clients forked from now on use `cache`. Files already open keep the cache they were opened
     /// with. Each attachment keeps track of the files opened with it: renames and deletes through this client, and
-    /// through the forks made from now on, reach those files, but not files opened under an earlier attachment, even
-    /// of the same cache, nor those of clients that attached `cache` separately.
+    /// through the forks made from now on, reach those files, but not files opened under an earlier attachment, even of
+    /// the same cache, nor those of clients that attached `cache` separately.
     ///
     /// - Parameter cache: The cache to attach.
     func attachCache(_ cache: any SFTPBlockLevelReadCache)

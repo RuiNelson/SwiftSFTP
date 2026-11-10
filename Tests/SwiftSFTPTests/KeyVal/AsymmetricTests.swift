@@ -18,9 +18,9 @@ struct AsymmetricTests {
     /// Whether the tests link the OpenSSL bundled with SwiftSFTP rather than the system's, as on Linux.
     private static let usesBundledOpenSSL: Bool = {
         #if os(Linux)
-            return false
+            false
         #else
-            return true
+            true
         #endif
     }()
 

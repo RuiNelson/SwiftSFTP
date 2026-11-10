@@ -1,7 +1,7 @@
 import Foundation
 
-/// Identifies one request an ``SFTPClientWithCache`` makes of its ``SFTPBlockLevelReadCache``: a lookup, the store
-/// that may follow it, and the ``SFTPBlockLevelReadCache/requestEnded(_:)`` that closes it.
+/// Identifies one request an ``SFTPClientWithCache`` makes of its ``SFTPBlockLevelReadCache``: a lookup, the store that
+/// may follow it, and the ``SFTPBlockLevelReadCache/requestEnded(_:)`` that closes it.
 ///
 /// The client makes a new identifier for every request. A cache uses it only to tell requests apart.
 public struct CacheRequestID: Hashable, Sendable {
