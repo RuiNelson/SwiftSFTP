@@ -71,8 +71,8 @@ private struct ModelBlocks {
 
 // MARK: Tests
 
-@Suite("InMemorySFTPReadCache: block storage against a model")
-struct InMemoryCacheBlockFuzzTests {
+@Suite("ReferenceCache: block storage against a model")
+struct ReferenceCacheBlockFuzzTests {
     /// Where the positions of a run start: at the start of a file, past four gigabytes, and as far as positions go.
     static let bases: [UInt64] = [0, 0, 1 << 32, UInt64(Int.max) - 150, .max - 1000]
 

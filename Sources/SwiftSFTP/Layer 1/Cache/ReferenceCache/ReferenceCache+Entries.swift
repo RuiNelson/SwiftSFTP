@@ -1,6 +1,6 @@
 import Foundation
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// What the cache knows about one file.
     struct FileEntry {
         /// Tells this entry apart from one created later at the same key.
@@ -18,7 +18,7 @@ extension InMemorySFTPReadCache {
         /// Digest taken by ``TrustPolicy/hashOnServer(_:)`` for this version.
         var digest: Data?
 
-        /// Value of ``InMemorySFTPReadCache/tick`` at the last use, for least-recently-used eviction.
+        /// Value of ``ReferenceCache/tick`` at the last use, for least-recently-used eviction.
         var lastUsed: UInt64
 
         /// Bytes the client appended since the last stat, or `nil` when it appended none.

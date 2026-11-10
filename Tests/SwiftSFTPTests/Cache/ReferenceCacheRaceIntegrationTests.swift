@@ -4,7 +4,7 @@ import Testing
 
 // MARK: Helpers
 
-/// A client with an ``InMemorySFTPReadCache`` attached behind a ``GatedCache``, and the connections around it.
+/// A client with an ``ReferenceCache`` attached behind a ``GatedCache``, and the connections around it.
 struct CachedClients {
     /// The client the cache is attached to.
     let client: SFTPClient
@@ -12,20 +12,20 @@ struct CachedClients {
     let fork: SFTPClient
     /// A fork made before attaching, which uses no cache: what it reads is what the server holds.
     let truth: SFTPClient
-    let cache: InMemorySFTPReadCache
+    let cache: ReferenceCache
     let gated: GatedCache
 }
 
 /// Runs `body` with a cache of `configuration` attached to a client, and closes everything afterwards.
 func withCachedClients(
-    _ configuration: InMemorySFTPReadCache.Configuration = .init(minimumHitLength: 0),
+    _ configuration: ReferenceCache.Configuration = .init(minimumHitLength: 0),
     _ body: (CachedClients) async throws -> Void
 ) async throws {
     try await withClient { client in
         let truth = try await client.fork(loggedIn: true)
         let cache = configuration.needsControlConnection
-            ? try await InMemorySFTPReadCache(forking: client, configuration: configuration)
-            : InMemorySFTPReadCache(configuration: configuration)
+            ? try await ReferenceCache(forking: client, configuration: configuration)
+            : ReferenceCache(configuration: configuration)
         let gated = GatedCache(cache)
         client.attachCache(gated)
 
@@ -115,8 +115,8 @@ private func overwritten(_ original: Data, at offset: Int, with bytes: Data) -> 
 /// that scheduling alone can produce.
 ///
 /// After each scenario, what the cached client reads is compared with what a connection without a cache reads.
-@Suite("InMemorySFTPReadCache: orderings with a live client", .serialized)
-struct InMemoryCacheRaceIntegrationTests {
+@Suite("ReferenceCache: orderings with a live client", .serialized)
+struct ReferenceCacheRaceIntegrationTests {
     static let payload = offsetStampedPayload(byteCount: 64 * 1024)
     static let other = Data(offsetStampedPayload(byteCount: 64 * 1024).reversed())
     static let marker = Data(repeating: 0xEE, count: 1000)
@@ -409,7 +409,7 @@ struct InMemoryCacheRaceIntegrationTests {
     @Test("a stat of an open file that a size change overlapped is not answered from before the client invalidates it")
     func overlappedStatIsNotAnswered() async throws {
         let path = uniqueRemotePath("race-overlapped-stat")
-        let configuration = InMemorySFTPReadCache.Configuration(
+        let configuration = ReferenceCache.Configuration(
             minimumHitLength: 0,
             metadata: .answer(for: 60, includingMissing: false)
         )
@@ -443,7 +443,7 @@ struct InMemoryCacheRaceIntegrationTests {
     func closeDuringARename() async throws {
         let path = uniqueRemotePath("race-close-rename")
         let renamed = uniqueRemotePath("race-close-renamed")
-        let configuration = InMemorySFTPReadCache.Configuration(
+        let configuration = ReferenceCache.Configuration(
             minimumHitLength: 0,
             metadata: .answer(for: 60, includingMissing: false)
         )
@@ -513,7 +513,7 @@ struct InMemoryCacheRaceIntegrationTests {
         let base = uniqueRemotePath("race-links")
         let (left, right) = ("\(base)/left", "\(base)/right")
         let (middle, entry) = ("\(base)/middle", "\(base)/entry")
-        let configuration = InMemorySFTPReadCache.Configuration(minimumHitLength: 0, deduplicatesSymlinks: true)
+        let configuration = ReferenceCache.Configuration(minimumHitLength: 0, deduplicatesSymlinks: true)
 
         try await withCachedClients(configuration) { clients in
             for directory in [base, left, right] {
@@ -558,7 +558,7 @@ struct InMemoryCacheRaceIntegrationTests {
     func openedThroughALinkRenamedByItsRealPath() async throws {
         let base = uniqueRemotePath("race-link-rename")
         let (directory, link) = ("\(base)/directory", "\(base)/link")
-        let configuration = InMemorySFTPReadCache.Configuration(minimumHitLength: 0, deduplicatesSymlinks: true)
+        let configuration = ReferenceCache.Configuration(minimumHitLength: 0, deduplicatesSymlinks: true)
 
         try await withCachedClients(configuration) { clients in
             try await clients.truth.createDirectory(path: base, makePath: false)
@@ -591,7 +591,7 @@ struct InMemoryCacheRaceIntegrationTests {
         let path = uniqueRemotePath("race-late-digest")
         let second = overwritten(Self.payload, at: 0, with: Self.marker)
         let third = overwritten(second, at: 5000, with: Self.marker)
-        let configuration = InMemorySFTPReadCache.Configuration(
+        let configuration = ReferenceCache.Configuration(
             minimumHitLength: 0,
             trustPolicy: .hashOnServer(.sha256),
             revalidationInterval: 2

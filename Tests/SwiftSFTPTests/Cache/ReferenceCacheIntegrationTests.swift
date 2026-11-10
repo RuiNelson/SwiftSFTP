@@ -53,8 +53,8 @@ private func overwritten(_ original: Data, at offset: Int, with bytes: Data) -> 
 
 // MARK: Tests
 
-@Suite("InMemorySFTPReadCache: attached to a client", .serialized)
-struct InMemoryCacheIntegrationTests {
+@Suite("ReferenceCache: attached to a client", .serialized)
+struct ReferenceCacheIntegrationTests {
     static let payload = offsetStampedPayload(byteCount: 100 * 1024)
     static let marker = Data(repeating: 0xEE, count: 1000)
 
@@ -65,7 +65,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
-            let cache = InMemorySFTPReadCache(configuration: .init())
+            let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
             let attached = client.hasCacheAttached()
 
@@ -97,7 +97,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
-            let cache = InMemorySFTPReadCache(configuration: .init(trustPolicy: .trustReports, metadata: .neverAnswer))
+            let cache = ReferenceCache(configuration: .init(trustPolicy: .trustReports, metadata: .neverAnswer))
             client.attachCache(cache)
 
             let first = try await readRemoteFile(client, path: path)
@@ -125,7 +125,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 2.5)
             )
@@ -170,7 +170,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 0)
             )
@@ -210,7 +210,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: small)
             let other = try await client.fork(loggedIn: true)
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(trustPolicy: .sampleBlocks(count: 2), revalidationInterval: nil)
             )
@@ -248,7 +248,7 @@ struct InMemoryCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(trustPolicy: .hashOnServer(.sha256), revalidationInterval: nil)
             )
@@ -286,7 +286,7 @@ struct InMemoryCacheIntegrationTests {
 
         try await withClient { client in
             let other = try await client.fork(loggedIn: true)
-            let cache = InMemorySFTPReadCache(configuration: .init())
+            let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
             try await writeRemoteFile(client, path: source, contents: Self.payload)
@@ -323,7 +323,7 @@ struct InMemoryCacheIntegrationTests {
             try await writeRemoteFile(client, path: file, contents: Self.payload)
             try await client.createSymLink(path: link, destination: directory)
             let other = try await client.fork(loggedIn: true)
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(resolvesRelativePaths: true, deduplicatesSymlinks: true)
             )
@@ -361,7 +361,7 @@ struct InMemoryCacheIntegrationTests {
 
         try await withClient { client in
             let other = try await client.fork(loggedIn: true)
-            let cache = InMemorySFTPReadCache(configuration: .init())
+            let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
             let handle = try await client.openFile(
@@ -401,7 +401,7 @@ struct InMemoryCacheIntegrationTests {
 
         try await withClient { client in
             try await client.createDirectory(path: directory, makePath: false)
-            let cache = InMemorySFTPReadCache(configuration: .init(metadata: .answer(for: 60, includingMissing: false)))
+            let cache = ReferenceCache(configuration: .init(metadata: .answer(for: 60, includingMissing: false)))
             client.attachCache(cache)
 
             try await writeRemoteFile(client, path: file, contents: Self.payload)
@@ -434,7 +434,7 @@ struct InMemoryCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let cache = InMemorySFTPReadCache(configuration: .init())
+            let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
             _ = try await readRemoteFile(client, path: path)
@@ -462,7 +462,7 @@ struct InMemoryCacheIntegrationTests {
 
         try await withClient { client in
             let other = try await client.fork(loggedIn: true)
-            let cache = InMemorySFTPReadCache(configuration: .init())
+            let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
             let handle = try await client.openFile([.create, .write], path: source, permissions: .serverDefault)
@@ -503,7 +503,7 @@ struct InMemoryCacheIntegrationTests {
             try await writeRemoteFile(client, path: source, contents: Self.payload)
             try await writeRemoteFile(client, path: destination, contents: Self.payload.prefix(10))
 
-            let cache = try await InMemorySFTPReadCache(
+            let cache = try await ReferenceCache(
                 forking: client,
                 configuration: .init(deduplicatesSymlinks: true)
             )

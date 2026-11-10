@@ -4,8 +4,8 @@ import Testing
 
 // MARK: Paths
 
-@Suite("InMemorySFTPReadCache: paths")
-struct InMemoryCachePathTests {
+@Suite("ReferenceCache: paths")
+struct ReferenceCachePathTests {
     /// One name spelled two ways: `é` as one scalar, and as `e` followed by a combining accent. Servers that compare
     /// names byte by byte, as ext4 and NTFS do, hold them as two files, while `String` calls them equal.
     static let composed = "/d/caf\u{E9}.txt"
@@ -80,9 +80,9 @@ struct InMemoryCachePathTests {
     }
 
     /// A cache that joins relative paths to `workingDirectory`, as one made with a control connection and
-    /// ``InMemorySFTPReadCache/Configuration/resolvesRelativePaths`` does.
-    static func cache(workingDirectory: String) -> InMemorySFTPReadCache {
-        InMemorySFTPReadCache(
+    /// ``ReferenceCache/Configuration/resolvesRelativePaths`` does.
+    static func cache(workingDirectory: String) -> ReferenceCache {
+        ReferenceCache(
             checkedConfiguration: .init(
                 minimumHitLength: 0,
                 metadata: .answer(for: 60, includingMissing: false),
@@ -139,12 +139,12 @@ struct InMemoryCachePathTests {
 #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
     /// Calls with values at the ends of their ranges, each in a process of its own: a trap in the cache would otherwise
     /// take every other test down with it.
-    @Suite("InMemorySFTPReadCache: values at the edge of their range")
-    struct InMemoryCacheExtremeValueTests {
+    @Suite("ReferenceCache: values at the edge of their range")
+    struct ReferenceCacheExtremeValueTests {
         @Test("the last positions a file can have are stored, handed out, and sized")
         func largestValidValues() async {
             await #expect(processExitsWith: .success) {
-                let cache = InMemorySFTPReadCache(configuration: .init(minimumHitLength: 0))
+                let cache = ReferenceCache(configuration: .init(minimumHitLength: 0))
                 let path = "/far"
                 let last = Data(repeating: 7, count: 8)
 
@@ -171,7 +171,7 @@ struct InMemoryCachePathTests {
         @Test("appending to a file whose server reports a size at the top of the range does not trap")
         func appendToFileOfLargestSize() async {
             await #expect(processExitsWith: .success) {
-                let cache = InMemorySFTPReadCache(configuration: .init())
+                let cache = ReferenceCache(configuration: .init())
                 let path = "/huge"
 
                 // A size only a hostile or broken server reports, but one it can report.
@@ -194,7 +194,7 @@ struct InMemoryCachePathTests {
         @Test("appends that add up past the top of the range do not trap")
         func appendsPastTheLargestCount() async {
             await #expect(processExitsWith: .success) {
-                let cache = InMemorySFTPReadCache(configuration: .init())
+                let cache = ReferenceCache(configuration: .init())
                 let path = "/appended"
 
                 // Tracked from a write, so of unknown size.
@@ -213,7 +213,7 @@ struct InMemoryCachePathTests {
         @Test("written bytes that would run past the last position a file can have are refused, not fatal")
         func uploadPastTheLastPosition() async {
             await #expect(processExitsWith: .success) {
-                let cache = InMemorySFTPReadCache(configuration: .init())
+                let cache = ReferenceCache(configuration: .init())
                 await cache.storeBlock(
                     Data(repeating: 1, count: 16),
                     path: "/far",
@@ -227,7 +227,7 @@ struct InMemoryCachePathTests {
         @Test("downloaded bytes that would run past the last position a file can have are refused, not fatal")
         func downloadPastTheLastPosition() async {
             await #expect(processExitsWith: .success) {
-                let cache = InMemorySFTPReadCache(configuration: .init())
+                let cache = ReferenceCache(configuration: .init())
                 let path = "/far"
 
                 // A server that reports no size leaves the cache nothing to cut the bytes to.
@@ -258,8 +258,8 @@ struct InMemoryCachePathTests {
 
 // MARK: Bytes
 
-@Suite("InMemorySFTPReadCache: bytes at the edges")
-struct InMemoryCacheByteEdgeTests {
+@Suite("ReferenceCache: bytes at the edges")
+struct ReferenceCacheByteEdgeTests {
     @Test("bytes handed over as a slice of a larger buffer are stored like any others, and handed back from zero")
     func slicedData() async throws {
         let cache = CacheFuzz.makeCache()
@@ -367,8 +367,8 @@ struct InMemoryCacheByteEdgeTests {
 
 // MARK: Budget
 
-@Suite("InMemorySFTPReadCache: budget")
-struct InMemoryCacheBudgetTests {
+@Suite("ReferenceCache: budget")
+struct ReferenceCacheBudgetTests {
     @Test("storing into a file drops others, least recently used first, and never the file itself")
     func evictionOrder() async {
         let cache = CacheFuzz.makeCache(byteBudget: 100)
@@ -489,8 +489,8 @@ struct InMemoryCacheBudgetTests {
 
 // MARK: Stores out of order
 
-@Suite("InMemorySFTPReadCache: more stores out of order")
-struct InMemoryCacheLateStoreTests {
+@Suite("ReferenceCache: more stores out of order")
+struct ReferenceCacheLateStoreTests {
     @Test(
         "bytes read before a write, an append, a dropped cache, or a close are refused when they arrive after it",
         arguments: ["write", "append", "memory", "close"]
@@ -637,8 +637,8 @@ struct InMemoryCacheLateStoreTests {
 
 // MARK: Versions
 
-@Suite("InMemorySFTPReadCache: more versions and changes")
-struct InMemoryCacheVersionEdgeTests {
+@Suite("ReferenceCache: more versions and changes")
+struct ReferenceCacheVersionEdgeTests {
     @Test("without a modification time or a size from the server, no two stats are known to show one version")
     func incompleteVersions() async {
         for flags: LibSSH2SFTPAttributeFlags in [[.size, .permissions], [.permissions, .accessModificationTime]] {
@@ -797,8 +797,8 @@ struct InMemoryCacheVersionEdgeTests {
 
 // MARK: Metadata
 
-@Suite("InMemorySFTPReadCache: more metadata answers")
-struct InMemoryCacheMetadataEdgeTests {
+@Suite("ReferenceCache: more metadata answers")
+struct ReferenceCacheMetadataEdgeTests {
     @Test(
         "a change inside a directory drops what a listing of the directory above says about that directory",
         arguments: ["created or deleted", "renamed away", "renamed in"]
@@ -901,13 +901,13 @@ struct InMemoryCacheMetadataEdgeTests {
             for second in answers {
                 for firstFollows in [true, false] {
                     for secondFollows in [true, false] {
-                        let forward = InMemorySFTPReadCache.contradicts(
+                        let forward = ReferenceCache.contradicts(
                             first,
                             followLink: firstFollows,
                             second,
                             secondFollows
                         )
-                        let backward = InMemorySFTPReadCache.contradicts(
+                        let backward = ReferenceCache.contradicts(
                             second,
                             followLink: secondFollows,
                             first,
@@ -919,22 +919,22 @@ struct InMemoryCacheMetadataEdgeTests {
             }
 
             // An answer never contradicts itself.
-            #expect(!InMemorySFTPReadCache.contradicts(first, followLink: true, first, true))
-            #expect(!InMemorySFTPReadCache.contradicts(first, followLink: false, first, false))
+            #expect(!ReferenceCache.contradicts(first, followLink: true, first, true))
+            #expect(!ReferenceCache.contradicts(first, followLink: false, first, false))
         }
     }
 }
 
 // MARK: Checks without a server
 
-@Suite("InMemorySFTPReadCache: checks that cannot reach the server")
-struct InMemoryCacheUncheckableTests {
+@Suite("ReferenceCache: checks that cannot reach the server")
+struct ReferenceCacheUncheckableTests {
     /// A cache whose trust policy needs a control connection it does not have, as after the connection is lost.
     static func cache(
-        _ policy: InMemorySFTPReadCache.TrustPolicy,
+        _ policy: ReferenceCache.TrustPolicy,
         revalidationInterval: TimeInterval?
-    ) -> InMemorySFTPReadCache {
-        InMemorySFTPReadCache(
+    ) -> ReferenceCache {
+        ReferenceCache(
             checkedConfiguration: .init(
                 minimumHitLength: 0,
                 trustPolicy: policy,
@@ -945,14 +945,14 @@ struct InMemoryCacheUncheckableTests {
         )
     }
 
-    static let policies: [InMemorySFTPReadCache.TrustPolicy] = [
+    static let policies: [ReferenceCache.TrustPolicy] = [
         .statOnServer,
         .hashOnServer(.sha256),
         .sampleBlocks(count: 2),
     ]
 
     @Test("bytes due for a check that cannot be made are dropped, not handed out", arguments: policies)
-    func dueBytesAreDropped(policy: InMemorySFTPReadCache.TrustPolicy) async {
+    func dueBytesAreDropped(policy: ReferenceCache.TrustPolicy) async {
         // An interval of zero has every hit checked first.
         let cache = Self.cache(policy, revalidationInterval: 0)
         await CacheFuzz.cacheFile(cache, path: "/f", contents: CacheFuzz.bytes(40))
@@ -964,7 +964,7 @@ struct InMemoryCacheUncheckableTests {
     }
 
     @Test("bytes read before a failed check dropped the file's bytes are refused afterwards", arguments: policies)
-    func storeAfterFailedCheck(policy: InMemorySFTPReadCache.TrustPolicy) async {
+    func storeAfterFailedCheck(policy: ReferenceCache.TrustPolicy) async {
         let cache = Self.cache(policy, revalidationInterval: 0)
         let path = "/f"
         await CacheFuzz.stat(cache, CacheFuzz.file(path, size: 100), path: path)
@@ -991,7 +991,7 @@ struct InMemoryCacheUncheckableTests {
     }
 
     @Test("many reads of one file wait on one check at a time, and none is handed unchecked bytes", arguments: policies)
-    func concurrentReadsOfAnUncheckableFile(policy: InMemorySFTPReadCache.TrustPolicy) async {
+    func concurrentReadsOfAnUncheckableFile(policy: ReferenceCache.TrustPolicy) async {
         let cache = Self.cache(policy, revalidationInterval: 0)
         await CacheFuzz.cacheFile(cache, path: "/f", contents: CacheFuzz.bytes(40))
 

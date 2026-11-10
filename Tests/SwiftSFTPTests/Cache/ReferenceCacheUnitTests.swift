@@ -40,9 +40,9 @@ private func makeCache(
     byteBudget: Int = 1024 * 1024,
     maximumFileSize: UInt64? = nil,
     minimumHitLength: Int = 0,
-    metadata: InMemorySFTPReadCache.MetadataPolicy = .neverAnswer
-) -> InMemorySFTPReadCache {
-    InMemorySFTPReadCache(
+    metadata: ReferenceCache.MetadataPolicy = .neverAnswer
+) -> ReferenceCache {
+    ReferenceCache(
         configuration: .init(
             byteBudget: byteBudget,
             maximumFileSize: maximumFileSize,
@@ -55,7 +55,7 @@ private func makeCache(
 /// Hands the cache a stat of `path` the way the client does when the cache does not answer: a lookup, the store, and
 /// the end of the request.
 private func stat(
-    _ cache: InMemorySFTPReadCache,
+    _ cache: ReferenceCache,
     _ result: FileMetadata?,
     path: String,
     followLink: Bool = true
@@ -68,7 +68,7 @@ private func stat(
 
 /// Hands the cache a listing of `path` the way the client does when the cache does not answer.
 private func list(
-    _ cache: InMemorySFTPReadCache,
+    _ cache: ReferenceCache,
     _ entries: [FileMetadata],
     path: String,
     recursive: Bool = false
@@ -81,7 +81,7 @@ private func list(
 
 /// Hands the cache bytes downloaded from `offset` the way the client does: a lookup that does not cover them all, the
 /// store, and the end of the request.
-private func download(_ cache: InMemorySFTPReadCache, _ data: Data, path: String, offset: UInt64 = 0) async {
+private func download(_ cache: ReferenceCache, _ data: Data, path: String, offset: UInt64 = 0) async {
     let request = CacheRequestID()
     _ = await cache.retrieveBlock(path: path, offset: offset, upTo: .max, request: request)
     await cache.storeBlock(data, path: path, offset: offset, source: .download, request: request)
@@ -89,12 +89,12 @@ private func download(_ cache: InMemorySFTPReadCache, _ data: Data, path: String
 }
 
 /// Hands the cache bytes written through the client.
-private func upload(_ cache: InMemorySFTPReadCache, _ data: Data, path: String, offset: UInt64 = 0) async {
+private func upload(_ cache: ReferenceCache, _ data: Data, path: String, offset: UInt64 = 0) async {
     await cache.storeBlock(data, path: path, offset: offset, source: .upload, request: nil)
 }
 
 /// Asks the cache for bytes, ending the request at once.
-private func retrieve(_ cache: InMemorySFTPReadCache, path: String, offset: UInt64 = 0, upTo: Int) async -> Data? {
+private func retrieve(_ cache: ReferenceCache, path: String, offset: UInt64 = 0, upTo: Int) async -> Data? {
     let request = CacheRequestID()
     let data = await cache.retrieveBlock(path: path, offset: offset, upTo: upTo, request: request)
     await cache.requestEnded(request)
@@ -103,7 +103,7 @@ private func retrieve(_ cache: InMemorySFTPReadCache, path: String, offset: UInt
 
 /// Asks the cache for a stat, ending the request at once.
 private func cachedStat(
-    _ cache: InMemorySFTPReadCache,
+    _ cache: ReferenceCache,
     path: String,
     followLink: Bool = true
 ) async -> CachedFileStat? {
@@ -115,7 +115,7 @@ private func cachedStat(
 
 /// Asks the cache for a listing, ending the request at once.
 private func cachedListing(
-    _ cache: InMemorySFTPReadCache,
+    _ cache: ReferenceCache,
     path: String,
     recursive: Bool = false
 ) async -> Set<FileMetadata>? {
@@ -127,7 +127,7 @@ private func cachedListing(
 
 /// Has the cache learn that `path` is a regular file of `size` bytes, then hands it `contents` as if downloaded.
 private func cacheFile(
-    _ cache: InMemorySFTPReadCache,
+    _ cache: ReferenceCache,
     path: String,
     contents: Data,
     modificationTime: UInt = 1000
@@ -136,16 +136,16 @@ private func cacheFile(
     await download(cache, contents, path: path)
 }
 
-/// Whether ``InMemorySFTPReadCache/storedByteCount`` matches the bytes its files hold.
-private func byteCountIsConsistent(_ cache: InMemorySFTPReadCache) async -> Bool {
+/// Whether ``ReferenceCache/storedByteCount`` matches the bytes its files hold.
+private func byteCountIsConsistent(_ cache: ReferenceCache) async -> Bool {
     let held = await cache.files.values.reduce(0) { $0 + $1.blocks.byteCount }
     return await cache.storedByteCount == held
 }
 
 // MARK: Block storage
 
-@Suite("InMemorySFTPReadCache: block storage")
-struct InMemoryCacheBlockStorageTests {
+@Suite("ReferenceCache: block storage")
+struct ReferenceCacheBlockStorageTests {
     @Test("runs merge: new bytes overwrite the bytes they overlap, and touching runs join")
     func blocksMerge() {
         var blocks = FileBlocks()
@@ -312,8 +312,8 @@ struct InMemoryCacheBlockStorageTests {
 
 // MARK: Versions and changes
 
-@Suite("InMemorySFTPReadCache: versions and changes")
-struct InMemoryCacheVersionTests {
+@Suite("ReferenceCache: versions and changes")
+struct ReferenceCacheVersionTests {
     @Test("a new version drops the blocks, except those written through the client since the previous stat")
     func versionChange() async {
         let cache = makeCache()
@@ -443,8 +443,8 @@ struct InMemoryCacheVersionTests {
 
 // MARK: Out-of-order stores
 
-@Suite("InMemorySFTPReadCache: out-of-order stores")
-struct InMemoryCacheOrderingTests {
+@Suite("ReferenceCache: out-of-order stores")
+struct ReferenceCacheOrderingTests {
     @Test("bytes read before an invalidation are refused when they arrive after it")
     func storeAfterInvalidate() async {
         let cache = makeCache()
@@ -602,8 +602,8 @@ struct InMemoryCacheOrderingTests {
 
 // MARK: Metadata
 
-@Suite("InMemorySFTPReadCache: metadata answers")
-struct InMemoryCacheMetadataTests {
+@Suite("ReferenceCache: metadata answers")
+struct ReferenceCacheMetadataTests {
     @Test("with neverAnswer, stats and listings always go to the server")
     func neverAnswer() async {
         let cache = makeCache()
@@ -649,8 +649,8 @@ struct InMemoryCacheMetadataTests {
 
 // MARK: Metadata after writes
 
-@Suite("InMemorySFTPReadCache: metadata after writes")
-struct InMemoryCacheMetadataAfterWritesTests {
+@Suite("ReferenceCache: metadata after writes")
+struct ReferenceCacheMetadataAfterWritesTests {
     @Test("a write drops the file's stored stats, both followLink keys, and its parent's listing")
     func writeDropsMetadata() async {
         let cache = makeCache(metadata: .answer(for: 60, includingMissing: false))
@@ -749,8 +749,8 @@ struct InMemoryCacheMetadataAfterWritesTests {
 
 // MARK: Renames and accounting
 
-@Suite("InMemorySFTPReadCache: renames and byte accounting")
-struct InMemoryCacheRenameAccountingTests {
+@Suite("ReferenceCache: renames and byte accounting")
+struct ReferenceCacheRenameAccountingTests {
     @Test("moving entries over existing ones keeps the stored byte count exact")
     func moveOverExistingEntry() async {
         let cache = makeCache()
@@ -783,8 +783,8 @@ struct InMemoryCacheRenameAccountingTests {
 
 // MARK: Bookkeeping
 
-@Suite("InMemorySFTPReadCache: generation bookkeeping")
-struct InMemoryCacheBookkeepingTests {
+@Suite("ReferenceCache: generation bookkeeping")
+struct ReferenceCacheBookkeepingTests {
     @Test("a change reaches the path and everything under it, and nothing beside it")
     func changeLogSubtrees() {
         var log = ChangeLog()

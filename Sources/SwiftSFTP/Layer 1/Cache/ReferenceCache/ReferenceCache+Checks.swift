@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: Checks against the server
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// Whether `entry` needs a check by the trust policy before its bytes are handed out.
     func isDue(_ entry: FileEntry) -> Bool {
         guard configuration.trustPolicy != .trustReports else {

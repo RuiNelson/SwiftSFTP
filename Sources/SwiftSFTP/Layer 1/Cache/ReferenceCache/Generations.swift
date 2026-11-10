@@ -77,7 +77,7 @@ struct RequestLog {
     struct Start {
         /// ``ChangeLog/clock`` when the request started.
         let clock: UInt64
-        /// ``InMemorySFTPReadCache/FileEntry/id`` of the file a read's lookup found, or `nil`.
+        /// ``ReferenceCache/FileEntry/id`` of the file a read's lookup found, or `nil`.
         let entry: UInt64?
         /// Whether a lookup started the request, rather than ``SFTPBlockLevelReadCache/beginRequest(_:)``: its store
         /// then describes the path as it is, rather than a file open at it.

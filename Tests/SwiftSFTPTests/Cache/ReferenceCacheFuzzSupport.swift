@@ -46,7 +46,7 @@ struct SeededGenerator: RandomNumberGenerator {
 
 // MARK: Shared helpers
 
-/// Helpers shared by the randomized and edge-case tests of ``InMemorySFTPReadCache``.
+/// Helpers shared by the randomized and edge-case tests of ``ReferenceCache``.
 enum CacheFuzz {
     /// The seeds a randomized test runs with: `count` of them, counting up from zero.
     ///
@@ -252,9 +252,9 @@ enum CacheFuzz {
         maximumFileSize: UInt64? = nil,
         keepsUploads: Bool = true,
         minimumHitLength: Int = 0,
-        metadata: InMemorySFTPReadCache.MetadataPolicy = .neverAnswer
-    ) -> InMemorySFTPReadCache {
-        InMemorySFTPReadCache(
+        metadata: ReferenceCache.MetadataPolicy = .neverAnswer
+    ) -> ReferenceCache {
+        ReferenceCache(
             configuration: .init(
                 byteBudget: byteBudget,
                 maximumFileSize: maximumFileSize,
@@ -313,7 +313,7 @@ extension FileBlocks {
     }
 }
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// Hands over a stat, as the client does: under `request`, or, for `nil`, as the stat of an open file, under a
     /// request of its own that begins just before.
     func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID?) async {
@@ -411,8 +411,8 @@ extension InMemorySFTPReadCache {
 
 // MARK: Gated cache
 
-/// An ``InMemorySFTPReadCache`` behind a door: every call goes through to it unchanged, except that a test can hold a
-/// chosen call at the door for a while, the way a cache busy with other calls keeps one waiting.
+/// An ``ReferenceCache`` behind a door: every call goes through to it unchanged, except that a test can hold a chosen
+/// call at the door for a while, the way a cache busy with other calls keeps one waiting.
 ///
 /// The client makes its calls from several tasks, so the order in which two of them reach the cache is not the order in
 /// which the server answered them. Holding one call while others go through makes such an order happen on purpose.
@@ -493,14 +493,14 @@ final class GatedCache: SFTPBlockLevelReadCache, @unchecked Sendable {
         }
     }
 
-    let inner: InMemorySFTPReadCache
+    let inner: ReferenceCache
 
     private let lock = NSLock()
     private var gates: [(call: Call, path: String?, after: Bool, gate: Gate)] = []
     private var everyGate: [Gate] = []
     private var answeredReads = 0
 
-    init(_ inner: InMemorySFTPReadCache) {
+    init(_ inner: ReferenceCache) {
         self.inner = inner
     }
 

@@ -6,7 +6,7 @@ import PathWorks
 /// Attach one cache to a client, and its forks, connected to one server:
 ///
 /// ```swift
-/// let cache = try await InMemorySFTPReadCache(
+/// let cache = try await ReferenceCache(
 ///     forking: client,
 ///     configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 10)
 /// )
@@ -46,7 +46,7 @@ import PathWorks
 /// Checks against the server, relative path resolution, and symbolic link resolution need a connection of the cache's
 /// own, made with ``init(forking:configuration:)``. The cache owns that connection: closing the client the cache is
 /// attached to does not close it, ``close()`` does.
-public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
+public actor ReferenceCache: SFTPBlockLevelReadCache {
     // MARK: Limits
 
     /// Most files tracked, with or without cached bytes.
@@ -601,7 +601,7 @@ public actor InMemorySFTPReadCache: SFTPBlockLevelReadCache {
 
 // MARK: Blocks
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// What a read of `key` at `offset` needs to know, or `nil` when the cache does not track the file, will not cache
     /// it, or knows `offset` to be past its end.
     func probe(_ key: String, offset: UInt64) -> (knownSize: UInt64?, holdsOffset: Bool)? {
@@ -793,7 +793,7 @@ extension InMemorySFTPReadCache {
 
 // MARK: Versions
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// Compares a stat of the file at `key` with the version its blocks came from, dropping the blocks if it changed.
     ///
     /// Blocks written through the client since the last stat belong to the new version, so they are kept, and so are
@@ -966,7 +966,7 @@ extension InMemorySFTPReadCache {
 
 // MARK: Metadata
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// The answer a stored stat of the normalized `path`, or a stored listing of its directory, gives, if
     /// ``Configuration/metadata`` allows answering.
     func storedStat(path: String, followLink: Bool) -> CachedFileStat? {
@@ -1158,7 +1158,7 @@ extension InMemorySFTPReadCache {
 
 // MARK: Paths
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// `path` normalized, and joined to the working directory if relative and
     /// ``Configuration/resolvesRelativePaths`` is on.
     func normalize(_ path: String) -> String {
@@ -1276,7 +1276,7 @@ extension InMemorySFTPReadCache {
 
 // MARK: Paths through links
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// The block key of `path`, and whether files opened through it may be elsewhere.
     func keyAndSafety(for path: String) async -> (key: String, safety: PathSafety) {
         let key = await resolvedKey(for: path)
@@ -1394,7 +1394,7 @@ extension InMemorySFTPReadCache {
 
 // MARK: Inspection
 
-extension InMemorySFTPReadCache {
+extension ReferenceCache {
     /// The cached ranges of the file at `path`, sorted.
     func cachedRanges(path: String) async -> [Range<UInt64>] {
         await files[resolvedKey(for: path)]?.blocks.ranges ?? []

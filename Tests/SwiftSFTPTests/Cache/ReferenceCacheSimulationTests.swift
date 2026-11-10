@@ -7,18 +7,18 @@ import Testing
 ///
 /// The first four tests keep apart the orderings the tests under "Harder cases" each let in, one kind at a time: those
 /// are orderings the real client can produce, in which what the cache is told, when it is told it, or what the registry
-/// of open files makes of it leaves the cache answering wrongly. `InMemoryCacheRaceIntegrationTests` reproduces each of
-/// them with the real client on the test server.
+/// of open files makes of it leaves the cache answering wrongly. `ReferenceCacheRaceIntegrationTests` reproduces each
+/// of them with the real client on the test server.
 ///
 /// A failure names its seeds and lists the steps that led to the first. `SWIFTSFTP_CACHE_FUZZ_SEED=<seed>` runs that
 /// seed alone, `SWIFTSFTP_CACHE_FUZZ_LOG_LINES=<n>` lists that many of its last steps, and
 /// `SWIFTSFTP_CACHE_FUZZ_SCALE=<n>` runs `n` times as many seeds: the rarer orderings take thousands of runs to turn
 /// up, so a test that passes with the few seeds it runs by default says little until it passes a larger run.
-@Suite("InMemorySFTPReadCache: simulated client and server")
-struct InMemoryCacheSimulationTests {
+@Suite("ReferenceCache: simulated client and server")
+struct ReferenceCacheSimulationTests {
     /// A configuration drawn from `seed`, with budgets and limits small enough for eviction and refusals to happen
     /// within a few hundred steps.
-    static func configuration(seed: UInt64, answersMetadata: Bool) -> InMemorySFTPReadCache.Configuration {
+    static func configuration(seed: UInt64, answersMetadata: Bool) -> ReferenceCache.Configuration {
         var generator = SeededGenerator(seed: seed ^ 0xC0FFEE)
         let budgets = [0, 96, 300, 1 << 20, 1 << 20]
         let fileSizes: [UInt64?] = [nil, nil, 60, 1000]

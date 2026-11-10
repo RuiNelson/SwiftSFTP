@@ -357,7 +357,7 @@ struct SimulatedServer {
 
 // MARK: Simulation
 
-/// A client and a server in miniature, around a real ``InMemorySFTPReadCache`` and a real ``OpenFileRegistry``.
+/// A client and a server in miniature, around a real ``ReferenceCache`` and a real ``OpenFileRegistry``.
 ///
 /// The simulated client makes, for each operation, the calls ``SFTPClient`` and ``SFTPFile`` make, in their order,
 /// against a ``SimulatedServer``. It makes them one step at a time, where a step is one server call, one registry call,
@@ -370,7 +370,7 @@ struct SimulatedServer {
 /// through the cache.
 final class CacheSimulation {
     struct Options: CustomStringConvertible, Sendable {
-        var configuration: InMemorySFTPReadCache.Configuration
+        var configuration: ReferenceCache.Configuration
 
         /// Most operations in flight together.
         var concurrency = 1
@@ -531,7 +531,7 @@ final class CacheSimulation {
 
     let seed: UInt64
     let options: Options
-    let cache: InMemorySFTPReadCache
+    let cache: ReferenceCache
     let registry = OpenFileRegistry()
     private(set) var server = SimulatedServer()
     private var generator: SeededGenerator
@@ -562,7 +562,7 @@ final class CacheSimulation {
         filePaths = (["/"] + directoryPaths).flatMap { directory in
             (options.crowded ? ["f"] : ["f", "g", "h"]).map { directory == "/" ? "/\($0)" : "\(directory)/\($0)" }
         }
-        cache = InMemorySFTPReadCache(configuration: options.configuration)
+        cache = ReferenceCache(configuration: options.configuration)
         generator = SeededGenerator(seed: seed)
     }
 

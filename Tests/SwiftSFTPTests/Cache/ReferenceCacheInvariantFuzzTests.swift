@@ -4,8 +4,8 @@ import Testing
 
 /// Calls of every kind, in any order and with any arguments, including ones the client never makes: whatever it is
 /// told, the cache must keep its books straight and hand out only bytes it was given.
-@Suite("InMemorySFTPReadCache: any calls in any order")
-struct InMemoryCacheInvariantFuzzTests {
+@Suite("ReferenceCache: any calls in any order")
+struct ReferenceCacheInvariantFuzzTests {
     /// Paths as a client sends them, and as it never would: unsanitized, relative, above the current directory, and two
     /// spellings of one accented name.
     static let paths = [
@@ -77,20 +77,20 @@ struct InMemoryCacheInvariantFuzzTests {
         let budgets = [0, 1, 64, 500, 1 << 20]
         let fileSizes: [UInt64?] = [nil, nil, 0, 50, 1000]
         let hitLengths = [0, 1, 16, 1 << 20]
-        let policies: [InMemorySFTPReadCache.MetadataPolicy] = [
+        let policies: [ReferenceCache.MetadataPolicy] = [
             .neverAnswer,
             .answer(for: 3600, includingMissing: true),
             .answer(for: 3600, includingMissing: false),
             .answer(for: 0, includingMissing: true),
         ]
-        let configuration = InMemorySFTPReadCache.Configuration(
+        let configuration = ReferenceCache.Configuration(
             byteBudget: generator.pick(budgets),
             maximumFileSize: generator.pick(fileSizes),
             keepsUploads: generator.chance(0.7),
             minimumHitLength: generator.pick(hitLengths),
             metadata: generator.pick(policies)
         )
-        let cache = InMemorySFTPReadCache(configuration: configuration)
+        let cache = ReferenceCache(configuration: configuration)
 
         var open: [CacheRequestID] = []
         var ended: [CacheRequestID] = []
@@ -283,12 +283,12 @@ struct InMemoryCacheInvariantFuzzTests {
 
 // MARK: Limits
 
-@Suite("InMemorySFTPReadCache: limits")
-struct InMemoryCacheLimitTests {
+@Suite("ReferenceCache: limits")
+struct ReferenceCacheLimitTests {
     @Test("tracking more files than the limit forgets the least recently used, and keeps the byte count exact")
     func entryLimit() async {
         let cache = CacheFuzz.makeCache()
-        let limit = InMemorySFTPReadCache.entryLimit
+        let limit = ReferenceCache.entryLimit
 
         // The first files hold bytes, and are the least recently used once the others are tracked.
         for index in 0 ..< 10 {
@@ -346,10 +346,10 @@ struct InMemoryCacheLimitTests {
     @Test("stored stats and listings stay within their limit, and the newest still answer")
     func metadataLimit() async {
         let cache = CacheFuzz.makeCache(metadata: .answer(for: 3600, includingMissing: false))
-        let count = InMemorySFTPReadCache.metadataLimit + 200
+        let count = ReferenceCache.metadataLimit + 200
 
         await cache.trackFiles(under: "/d", count: count)
-        #expect(await cache.stats.count <= InMemorySFTPReadCache.metadataLimit)
+        #expect(await cache.stats.count <= ReferenceCache.metadataLimit)
         #expect(await CacheFuzz.cachedStat(cache, path: "/d/file\(count - 1)") != nil)
 
         #expect(await cache.invariantViolations() == [])
@@ -358,7 +358,7 @@ struct InMemoryCacheLimitTests {
         for index in 0 ..< count {
             await CacheFuzz.list(listed, [CacheFuzz.file("/l\(index)/f", size: 1)], path: "/l\(index)")
         }
-        #expect(await listed.listings.count <= InMemorySFTPReadCache.metadataLimit)
+        #expect(await listed.listings.count <= ReferenceCache.metadataLimit)
         #expect(await CacheFuzz.cachedListing(listed, path: "/l\(count - 1)") != nil)
         #expect(await listed.invariantViolations() == [])
     }
@@ -380,7 +380,7 @@ struct InMemoryCacheLimitTests {
         }
 
         let few = await cost(tracking: 10)
-        let many = await cost(tracking: InMemorySFTPReadCache.entryLimit)
+        let many = await cost(tracking: ReferenceCache.entryLimit)
 
         // Walking a large tree stores one listing per directory: a cost that grows with every file tracked anywhere
         // turns that walk quadratic. Generous, so that a busy machine does not fail it.

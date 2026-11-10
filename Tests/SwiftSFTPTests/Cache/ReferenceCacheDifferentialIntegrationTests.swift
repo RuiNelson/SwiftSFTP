@@ -39,11 +39,11 @@ private func describe(_ data: Data?) -> String {
 /// all, and whatever it answers must be what the server holds.
 ///
 /// `SWIFTSFTP_CACHE_FUZZ_SEED` picks the seed, and `SWIFTSFTP_CACHE_FUZZ_SCALE` multiplies the operations.
-@Suite("InMemorySFTPReadCache: the cached client against an uncached one", .serialized)
-struct InMemoryCacheDifferentialIntegrationTests {
+@Suite("ReferenceCache: the cached client against an uncached one", .serialized)
+struct ReferenceCacheDifferentialIntegrationTests {
     struct Setup: Sendable, CustomTestStringConvertible {
         let name: String
-        let configuration: InMemorySFTPReadCache.Configuration
+        let configuration: ReferenceCache.Configuration
 
         /// Whether files are also reached through a symbolic link to their directory, and by relative paths.
         var usesAliases = false

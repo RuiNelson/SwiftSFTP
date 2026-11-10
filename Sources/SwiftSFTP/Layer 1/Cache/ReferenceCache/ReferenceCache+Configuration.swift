@@ -1,7 +1,7 @@
 import Foundation
 
-public extension InMemorySFTPReadCache {
-    /// How an ``InMemorySFTPReadCache`` stores blocks, checks them against the server, and answers metadata lookups.
+public extension ReferenceCache {
+    /// How an ``ReferenceCache`` stores blocks, checks them against the server, and answers metadata lookups.
     struct Configuration: Sendable, Equatable {
         /// Most bytes of file contents kept, across all files.
         ///
@@ -105,7 +105,7 @@ public extension InMemorySFTPReadCache {
         }
     }
 
-    /// What an ``InMemorySFTPReadCache`` does to make sure cached blocks still match the file on the server.
+    /// What an ``ReferenceCache`` does to make sure cached blocks still match the file on the server.
     ///
     /// Whatever the policy, the cache compares every stat and directory listing the client makes, and the final stat
     /// the client makes when it closes a file it wrote, with the size and modification time of the version its blocks
@@ -151,7 +151,7 @@ public extension InMemorySFTPReadCache {
         case sampleBlocks(count: Int)
     }
 
-    /// Whether an ``InMemorySFTPReadCache`` answers stats and directory listings itself.
+    /// Whether an ``ReferenceCache`` answers stats and directory listings itself.
     enum MetadataPolicy: Sendable, Equatable {
         /// Never answers: every stat and listing goes to the server.
         ///
@@ -176,7 +176,7 @@ public extension InMemorySFTPReadCache {
 
 // MARK: Internal
 
-extension InMemorySFTPReadCache.Configuration {
+extension ReferenceCache.Configuration {
     /// Whether the configuration needs a control connection to the server.
     var needsControlConnection: Bool {
         trustPolicy != .trustReports || resolvesRelativePaths || deduplicatesSymlinks
