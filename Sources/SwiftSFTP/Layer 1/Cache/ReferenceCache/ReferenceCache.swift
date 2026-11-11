@@ -7,15 +7,17 @@ import PathWorks
 /// Attach one cache to a client, and its forks, connected to one server:
 ///
 /// ```swift
+/// let control = try await client.fork(loggedIn: true)
 /// let cache = try await ReferenceCache(
 ///     storage: InMemoryCacheStorage(byteBudget: 64 * 1024 * 1024),
-///     forking: client,
+///     controlConnection: control,
 ///     configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 10)
 /// )
 /// client.attachCache(cache)
 /// // …
 /// client.detachCache()
-/// try await cache.close()
+/// await cache.close()
+/// try await control.close()
 /// ```
 ///
 /// ## Storage
@@ -47,8 +49,9 @@ import PathWorks
 /// ## Control connection
 ///
 /// Checks against the server, relative path resolution, and symbolic link resolution need a connection of the cache's
-/// own, made with ``init(storage:forking:configuration:)``. The cache owns that connection: closing the client the
-/// cache is attached to does not close it, ``close()`` does.
+/// own, given to ``init(storage:controlConnection:configuration:)``. The caller opens that connection, typically by
+/// forking the client the cache is for, and closes it after closing the cache: neither ``close()`` nor closing the
+/// clients the cache is attached to closes it.
 public actor ReferenceCache: SFTPBlockLevelReadCache {
     // MARK: Limits
 
@@ -139,7 +142,8 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// Creates a cache without a control connection.
     ///
     /// The configuration must not need one: its trust policy must be ``TrustPolicy/trustReports``, and it must neither
-    /// resolve relative paths nor deduplicate symbolic links. Use ``init(storage:forking:configuration:)`` otherwise.
+    /// resolve relative paths nor deduplicate symbolic links. Use ``init(storage:controlConnection:configuration:)``
+    /// otherwise.
     ///
     /// - Parameters:
     ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
@@ -147,42 +151,39 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     public init(storage: any CacheStorage = InMemoryCacheStorage(), configuration: Configuration) {
         precondition(
             !configuration.needsControlConnection,
-            "This configuration needs a control connection: create the cache with init(storage:forking:configuration:)"
+            "This configuration needs a control connection: create the cache with init(storage:controlConnection:configuration:)"
         )
         self.init(checkedConfiguration: configuration, storage: storage, control: nil, workingDirectory: nil)
     }
 
-    /// Creates a cache with a control connection of its own, forked from `client`.
+    /// Creates a cache with `control` as its control connection.
     ///
-    /// Create the cache before attaching any cache to `client`: a fork made while a cache is attached starts with that
-    /// cache, and the control connection must not use one. The cache owns the control connection; close it with
-    /// ``close()``. With ``Configuration/resolvesRelativePaths``, this reads the server's working directory too.
+    /// Open `control` yourself, typically with `client.fork(loggedIn: true)` on the client the cache is for. Fork
+    /// before attaching any cache to that client: a fork made while a cache is attached starts with that cache, and the
+    /// control connection must not use one. Use `control` for nothing else afterwards.
+    ///
+    /// `control` stays the caller's: the cache never closes it. Close it after ``close()``, once the cache is done with
+    /// it, or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's
+    /// working directory too.
     ///
     /// - Parameters:
     ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
-    ///   - client: A logged-in client connected to the server whose files the cache keeps.
+    ///   - control: A logged-in client connected to the server whose files the cache keeps, without a cache attached.
     ///   - configuration: How the cache stores, checks, and answers.
-    /// - Throws: Errors from forking and logging in, or from reading the working directory.
+    /// - Throws: Errors from reading the working directory.
     public init(
         storage: any CacheStorage = InMemoryCacheStorage(),
-        forking client: SFTPClient,
+        controlConnection control: SFTPClient,
         configuration: Configuration
     ) async throws {
-        let control = try await client.fork(loggedIn: true)
         precondition(
             !control.hasCacheAttached(),
-            "The control connection must not use a cache: create the cache before attaching any cache to the client"
+            "The control connection must not use a cache: fork it before attaching any cache to the client"
         )
 
         var workingDirectory: String?
         if configuration.resolvesRelativePaths {
-            do {
-                workingDirectory = try await CachePath.key(control.currentWorkingDirectory)
-            }
-            catch {
-                try? await control.close()
-                throw error
-            }
+            workingDirectory = try await CachePath.key(control.currentWorkingDirectory)
         }
 
         self.init(
@@ -219,16 +220,14 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
         #endif
     }
 
-    /// Closes the control connection, if the cache has one, and drops everything cached, its files' bytes in the
-    /// storage included.
+    /// Drops everything cached, its files' bytes in the storage included, and closes the shell agent of
+    /// ``TrustPolicy/hashOnServer(_:)``, if one was opened.
     ///
-    /// The cache owns its control connection: closing the clients it is attached to does not close it, so call this
-    /// when done with the cache. Detach the cache from every client first. A cache still attached goes on storing and
-    /// answering, but every check and path resolution that needs the control connection fails from then on. Closing
-    /// more than once does nothing.
-    ///
-    /// - Throws: Errors from closing the control connection.
-    public func close() async throws {
+    /// Call this when done with the cache, after detaching it from every client; then close the control connection, if
+    /// the cache has one, which this does not close. A cache still attached goes on storing and answering, but every
+    /// check and path resolution that needs the control connection fails from then on. Closing more than once does
+    /// nothing.
+    public func close() async {
         guard !isClosed else {
             return
         }
@@ -240,8 +239,6 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
             try? await agent.close()
         }
         shellAgentTask = nil
-
-        try await control?.close()
     }
 
     // MARK: SFTPBlockLevelReadCache: Blocks
@@ -503,7 +500,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
             else {
                 await resolveThroughParent(source) ?? source
             }
-            let resolvedDestination = await (try? control.realPath(path: CachePath.serverPath(ofKey: destination)))
+            let resolvedDestination = await serverRealPath(ofKey: destination, control: control)
                 .map(CachePath.key) ?? destination
 
             if resolvedSource != source || resolvedDestination != destination, resolvedSource != resolvedDestination {
@@ -1205,7 +1202,7 @@ extension ReferenceCache {
 
         let generation = changeLog.generation(of: normalized)
         let task = Task<String?, Never> {
-            await (try? control.realPath(path: CachePath.serverPath(ofKey: normalized))).map(CachePath.key)
+            await serverRealPath(ofKey: normalized, control: control).map(CachePath.key)
         }
         resolving[normalized] = task
         let resolved = await task.value
@@ -1235,6 +1232,15 @@ extension ReferenceCache {
         return resolved
     }
 
+    /// The real path on the server of the file at block key `key`: `nil` when the server cannot resolve it, or once the
+    /// cache is closed, since the caller may close `control` then.
+    func serverRealPath(ofKey key: String, control: SFTPClient) async -> String? {
+        guard !isClosed else {
+            return nil
+        }
+        return try? await control.realPath(path: CachePath.serverPath(ofKey: key))
+    }
+
     /// The real path of `path`, which may no longer exist, from the real path of its directory.
     func resolveThroughParent(_ path: String) async -> String? {
         guard let control, let name = path.lastPathComponent else {
@@ -1246,7 +1252,7 @@ extension ReferenceCache {
             known
         }
         else {
-            await (try? control.realPath(path: CachePath.serverPath(ofKey: parent))).map(CachePath.key)
+            await serverRealPath(ofKey: parent, control: control).map(CachePath.key)
         }
         return resolvedParent.map { CachePath.normalize($0.appendingPathComponent(name)) }
     }
@@ -1256,7 +1262,7 @@ extension ReferenceCache {
     func keysChanged(at path: String) async -> Set<String> {
         var keys = Set(resolutions.filter { CachePath.isPath($0.key, atOrUnder: path) }.values)
         if resolutions[path] == nil, let control {
-            if let real = try? await control.realPath(path: CachePath.serverPath(ofKey: path)) {
+            if let real = await serverRealPath(ofKey: path, control: control) {
                 keys.insert(CachePath.key(real))
             }
             else if let real = await resolveThroughParent(path) {

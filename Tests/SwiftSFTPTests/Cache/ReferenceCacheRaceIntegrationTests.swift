@@ -26,9 +26,13 @@ func withCachedClients(
     try await withClient { client in
         let truth = try await client.fork(loggedIn: true)
         let storage = InMemoryCacheStorage(byteBudget: byteBudget)
-        let cache = configuration.needsControlConnection
-            ? try await ReferenceCache(storage: storage, forking: client, configuration: configuration)
-            : ReferenceCache(storage: storage, configuration: configuration)
+        let control = configuration.needsControlConnection ? try await client.fork(loggedIn: true) : nil
+        let cache = if let control {
+            try await ReferenceCache(storage: storage, controlConnection: control, configuration: configuration)
+        }
+        else {
+            ReferenceCache(storage: storage, configuration: configuration)
+        }
         let gated = GatedCache(cache)
         client.attachCache(gated)
 
@@ -52,7 +56,8 @@ func withCachedClients(
         gated.openAll()
         client.detachCache()
         try? await truth.close()
-        try? await cache.close()
+        await cache.close()
+        try? await control?.close()
         try result.get()
     }
 }

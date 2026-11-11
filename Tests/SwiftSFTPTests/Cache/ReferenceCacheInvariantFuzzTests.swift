@@ -262,7 +262,7 @@ struct ReferenceCacheInvariantFuzzTests {
                 calls.append("relieveMemoryPressure(critical: \(critical))")
 
             default:
-                try? await cache.close()
+                await cache.close()
                 calls.append("close()")
             }
 

@@ -79,7 +79,7 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
 
             #expect(attached)
             #expect(!client.hasCacheAttached())
@@ -110,10 +110,27 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
 
             #expect(first == Self.payload)
             #expect(second == changed)
+        }
+    }
+
+    @Test("closing the cache leaves its control connection open for the caller to close")
+    func closeLeavesControlConnectionOpen() async throws {
+        try await withClient { client in
+            let control = try await client.fork(loggedIn: true)
+            let cache = try await ReferenceCache(
+                controlConnection: control,
+                configuration: .init(resolvesRelativePaths: true)
+            )
+            await cache.close()
+
+            let workingDirectory = try await control.currentWorkingDirectory
+            try await control.close()
+
+            #expect(workingDirectory.first == "/")
         }
     }
 
@@ -125,8 +142,9 @@ struct ReferenceCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 2.5)
             )
             client.attachCache(cache)
@@ -152,7 +170,8 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
 
             #expect(first == Self.payload)
             #expect(withinInterval == Self.payload)
@@ -170,8 +189,9 @@ struct ReferenceCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 0)
             )
             client.attachCache(cache)
@@ -190,7 +210,8 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
 
             #expect(first == Self.payload)
             #expect(second == Self.payload)
@@ -210,8 +231,9 @@ struct ReferenceCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: small)
             let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(trustPolicy: .sampleBlocks(count: 2), revalidationInterval: nil)
             )
             client.attachCache(cache)
@@ -228,7 +250,8 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
 
             #expect(first == small)
             #expect(second == small)
@@ -248,8 +271,9 @@ struct ReferenceCacheIntegrationTests {
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
             let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(trustPolicy: .hashOnServer(.sha256), revalidationInterval: nil)
             )
             client.attachCache(cache)
@@ -267,7 +291,8 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
 
             #expect(first == Self.payload)
             #expect(second == Self.payload)
@@ -302,7 +327,7 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: destination)
             try await other.close()
-            try await cache.close()
+            await cache.close()
 
             #expect(written == [0 ..< UInt64(Self.payload.count)])
             #expect(atSource.isEmpty)
@@ -323,8 +348,9 @@ struct ReferenceCacheIntegrationTests {
             try await writeRemoteFile(client, path: file, contents: Self.payload)
             try await client.createSymLink(path: link, destination: directory)
             let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(resolvesRelativePaths: true, deduplicatesSymlinks: true)
             )
             client.attachCache(cache)
@@ -345,7 +371,8 @@ struct ReferenceCacheIntegrationTests {
             try await other.deleteFile(path: link)
             try await other.delete(path: directory)
             try await other.close()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
 
             #expect(first == Self.payload)
             #expect(atRealPath == [0 ..< UInt64(Self.payload.count)])
@@ -387,7 +414,7 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            try await cache.close()
+            await cache.close()
 
             #expect(read == changed)
         }
@@ -420,7 +447,7 @@ struct ReferenceCacheIntegrationTests {
 
             client.detachCache()
             try await client.delete(path: directory)
-            try await cache.close()
+            await cache.close()
 
             #expect(linkStat?.attributes.fileSize == grown)
             #expect(stat?.attributes.fileSize == grown)
@@ -447,7 +474,7 @@ struct ReferenceCacheIntegrationTests {
 
             client.detachCache()
             try await client.delete(path: path)
-            try await cache.close()
+            await cache.close()
 
             #expect(kept.first == 0 ..< UInt64(Self.payload.count))
             #expect(read == Self.payload + Self.marker)
@@ -481,7 +508,7 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: destination)
             try await other.close()
-            try await cache.close()
+            await cache.close()
 
             #expect(atSource.isEmpty)
             #expect(atDestination == [0 ..< total])
@@ -503,11 +530,11 @@ struct ReferenceCacheIntegrationTests {
             try await writeRemoteFile(client, path: source, contents: Self.payload)
             try await writeRemoteFile(client, path: destination, contents: Self.payload.prefix(10))
 
+            let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
-                forking: client,
+                controlConnection: control,
                 configuration: .init(deduplicatesSymlinks: true)
             )
-            let control = try #require(await cache.control)
             client.attachCache(cache)
             _ = try await readRemoteFile(client, path: source)
             _ = try await readRemoteFile(client, path: destination)
@@ -537,7 +564,8 @@ struct ReferenceCacheIntegrationTests {
             let storageViolations = await cache.memoryStorage.invariantViolations()
 
             client.detachCache()
-            try await cache.close()
+            await cache.close()
+            try await control.close()
             try await client.delete(path: source)
             try await client.delete(path: destination)
 

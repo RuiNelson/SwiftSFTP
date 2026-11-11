@@ -472,8 +472,8 @@ struct ReferenceCacheBudgetTests {
         let inFlight = CacheRequestID()
         _ = await cache.retrieveBlock(path: "/f", offset: 50, upTo: 10, request: inFlight)
 
-        try await cache.close()
-        try await cache.close()
+        await cache.close()
+        await cache.close()
         #expect(await cache.files.isEmpty)
         #expect(await cache.stats.isEmpty)
         #expect(await cache.storedByteCount == 0)
@@ -513,7 +513,7 @@ struct ReferenceCacheLateStoreTests {
             await cache.didAppend(path: path, byteCount: 5)
 
         default:
-            try await cache.close()
+            await cache.close()
             await CacheFuzz.stat(cache, CacheFuzz.file(path, size: 100), path: path)
         }
 

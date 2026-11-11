@@ -66,7 +66,7 @@ When you are done, detach the cache and close it:
 
 ```swift
 client.detachCache()
-try await cache.close()
+await cache.close()
 ```
 
 Closing the client detaches the cache but does not close it, since other clients may still use it.
@@ -78,9 +78,10 @@ browsing folders feels slow, `ReferenceCache.Configuration` lets you trade a lit
 options need the cache to talk to the server itself, over a **control connection** of its own:
 
 ```swift
+let control = try await client.fork(loggedIn: true)
 let cache = try await ReferenceCache(
     storage: InMemoryCacheStorage(byteBudget: 128 * 1024 * 1024),
-    forking: client,
+    controlConnection: control,
     configuration: .init(
         trustPolicy: .statOnServer,
         revalidationInterval: 10,
@@ -93,8 +94,9 @@ client.attachCache(cache)
 
 Line by line:
 
-- `forking: client` opens the control connection by forking `client`. Create the cache **before** attaching any cache
-  to the client, so that this connection does not go through a cache itself.
+- `client.fork(loggedIn: true)` opens the control connection, a second logged-in connection to the same server. Opening
+  it is up to you: fork **before** attaching any cache to the client, so that this connection does not go through a
+  cache itself, and use it for nothing else while the cache has it.
 - `trustPolicy: .statOnServer` has the cache stat a file on the server before answering from it, so changes made by
   others are noticed even while the file stays open. `revalidationInterval: 10` repeats that check at most every 10
   seconds per file.
@@ -103,8 +105,16 @@ Line by line:
   client never do.
 - `resolvesRelativePaths: true` lets a relative path and an absolute path to the same file share what is cached.
 
-The cache owns its control connection: closing the client does not close it, and `cache.close()` does. Other options,
-such as hashing files on the server or recognising files reached through symbolic links, are described in the
+The control connection stays yours: neither closing the client nor `cache.close()` closes it. When done, detach the
+cache, close it, then close the connection; close the connection too if the initializer throws:
+
+```swift
+client.detachCache()
+await cache.close()
+try await control.close()
+```
+
+Other options, such as hashing files on the server or recognising files reached through symbolic links, are described in the
 documentation of `Configuration` and `TrustPolicy`, with what each one costs and guarantees.
 
 ---
