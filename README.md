@@ -127,6 +127,12 @@ For complete details, see:
   - [Validating Existing Key Pairs](Documentation/CryptographicUtils.md#validating-existing-key-pairs)
   - [Validating Host Key Entries](Documentation/CryptographicUtils.md#validating-host-key-entries)
 
+- [Block-Level Cache](Documentation/BlockLevelCache.md) — caching what a client reads:
+  - [Getting started](Documentation/BlockLevelCache.md#getting-started)
+  - [How the cache APIs are organized](Documentation/BlockLevelCache.md#how-the-cache-apis-are-organized)
+  - [A custom storage backend for `ReferenceCache`](Documentation/BlockLevelCache.md#a-custom-storage-backend-for-referencecache)
+  - [A custom cache](Documentation/BlockLevelCache.md#a-custom-cache)
+
 ## AVFoundation Playback
 
 Add the `SwiftSFTPAVFoundation` product to play remote audio or video on macOS, iOS, tvOS, visionOS, and Mac Catalyst:
