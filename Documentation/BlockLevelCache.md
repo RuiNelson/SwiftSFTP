@@ -123,15 +123,9 @@ documentation of `Configuration` and `TrustPolicy`, with what each one costs and
 
 The cache is made of two decisions, each behind a protocol, so you can replace one and keep the other:
 
-```
-SFTPClient
-   │  tells the cache what it read, wrote, and changed
-   ▼
-SFTPBlockLevelReadCache        which bytes are still current        ReferenceCache
-   │  keeps bytes in
-   ▼
-CacheStorage                   where bytes live, how many to keep   InMemoryCacheStorage
-```
+<p align="center">
+  <img src="block-level-cache-architecture.svg" alt="SFTPClient uses the SFTPBlockLevelReadCache protocol. ReferenceCache conforms to SFTPBlockLevelReadCache and keeps bytes in the CacheStorage protocol. InMemoryCacheStorage conforms to CacheStorage." width="100%" />
+</p>
 
 - **`SFTPClientWithCache`** is how a client takes a cache: `attachCache`, `detachCache`, `hasCacheAttached`.
   `SFTPClient` conforms to it.
