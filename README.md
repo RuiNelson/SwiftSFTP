@@ -117,6 +117,12 @@ For complete details, see:
   - [Validating SSH Keys](Documentation/UserGuide.md#validating-ssh-keys-offline)
   - [Error Handling](Documentation/UserGuide.md#error-handling)
 
+- [Block-Level Cache](Documentation/BlockLevelCache.md) — caching what a client reads:
+  - [Getting started](Documentation/BlockLevelCache.md#getting-started)
+  - [How the cache APIs are organized](Documentation/BlockLevelCache.md#how-the-cache-apis-are-organized)
+  - [A custom storage backend for `ReferenceCache`](Documentation/BlockLevelCache.md#a-custom-storage-backend-for-referencecache)
+  - [A custom cache](Documentation/BlockLevelCache.md#a-custom-cache)
+
 - [Integrations](Documentation/Integrations.md) — optional products for other libraries:
   - [AVFoundation Playback](Documentation/Integrations.md#avfoundation-playback)
   - [EXIF Metadata](Documentation/Integrations.md#exif-metadata)
@@ -126,12 +132,6 @@ For complete details, see:
   - [Deriving Public Keys from Private Keys](Documentation/CryptographicUtils.md#deriving-public-keys-from-private-keys)
   - [Validating Existing Key Pairs](Documentation/CryptographicUtils.md#validating-existing-key-pairs)
   - [Validating Host Key Entries](Documentation/CryptographicUtils.md#validating-host-key-entries)
-
-- [Block-Level Cache](Documentation/BlockLevelCache.md) — caching what a client reads:
-  - [Getting started](Documentation/BlockLevelCache.md#getting-started)
-  - [How the cache APIs are organized](Documentation/BlockLevelCache.md#how-the-cache-apis-are-organized)
-  - [A custom storage backend for `ReferenceCache`](Documentation/BlockLevelCache.md#a-custom-storage-backend-for-referencecache)
-  - [A custom cache](Documentation/BlockLevelCache.md#a-custom-cache)
 
 ## AVFoundation Playback
 
