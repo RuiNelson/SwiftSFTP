@@ -37,7 +37,7 @@ public extension SFTPClientProtocol {
         }
 
         let cutoff = Date.resumableCleanupCutoff(age: age)
-        let candidates = try await listDirectory(path: directory, recursive: false)
+        let candidates = try await contentsOfDirectory(path: directory, recursive: false)
         var deleted = [String]()
 
         // ponytail: one delete per round trip, so a directory holding thousands of abandoned temporaries costs thousands of round trips; hand the candidates to a task group over forked clients if that ever shows up in a profile.

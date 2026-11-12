@@ -103,6 +103,9 @@ extension SFTPClient {
     /// the SSH session, and the SFTP state machine are exactly as libssh2 left them, so an expired slice is
     /// indistinguishable from a call that simply had not finished yet.
     ///
+    /// Changes of abandoned calls the operation finished on the way go to the cache once it is done; see
+    /// ``reportFinishedChanges()``.
+    ///
     /// - Parameter operation: Blocking work to run. Every libssh2 call it makes must go through the slicer.
     /// - Returns: The operation's result.
     /// - Throws: `CancellationError` when the calling task is cancelled, otherwise whatever `operation` throws,
@@ -114,15 +117,18 @@ extension SFTPClient {
 
         let token = SessionIOCancellationToken()
 
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<R, any Error>) in
+        let result = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Result<R, any Error>, Never>) in
                 sessionIOQueue.async {
-                    continuation.resume(with: Result { try self.runSliced(token: token, operation) })
+                    continuation.resume(returning: Result { try self.runSliced(token: token, operation) })
                 }
             }
         } onCancel: {
             token.cancel()
         }
+
+        await reportFinishedChanges()
+        return try result.get()
     }
 
     /// Runs a blocking libssh2 operation off the Swift cooperative pool, ignoring task cancellation.
@@ -137,11 +143,14 @@ extension SFTPClient {
     func withUninterruptibleSessionIO<R: Sendable>(
         _ operation: @escaping @Sendable () throws -> R
     ) async throws -> R {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<R, any Error>) in
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<R, any Error>, Never>) in
             sessionIOQueue.async {
-                continuation.resume(with: Result { try self.withSessionIO(operation) })
+                continuation.resume(returning: Result { try self.withSessionIO(operation) })
             }
         }
+
+        await reportFinishedChanges()
+        return try result.get()
     }
 }
 

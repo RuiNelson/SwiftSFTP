@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import PathWorks
 
 /// Runs remote shell commands over a **persistent** SSH session channel on the parent client.
 ///
@@ -137,7 +138,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             verbose: reportProgress
         )
-        try runTransferCommand(command, progress: progress)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: progress)
+        }
     }
 
     public func move(from: String, to: String, progress: ShellAgentProgress? = nil) async throws {
@@ -148,7 +151,32 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             verbose: reportProgress
         )
-        try runTransferCommand(command, progress: progress)
+
+        guard let attachment = client.cacheAttachment else {
+            try runTransferCommand(command, progress: progress)
+            return
+        }
+
+        let source = ShellAgentSupport.sftpPathForCache(from, shellType: shellType)
+        let target = ShellAgentSupport.sftpPathForCache(to, shellType: shellType)
+        let destination = await moveDestination(of: source, to: target)
+        let ticket = client.beginChange(attachment)
+
+        do {
+            try runTransferCommand(command, progress: progress)
+        }
+        catch {
+            // Part of the move may have happened.
+            await client.reportFailedRename(from: source, to: target, attachment: attachment, since: ticket)
+            throw error
+        }
+
+        if let destination {
+            await client.reportRename(from: source, to: destination, attachment: attachment, since: ticket)
+        }
+        else {
+            await client.reportFailedRename(from: source, to: target, attachment: attachment, since: ticket)
+        }
     }
 
     public func concat(files: [String], to: String) async throws {
@@ -157,7 +185,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             files: files,
             to: to
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func createZeros(file: String, length: Int64) async throws {
@@ -166,7 +196,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             length: length
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func createRandomData(file: String, length: Int64) async throws {
@@ -175,7 +207,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             length: length
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func tar(input: [String], output: String, compression: TarCompression) async throws {
@@ -185,7 +219,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             output: output,
             compression: compression
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func zip(
@@ -209,7 +245,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             compressionLevel: compressionLevel,
             tool: resolvedTool
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func sevenZip(input: [String], output: String, compressionLevel: Int) async throws {
@@ -228,7 +266,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             output: output,
             compressionLevel: compressionLevel
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [output]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func untar(file: String, to: String) async throws {
@@ -240,7 +280,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         }
         try await ensureDestinationDirectory(to)
         let command = try ShellAgentSupport.untarCommand(shellType: shellType, file: file, to: to)
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func unzip(file: String, to: String, tool: ZipTool = .poke) async throws {
@@ -259,7 +301,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             to: to,
             tool: resolvedTool
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     public func unSevenZip(file: String, to: String) async throws {
@@ -278,7 +322,54 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             to: to
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [to]) {
+            try runTransferCommand(command, progress: nil)
+        }
+    }
+
+    /// Where a move of `source` to `target` puts it, both in SFTP form: inside `target` when that is an existing
+    /// directory, as the move commands do. Asks the server, not the cache, and returns `nil` when the stat fails.
+    private func moveDestination(of source: String, to target: String) async -> String? {
+        let metadata: FileMetadata?
+        do {
+            metadata = try await client.withSessionIOReportingChanges {
+                try client.attributes(sanitizedPath: target, followLink: true)
+            }
+            .map { FileMetadata(sanitizedPath: target, attributes: $0) }
+        }
+        catch {
+            return nil
+        }
+
+        guard let metadata, metadata.isDirectory else {
+            return target
+        }
+
+        guard let name = source.lastPathComponent else {
+            return nil
+        }
+        return target.appendingPathComponent(name).sanitizePath
+    }
+
+    /// Runs `operation`, then reports `paths` to the client's cache as changed, also when it fails: a command can write
+    /// part of its output before failing.
+    ///
+    /// Files open at or under `paths` stop using the cache: a command may replace a file rather than write to it, as
+    /// extracting an archive over existing files does.
+    private func reportingChanges(to paths: [String], _ operation: () throws -> Void) async throws {
+        let attachment = client.cacheAttachment
+        let cachePaths = paths.map { ShellAgentSupport.sftpPathForCache($0, shellType: shellType) }
+        let ticket = client.beginChange(attachment)
+
+        do {
+            try operation()
+        }
+        catch {
+            await client.reportChange(at: cachePaths, to: attachment, removing: true, since: ticket)
+            throw error
+        }
+
+        await client.reportChange(at: cachePaths, to: attachment, removing: true, since: ticket)
     }
 
     /// Ensures `path` exists as a directory via the parent SFTP client (`makePath: true`).
@@ -415,7 +506,9 @@ extension SSHShellAgent: SSHShellAgentProtocol {
             file: file,
             headers: headers
         )
-        try runTransferCommand(command, progress: nil)
+        try await reportingChanges(to: [file]) {
+            try runTransferCommand(command, progress: nil)
+        }
     }
 
     /// Ensures the parent of a file path exists via SFTP (`makePath: true`).

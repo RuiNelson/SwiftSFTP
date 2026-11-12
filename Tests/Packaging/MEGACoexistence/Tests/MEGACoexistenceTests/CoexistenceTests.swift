@@ -69,7 +69,7 @@ func sftpDownloadAndMEGACryptoWorkInOneProcess() async throws {
     )
     do {
         try await client.login()
-        let files = try await client.listDirectory(path: "/", recursive: false)
+        let files = try await client.contentsOfDirectory(path: "/", recursive: false)
         #expect(files.contains(where: { $0.fileName == "bytes.bin" }))
         let file = try await client.openFile([.read], path: "/bytes.bin")
         var received = Data()

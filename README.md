@@ -28,6 +28,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Solid Base**: Built on top of `libssh2` and OpenSSL, compiled from pinned C sources by SwiftPM on every supported platform.
 - **Fast**: Outperforms other Swift SFTP clients — 5.3× upload and 2.8× download over one connection, keeping up to 2 MiB in flight per connection; `multiUpload` / `multiDownload` add connections when a link has headroom; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
+- **Block-Level Cache (optional)**: Keeps what a client reads from the server so that reading it again costs nothing: attach a `ReferenceCache` in two lines, choose the memory budget, replace the storage backend, or plug in a custom cache; see [Block-Level Cache](Documentation/BlockLevelCache.md).
 - **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
 - **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
 - **EXIF Metadata**: The optional `SwiftSFTPEXIFKit` product reads, edits and removes the EXIF of remote images with [EXIFKit](https://github.com/RuiNelson/EXIFKit), reading only the byte ranges that hold metadata; see [EXIF Metadata](#exif-metadata).
@@ -61,7 +62,7 @@ let home = try await myClient.currentWorkingDirectory
 print(home)
 
 // - List a directory
-let contents = try await myClient.listDirectory(path: "./Fixtures")
+let contents = try await myClient.contentsOfDirectory(path: "./Fixtures")
 
 // - Open a file handle
 if let largestFile = contents.bySize.last {
@@ -116,6 +117,12 @@ For complete details, see:
   - [Keeping the Connection Alive](Documentation/UserGuide.md#keeping-the-connection-alive)
   - [Validating SSH Keys](Documentation/UserGuide.md#validating-ssh-keys-offline)
   - [Error Handling](Documentation/UserGuide.md#error-handling)
+
+- [Block-Level Cache](Documentation/BlockLevelCache.md) — caching what a client reads:
+  - [Getting started](Documentation/BlockLevelCache.md#getting-started)
+  - [How the cache APIs are organized](Documentation/BlockLevelCache.md#how-the-cache-apis-are-organized)
+  - [A custom storage backend for `ReferenceCache`](Documentation/BlockLevelCache.md#a-custom-storage-backend-for-referencecache)
+  - [A custom cache](Documentation/BlockLevelCache.md#a-custom-cache)
 
 - [Integrations](Documentation/Integrations.md) — optional products for other libraries:
   - [AVFoundation Playback](Documentation/Integrations.md#avfoundation-playback)

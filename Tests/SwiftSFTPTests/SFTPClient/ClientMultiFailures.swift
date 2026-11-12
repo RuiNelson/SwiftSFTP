@@ -922,7 +922,7 @@ private func plantRemote(
 
 /// The sorted names in a remote directory.
 private func remoteNames(_ client: SFTPClient, in directory: String) async throws -> [String] {
-    try await client.listDirectory(path: directory, recursive: false).map(\.fileName).sorted()
+    try await client.contentsOfDirectory(path: directory, recursive: false).map(\.fileName).sorted()
 }
 
 /// The sorted names in a local directory.

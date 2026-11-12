@@ -30,7 +30,7 @@ struct SFTPClientResumableCleanup {
                 }
 
                 let deleted = try await client.cleanupResumableUploads(in: directory, olderThan: 3600)
-                let survivors = try await client.listDirectory(path: directory, recursive: false)
+                let survivors = try await client.contentsOfDirectory(path: directory, recursive: false)
 
                 #expect(deleted == [stale])
                 #expect(Set(survivors.map(\.fullPath)) == [fresh, keeper, staleDirectory])
@@ -65,7 +65,7 @@ struct SFTPClientResumableCleanup {
                 }
 
                 let deleted = try await faulty.cleanupResumableUploads(in: directory, olderThan: 3600)
-                let survivors = try await client.listDirectory(path: directory, recursive: false)
+                let survivors = try await client.contentsOfDirectory(path: directory, recursive: false)
 
                 #expect(deleted == [stale])
                 #expect(survivors.map(\.fullPath) == [stuck])
@@ -90,7 +90,7 @@ struct SFTPClientResumableCleanup {
                 try await client.backdate("\(directory)/payload.bin", by: 7200)
 
                 #expect(try await client.cleanupResumableUploads(in: directory, olderThan: 1).isEmpty)
-                #expect(try await client.listDirectory(path: directory, recursive: false).count == 1)
+                #expect(try await client.contentsOfDirectory(path: directory, recursive: false).count == 1)
             }
             catch {
                 try? await client.delete(path: directory)

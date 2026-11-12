@@ -31,6 +31,22 @@ extension ShellAgentSupport {
             path.sftpPathFromWindows
         }
     }
+
+    /// The path a command reaches for `path`, in the sanitized SFTP form the client's SFTP calls send, which is how an
+    /// attached ``SFTPBlockLevelReadCache`` knows it.
+    static func sftpPathForCache(_ path: String, shellType: ShellType) -> String {
+        switch shellType {
+        case .darwin, .linux, .posixCompatible:
+            // As ``pathForRemoteShell(_:shellType:)`` normalizes it, without the `./` that only guards the command
+            // line.
+            path
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\\", with: "/")
+                .sanitizePath
+        case .windowsCommandPrompt, .windowsPowerShell:
+            path.sftpPathFromWindows.sanitizePath
+        }
+    }
 }
 
 extension String {

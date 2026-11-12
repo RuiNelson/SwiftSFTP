@@ -1,0 +1,1418 @@
+import Foundation
+import PathWorks
+
+/// A reference ``SFTPBlockLevelReadCache`` that keeps file contents in a ``CacheStorage``, and optionally metadata in
+/// memory.
+///
+/// Attach one cache to a client, and its forks, connected to one server:
+///
+/// ```swift
+/// let control = try await client.fork(loggedIn: true)
+/// let cache = try await ReferenceCache(
+///     storage: InMemoryCacheStorage(byteBudget: 64 * 1024 * 1024),
+///     controlConnection: control,
+///     configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 10)
+/// )
+/// client.attachCache(cache)
+/// // …
+/// client.detachCache()
+/// await cache.close()
+/// try await control.close()
+/// ```
+///
+/// ## Storage
+///
+/// The cache keeps the bytes the client reads and writes in its ``CacheStorage``, which decides how many it keeps and
+/// which it drops; ``InMemoryCacheStorage`` by default. The cache decides which bytes are current: it stores and hands
+/// back only bytes of the version of a file it tracks, never past the size the file last had, and only in runs of at
+/// least ``Configuration/minimumHitLength``. Caches for several servers can share one storage.
+///
+/// On Apple platforms the cache drops the stats and listings it keeps when the system's memory is critical.
+///
+/// ## Staying current
+///
+/// The cache compares every stat and directory listing the client makes with the size and modification time of the
+/// version its blocks came from, and drops the blocks of a file that changed. Bytes written through the client since
+/// the previous stat belong to the new version, so they are kept. It also drops what the client reports as changed, and
+/// moves what the client renames. ``Configuration/trustPolicy`` adds checks against the server on top; see
+/// ``TrustPolicy`` for what each one costs and guarantees. SFTP modification times have one-second resolution, so two
+/// versions of a file with the same size written within the same second look alike to every policy that relies on them.
+///
+/// Bytes, stats, and listings fetched for a request whose lookup came before a change at their path are not kept, even
+/// when they reach the cache after it, and downloaded bytes go only to a file the cache tracked when the read looked it
+/// up. The cache remembers every open request until the client ends it, up to a limit past which the oldest are
+/// forgotten and their stores refused.
+///
+/// Bytes appended through the client keep the bytes before them: once a stat shows the file grown by exactly the bytes
+/// appended since the previous one, the cache keeps what it held as part of the new version.
+///
+/// ## Control connection
+///
+/// Checks against the server, relative path resolution, and symbolic link resolution need a connection of the cache's
+/// own, given to ``init(storage:controlConnection:configuration:)``. The caller opens that connection, typically by
+/// forking the client the cache is for, and closes it after closing the cache: neither ``close()`` nor closing the
+/// clients the cache is attached to closes it.
+public actor ReferenceCache: SFTPBlockLevelReadCache {
+    // MARK: Limits
+
+    /// Most files tracked, with or without cached bytes.
+    static let entryLimit = 16384
+
+    /// Most stats, and most listings, kept to answer from.
+    static let metadataLimit = 4096
+
+    /// Most path resolutions remembered.
+    static let resolutionLimit = 4096
+
+    /// Longest range compared by one sample of ``TrustPolicy/sampleBlocks(count:)``.
+    static let sampleLength = 16 * 1024
+
+    // MARK: State
+
+    let configuration: Configuration
+
+    /// Where the bytes of tracked files are kept, by ``FileEntry/id``.
+    let storage: any CacheStorage
+
+    /// The cache's own connection, without a cache attached.
+    let control: SFTPClient?
+
+    /// The working directory relative paths are joined to, when ``Configuration/resolvesRelativePaths`` is on.
+    let workingDirectory: String?
+
+    /// Tracked files, by block key: the normalized path, or the real path with
+    /// ``Configuration/deduplicatesSymlinks``, as a ``CachePath/key(_:)``.
+    var files: [String: FileEntry] = [:]
+
+    /// The block keys in ``files``, by the directory holding them.
+    var filesByDirectory: [String: Set<String>] = [:]
+
+    /// Counts uses, for dropping the least recently used files past ``entryLimit``.
+    var tick: UInt64 = 0
+
+    var changeLog = ChangeLog()
+
+    /// Requests whose lookup the cache answered, until the client ends them.
+    var requests = RequestLog()
+
+    /// Stored stats to answer from, by normalized path.
+    var stats: [StatKey: StoredStat] = [:]
+
+    /// Stored listings to answer from, by normalized path.
+    var listings: [ListingKey: StoredListing] = [:]
+
+    /// Real paths of normalized paths, with ``Configuration/deduplicatesSymlinks``.
+    var resolutions: [String: String] = [:]
+
+    /// Paths that led through a symbolic link, with the real path they led to, whose resolution was forgotten because a
+    /// change may have re-pointed a link on the way. Resolved again to another real path, they become unsafe: see
+    /// ``unsafePaths``.
+    var forgottenResolutions: [String: String] = [:]
+
+    /// Paths that may no longer lead to the files opened through them earlier, since a link on the way or the file it
+    /// led to changed, with the block keys where those files may be now.
+    ///
+    /// The client follows open files by the paths they were opened with, so a file opened through a link reports under
+    /// the link's path wherever the file went. The cache neither answers nor keeps reads through such a path, and a
+    /// change reported through it drops every file it may have meant.
+    var unsafePaths: [String: Set<String>] = [:]
+
+    /// Whether more paths became unsafe than the cache remembers, so that every path through a link is unsafe, at block
+    /// keys unknown.
+    var everyLinkPathUnsafe = false
+
+    /// Resolutions in flight, so concurrent lookups of one path ask the server once.
+    var resolving: [String: Task<String?, Never>] = [:]
+
+    /// Checks in flight, by block key.
+    var checks: [String: RunningCheck] = [:]
+    var nextCheckToken: UInt64 = 0
+
+    /// The shell agent ``TrustPolicy/hashOnServer(_:)`` hashes with, opened on first use.
+    var shellAgentTask: Task<SSHShellAgent, any Error>?
+
+    var isClosed = false
+
+    #if canImport(Darwin)
+        let memoryPressureObserver: MemoryPressureObserver
+    #endif
+
+    // MARK: Initialization
+
+    /// Creates a cache without a control connection.
+    ///
+    /// The configuration must not need one: its trust policy must be ``TrustPolicy/trustReports``, and it must neither
+    /// resolve relative paths nor deduplicate symbolic links. Use ``init(storage:controlConnection:configuration:)``
+    /// otherwise.
+    ///
+    /// - Parameters:
+    ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
+    ///   - configuration: How the cache stores, checks, and answers.
+    public init(storage: any CacheStorage = InMemoryCacheStorage(), configuration: Configuration) {
+        precondition(
+            !configuration.needsControlConnection,
+            "This configuration needs a control connection: create the cache with init(storage:controlConnection:configuration:)"
+        )
+        self.init(checkedConfiguration: configuration, storage: storage, control: nil, workingDirectory: nil)
+    }
+
+    /// Creates a cache with `control` as its control connection.
+    ///
+    /// Open `control` yourself, typically with `client.fork(loggedIn: true)` on the client the cache is for. Fork
+    /// before attaching any cache to that client: a fork made while a cache is attached starts with that cache, and the
+    /// control connection must not use one. Use `control` for nothing else afterwards.
+    ///
+    /// `control` stays the caller's: the cache never closes it. Close it after ``close()``, once the cache is done with
+    /// it, or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's
+    /// working directory too.
+    ///
+    /// - Parameters:
+    ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
+    ///   - control: A logged-in client connected to the server whose files the cache keeps, without a cache attached.
+    ///   - configuration: How the cache stores, checks, and answers.
+    /// - Throws: Errors from reading the working directory.
+    public init(
+        storage: any CacheStorage = InMemoryCacheStorage(),
+        controlConnection control: SFTPClient,
+        configuration: Configuration
+    ) async throws {
+        precondition(
+            !control.hasCacheAttached(),
+            "The control connection must not use a cache: fork it before attaching any cache to the client"
+        )
+
+        var workingDirectory: String?
+        if configuration.resolvesRelativePaths {
+            workingDirectory = try await CachePath.key(control.currentWorkingDirectory)
+        }
+
+        self.init(
+            checkedConfiguration: configuration,
+            storage: storage,
+            control: control,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    init(
+        checkedConfiguration configuration: Configuration,
+        storage: any CacheStorage,
+        control: SFTPClient?,
+        workingDirectory: String?
+    ) {
+        configuration.validate()
+        self.configuration = configuration
+        self.storage = storage
+        self.control = control
+        self.workingDirectory = workingDirectory?.first == "/" ? workingDirectory : nil
+
+        #if canImport(Darwin)
+            let observer = MemoryPressureObserver()
+            memoryPressureObserver = observer
+            observer.start { [weak self] critical in
+                guard critical else {
+                    return
+                }
+                Task {
+                    await self?.relieveMemoryPressure()
+                }
+            }
+        #endif
+    }
+
+    /// Drops everything cached, its files' bytes in the storage included, and closes the shell agent of
+    /// ``TrustPolicy/hashOnServer(_:)``, if one was opened.
+    ///
+    /// Call this when done with the cache, after detaching it from every client; then close the control connection, if
+    /// the cache has one, which this does not close. A cache still attached goes on storing and answering, but every
+    /// check and path resolution that needs the control connection fails from then on. Closing more than once does
+    /// nothing.
+    public func close() async {
+        guard !isClosed else {
+            return
+        }
+
+        isClosed = true
+        removeAll()
+
+        if let agent = try? await shellAgentTask?.value {
+            try? await agent.close()
+        }
+        shellAgentTask = nil
+    }
+
+    // MARK: SFTPBlockLevelReadCache: Blocks
+
+    /// Keeps downloaded bytes, when the request that fetched them is still open, the file its lookup found is still
+    /// tracked, and nothing changed at the file since, its version included; and written bytes, when
+    /// ``Configuration/keepsUploads`` is on.
+    ///
+    /// Bytes past the file's known size, and bytes of files over the size limits, are not kept.
+    public func storeBlock(
+        _ data: Data,
+        path: String,
+        offset: UInt64,
+        source: CacheBlockSource,
+        request: CacheRequestID?
+    ) async {
+        // No byte of a file lies at or past the last position a file can have: only a broken server sends one.
+        let room = UInt64.max - offset
+        let data = UInt64(data.count) > room ? data.prefix(Int(room)) : data
+        guard !data.isEmpty else {
+            return
+        }
+
+        switch source {
+        case .download:
+            storeDownload(data, path: path, offset: offset, request: request)
+
+        case .upload:
+            let normalized = normalize(path)
+            let (key, safety) = await keyAndSafety(for: path)
+            guard safety.isSafe else {
+                dropEverywhere(key: key, path: normalized, safety)
+                return
+            }
+            storeUpload(data, key: key, path: normalized, offset: offset)
+        }
+    }
+
+    /// Hands back the cached run starting at `offset`, when it is at least ``Configuration/minimumHitLength`` long or
+    /// reaches the end of the file, after checking the file against the server if the trust policy says it is due.
+    public func retrieveBlock(path: String, offset: UInt64, upTo: Int, request: CacheRequestID) async -> Data? {
+        guard upTo > 0 else {
+            return nil
+        }
+
+        // A file opened through a path that may lead elsewhere now: the bytes at the path may be another file's. No
+        // request starts, so the bytes the client reads are not kept either.
+        let (key, safety) = await keyAndSafety(for: path)
+        guard safety.isSafe else {
+            return nil
+        }
+
+        var answer: Data?
+        if let found = probe(key, offset: offset), found.holdsOffset, await verify(key: key) {
+            answer = hit(key, offset: offset, upTo: upTo)
+        }
+
+        // The client reads the rest from the server and hands it over: remember when, and into which tracked file,
+        // after every wait above.
+        if answer?.count ?? 0 < upTo {
+            requests.begin(request, at: changeLog.clock, entry: files[key]?.id)
+        }
+
+        return answer
+    }
+
+    // MARK: SFTPBlockLevelReadCache: Metadata
+
+    /// Compares the stat with the version the file's blocks came from, dropping them if it changed, and keeps it to
+    /// answer from when ``Configuration/metadata`` says so.
+    ///
+    /// A stat is refused when anything changed at or under its path since its request started, or when the request is
+    /// no longer open.
+    public func storeFileStat(_ result: FileMetadata?, path: String, followLink: Bool, request: CacheRequestID) async {
+        let normalized = normalize(path)
+
+        // A link's own attributes say nothing about the file it points to.
+        let describesFile = result.map { followLink || !$0.isSymLink } ?? false
+        let (key, safety) = describesFile
+            ? await keyAndSafety(for: path)
+            : (rememberedKey(for: path) ?? normalized, PathSafety.safe)
+
+        // Nothing waits from here on, so the check holds for everything stored.
+        guard let started = requests.start(of: request),
+              changeLog.latestChange(atOrUnder: normalized) <= started.clock,
+              changeLog.generation(of: key) <= started.clock else {
+            return
+        }
+
+        // A stat of a file open through a path that may lead elsewhere now may describe another file than the path
+        // leads to.
+        guard safety.isSafe || started.isLookup else {
+            return
+        }
+
+        storeStat(result, path: normalized, followLink: followLink)
+
+        guard let result else {
+            // Nothing at the path, so nothing under it either.
+            if removeEntries(atOrUnder: key) {
+                changeLog.recordChange(at: key)
+            }
+            forgetResolutions(atOrUnder: [normalized], targetsAtOrUnder: [])
+            return
+        }
+
+        guard describesFile else {
+            return
+        }
+
+        if result.isRegularFile {
+            applyVersion(result.attributes, key: key, createIfMissing: true)
+        }
+        else {
+            removeEntry(key)
+        }
+    }
+
+    /// Compares every listed file the cache tracks with the version its blocks came from, drops tracked files the
+    /// directory no longer holds, and keeps the listing to answer from when ``Configuration/metadata`` says so.
+    ///
+    /// A listing is refused when anything changed at or under its directory since the request's lookup, or when the
+    /// request is no longer open.
+    public func storeDirectoryListing(
+        _ entries: [FileMetadata],
+        path: String,
+        recursive: Bool,
+        request: CacheRequestID
+    ) async {
+        let directory = normalize(path)
+
+        // A recursive listing descends only into directories, never through links, so an entry's real path is the
+        // directory's real path followed by the rest of the entry's path.
+        let tracksFiles = !files.isEmpty
+        let blockDirectory = tracksFiles ? await resolvedKey(for: directory) : directory
+
+        // Nothing waits from here on, so the check holds for everything stored.
+        guard let started = requests.clock(of: request),
+              changeLog.latestChange(atOrUnder: directory) <= started,
+              changeLog.latestChange(atOrUnder: blockDirectory) <= started else {
+            return
+        }
+
+        if case .answer = configuration.metadata {
+            storeListing(entries, path: directory, recursive: recursive)
+        }
+
+        guard tracksFiles else {
+            return
+        }
+
+        var children = Set<String>()
+        for entry in entries {
+            let listed = normalize(entry.fullPath)
+            guard listed != directory, CachePath.isPath(listed, atOrUnder: directory) else {
+                continue
+            }
+
+            let key = CachePath.rebase(listed, from: directory, to: blockDirectory)
+            if CachePath.parent(of: listed) == directory {
+                children.insert(key)
+            }
+
+            guard files[key] != nil else {
+                continue
+            }
+
+            if entry.isRegularFile {
+                applyVersion(entry.attributes, key: key, createIfMissing: false)
+            }
+            else if !entry.isSymLink {
+                removeEntry(key)
+            }
+        }
+
+        // Files the cache tracks directly in the directory that the listing does not show are gone.
+        let gone = (filesByDirectory[blockDirectory] ?? []).filter { !children.contains($0) }
+        for key in gone {
+            removeEntry(key)
+        }
+    }
+
+    /// Answers from a stored stat of the path, or a stored listing of its directory, as ``Configuration/metadata``
+    /// allows, naming the path as asked.
+    ///
+    /// A regular file the answer shows is tracked from then on, so that the bytes the client reads after opening it are
+    /// kept: the client makes no stat of its own when the cache answers.
+    public func retrieveFileStat(path: String, followLink: Bool, request: CacheRequestID) async -> CachedFileStat? {
+        let normalized = normalize(path)
+        guard let answer = storedStat(path: normalized, followLink: followLink) else {
+            requests.begin(request, at: changeLog.clock)
+            return nil
+        }
+
+        guard case let .exists(metadata) = answer else {
+            return answer
+        }
+
+        if metadata.isRegularFile, let key = rememberedKey(for: path), files[key] == nil,
+           knownSafety(of: normalized, key: key).isSafe {
+            createEntry(key, version: FileVersion(metadata.attributes))
+        }
+        return .exists(FileMetadata(sanitizedPath: path, attributes: metadata.attributes))
+    }
+
+    /// Answers from a stored listing of the same directory and depth, as ``Configuration/metadata`` allows.
+    public func retrieveDirectoryListing(
+        path: String,
+        recursive: Bool,
+        request: CacheRequestID
+    ) async -> [FileMetadata]? {
+        guard case let .answer(maximumAge, _) = configuration.metadata,
+              let listing = listings[ListingKey(path: normalize(path), recursive: recursive)],
+              Self.uptime() - listing.time < maximumAge else {
+            requests.begin(request, at: changeLog.clock)
+            return nil
+        }
+
+        return listing.entries
+    }
+
+    /// Remembers when the request started, so its store is refused if anything changed at its path since.
+    public func beginRequest(_ request: CacheRequestID) async {
+        requests.begin(request, at: changeLog.clock, isLookup: false)
+    }
+
+    /// Forgets the request, so a store for it is refused from now on.
+    public func requestEnded(_ request: CacheRequestID) async {
+        requests.end(request)
+    }
+
+    // MARK: SFTPBlockLevelReadCache: Changes
+
+    /// Drops whatever `to` held, then moves the blocks and versions at and under `from` to the same places under
+    /// `to`.
+    ///
+    /// With ``Configuration/deduplicatesSymlinks``, the real paths of both ends are resolved first. A change at either
+    /// end that arrives meanwhile, such as a write the client made after the rename, may be newer than the blocks being
+    /// moved, so the blocks are dropped instead.
+    public func didRename(from: String, to: String) async {
+        let source = normalize(from)
+        let destination = normalize(to)
+        guard source != destination else {
+            return
+        }
+
+        // Whatever the destination held is gone. Requests about either path in flight are stale.
+        changeLog.recordChange(at: source)
+        changeLog.recordChange(at: destination)
+        let renamedAt = changeLog.clock
+
+        // Every wait comes first: the source no longer exists, so it resolves through what the cache remembers, or
+        // through its directory.
+        var moves = [(from: source, to: destination)]
+        if configuration.deduplicatesSymlinks, let control {
+            let resolvedSource = if let known = resolutions[source] {
+                known
+            }
+            else {
+                await resolveThroughParent(source) ?? source
+            }
+            let resolvedDestination = await serverRealPath(ofKey: destination, control: control)
+                .map(CachePath.key) ?? destination
+
+            if resolvedSource != source || resolvedDestination != destination, resolvedSource != resolvedDestination {
+                moves.append((resolvedSource, resolvedDestination))
+            }
+        }
+
+        // One step from here on, with nothing in between: drop the destinations, then move the sources over them.
+        let changedMeanwhile = moves.contains { move in
+            changeLog.latestChange(atOrUnder: move.from) > renamedAt
+                || changeLog.latestChange(atOrUnder: move.to) > renamedAt
+        }
+
+        for move in moves {
+            changeLog.recordChange(at: move.from)
+            changeLog.recordChange(at: move.to)
+            removeEntries(atOrUnder: move.to)
+            if changedMeanwhile {
+                removeEntries(atOrUnder: move.from)
+            }
+        }
+
+        if !changedMeanwhile {
+            for move in moves {
+                moveEntries(from: move.from, to: move.to)
+            }
+        }
+
+        dropMetadata(around: source, parentChanged: true)
+        dropMetadata(around: destination, parentChanged: true)
+
+        if configuration.deduplicatesSymlinks {
+            followRename(from: source, to: destination, moves: moves)
+            forgetResolutions(
+                atOrUnder: [source, destination],
+                targetsAtOrUnder: moves.flatMap { [$0.from, $0.to] }
+            )
+            forgetLinkResolutions()
+        }
+    }
+
+    /// Drops the stored stats and listings of the file at `path`, and keeps its cached bytes: appending left them as
+    /// they were. The next stat that shows the size those bytes and the appended ones add up to keeps them as part of
+    /// the new version.
+    public func didAppend(path: String, byteCount: UInt64) async {
+        let normalized = normalize(path)
+        let (key, safety) = await keyAndSafety(for: path)
+        guard safety.isSafe else {
+            dropEverywhere(key: key, path: normalized, safety)
+            return
+        }
+
+        changeLog.recordChange(at: normalized)
+        if key != normalized {
+            changeLog.recordChange(at: key)
+        }
+        dropMetadata(around: normalized, parentChanged: false)
+
+        updateEntry(key) { entry in
+            // Sizes past the last a file can have come only from a broken server: they stay at the last.
+            var appends = entry.appends ?? Appends(base: entry.knownSize, byteCount: 0)
+            appends.byteCount = Self.saturatingSum(appends.byteCount, byteCount)
+            entry.appends = appends
+            entry.knownSize = entry.knownSize.map { Self.saturatingSum($0, byteCount) }
+            entry.digest = nil
+            entry.contentEpoch += 1
+            if case .hashOnServer = configuration.trustPolicy {
+                entry.lastCheck = nil
+            }
+            if !isCacheable(entry) {
+                dropBlocks(of: &entry)
+            }
+        }
+    }
+
+    /// Drops the blocks at and under `path`, and the stored stats and listings the change makes stale.
+    public func invalidate(path: String) async {
+        let normalized = normalize(path)
+        changeLog.recordChange(at: normalized)
+        removeEntries(atOrUnder: normalized)
+        dropMetadata(around: normalized, parentChanged: true)
+
+        guard configuration.deduplicatesSymlinks else {
+            return
+        }
+
+        // Reported through a path that may lead elsewhere than the file the report is about.
+        switch knownSafety(of: normalized, key: rememberedKey(for: path) ?? normalized) {
+        case .safe:
+            break
+
+        case let .elsewhere(candidates):
+            for key in candidates {
+                changeLog.recordChange(at: key)
+                removeEntries(atOrUnder: key)
+            }
+
+        case .anywhere:
+            removeAll()
+        }
+
+        let keys = await keysChanged(at: normalized)
+        for key in keys {
+            changeLog.recordChange(at: key)
+            removeEntries(atOrUnder: key)
+        }
+
+        // What links led to may have been deleted or replaced, while files opened through them stay open.
+        let changed = [normalized] + keys
+        for (alias, target) in resolutions where alias != target && !CachePath.isPath(alias, atOrUnder: normalized)
+            && changed.contains(where: { CachePath.isPath(target, atOrUnder: $0) }) {
+            markUnsafe(alias, candidates: [target])
+        }
+
+        forgetResolutions(atOrUnder: [normalized], targetsAtOrUnder: Array(keys))
+        forgetLinkResolutions()
+    }
+}
+
+// MARK: Blocks
+
+extension ReferenceCache {
+    /// What a read of `key` at `offset` needs to know, or `nil` when the cache does not track the file, will not cache
+    /// it, or knows `offset` to be past its end.
+    func probe(_ key: String, offset: UInt64) -> (knownSize: UInt64?, holdsOffset: Bool)? {
+        guard let entry = files[key], isCacheable(entry) else {
+            return nil
+        }
+        if let size = entry.knownSize, offset >= size {
+            return nil
+        }
+        return (entry.knownSize, storage.ranges(of: entry.id).contains { $0.contains(offset) })
+    }
+
+    /// The cached run of `key` at `offset`, if it is long enough to hand back.
+    func hit(_ key: String, offset: UInt64, upTo: Int) -> Data? {
+        guard let entry = files[key], isCacheable(entry) else {
+            return nil
+        }
+
+        var limit = upTo
+        if let size = entry.knownSize {
+            guard offset < size else {
+                return nil
+            }
+            limit = Int(min(UInt64(upTo), size - offset))
+        }
+        guard let run = storage.read(entry.id, at: offset, upTo: limit), !run.isEmpty else {
+            return nil
+        }
+
+        let reachesEnd = entry.knownSize.map { offset + UInt64(run.count) >= $0 } ?? false
+        guard run.count >= min(configuration.minimumHitLength, upTo) || reachesEnd else {
+            return nil
+        }
+
+        tick += 1
+        files[key]?.lastUsed = tick
+        return run
+    }
+
+    /// Keeps downloaded bytes, when `request` is still open, the file its lookup found is still tracked, and nothing
+    /// changed at the file since the lookup.
+    func storeDownload(_ data: Data, path: String, offset: UInt64, request: CacheRequestID?) {
+        // Without a remembered resolution, the path changed since the read that downloaded the bytes resolved it. A
+        // file tracked only since the lookup has a version the bytes may predate: a new version records a change, a new
+        // entry does not.
+        guard let request, let lookup = requests.start(of: request), let key = rememberedKey(for: path),
+              let entry = files[key], entry.id == lookup.entry,
+              changeLog.generation(of: key) <= lookup.clock,
+              changeLog.generation(of: normalize(path)) <= lookup.clock,
+              isCacheable(entry) else {
+            return
+        }
+
+        var bytes = data
+        if let size = entry.knownSize {
+            guard offset < size else {
+                return
+            }
+            if UInt64(bytes.count) > size - offset {
+                bytes = bytes.prefix(Int(size - offset))
+            }
+        }
+
+        tick += 1
+        let kept = storage.write(bytes, at: offset, of: entry.id)
+        updateEntry(key) { entry in
+            entry.lastUsed = tick
+            if kept {
+                entry.uploaded = ByteRanges.subtracting(offset ..< offset + UInt64(bytes.count), from: entry.uploaded)
+            }
+            else {
+                entry.uploaded = []
+                entry.isTooLarge = true
+            }
+        }
+        guard kept else {
+            return
+        }
+
+        // Take the digest the next checks compare with, while the bytes just stored are still fresh: one taken later
+        // would vouch for whatever the file became meanwhile. After a check that could not be made, wait until the next
+        // one is due, so a server that cannot hash is not asked on every read.
+        if case .hashOnServer = configuration.trustPolicy, checks[key] == nil,
+           let entry = files[key], entry.digest == nil, !entry.lastCheckFailedToRun || isDue(entry) {
+            startCheck(key: key)
+        }
+    }
+
+    /// Keeps written bytes, when ``Configuration/keepsUploads`` is on, or drops the file's blocks, and drops the stored
+    /// stats and listings the write makes stale.
+    ///
+    /// - Parameters:
+    ///   - key: The block key of the file.
+    ///   - path: The normalized path the client wrote to.
+    func storeUpload(_ data: Data, key: String, path: String, offset: UInt64) {
+        // Bytes, stats, and listings fetched before this write landed must not be stored over it.
+        changeLog.recordChange(at: key)
+        if path != key {
+            changeLog.recordChange(at: path)
+        }
+        dropMetadata(around: path, parentChanged: false)
+
+        guard configuration.keepsUploads else {
+            updateEntry(key) { entry in
+                dropBlocks(of: &entry)
+                entry.digest = nil
+                entry.contentEpoch += 1
+            }
+            return
+        }
+
+        if files[key] == nil {
+            createEntry(key, version: nil)
+        }
+
+        tick += 1
+        updateEntry(key) { entry in
+            let end = offset + UInt64(data.count)
+            if let size = entry.knownSize, end > size {
+                entry.knownSize = end
+            }
+
+            entry.lastUsed = tick
+            entry.digest = nil
+            entry.contentEpoch += 1
+            if case .hashOnServer = configuration.trustPolicy {
+                entry.lastCheck = nil
+            }
+
+            guard isCacheable(entry) else {
+                dropBlocks(of: &entry)
+                return
+            }
+            if storage.write(data, at: offset, of: entry.id) {
+                entry.uploaded = ByteRanges.union(entry.uploaded, offset ..< end)
+            }
+            else {
+                entry.uploaded = []
+                entry.isTooLarge = true
+            }
+        }
+    }
+
+    /// Whether the cache stores and hands out bytes of `entry`.
+    func isCacheable(_ entry: FileEntry) -> Bool {
+        !entry.isTooLarge && storage.accepts(fileSize: entry.knownSize ?? 0)
+    }
+
+    /// Drops the bytes of `entry` from the storage, and the ranges written to them.
+    func dropBlocks(of entry: inout FileEntry) {
+        storage.remove(entry.id)
+        entry.uploaded = []
+    }
+
+    /// Drops the stored stats and listings, which may be large, when the system's memory is critical. The storage
+    /// relieves the pressure on bytes itself.
+    func relieveMemoryPressure() {
+        stats.removeAll()
+        listings.removeAll()
+    }
+
+    /// Drops everything cached. What the cache knows of paths that may no longer lead to the files opened through them
+    /// stays: those files are still open.
+    func removeAll() {
+        for entry in files.values {
+            storage.remove(entry.id)
+        }
+        files.removeAll()
+        filesByDirectory.removeAll()
+        stats.removeAll()
+        listings.removeAll()
+        forgetLinkResolutions()
+        resolutions.removeAll()
+        changeLog.recordChangeEverywhere()
+    }
+}
+
+// MARK: Versions
+
+extension ReferenceCache {
+    /// Compares a stat of the file at `key` with the version its blocks came from, dropping the blocks if it changed.
+    ///
+    /// Blocks written through the client since the last stat belong to the new version, so they are kept, and so are
+    /// the blocks before bytes the client appended.
+    func applyVersion(_ attributes: FileAttributes, key: String, createIfMissing: Bool) {
+        let version = FileVersion(attributes)
+        guard files[key] != nil else {
+            if createIfMissing {
+                createEntry(key, version: version)
+            }
+            return
+        }
+
+        let now = Self.uptime()
+        updateEntry(key) { entry in
+            // The ranges whose bytes stay, or `nil` for every byte.
+            var kept: [Range<UInt64>]?
+            if !version.isSame(as: entry.version) {
+                changeLog.recordChange(at: key)
+                // Bytes written since the last stat belong to the new version. Appending through the client left the
+                // bytes before the old end as they were, as long as nothing else changed the size.
+                if let appends = entry.appends, let base = appends.base,
+                   case let (sum, overflow) = base.addingReportingOverflow(appends.byteCount), !overflow,
+                   version.size == sum {
+                    kept = ByteRanges.union(entry.uploaded, 0 ..< base)
+                }
+                else {
+                    kept = entry.uploaded
+                }
+                entry.version = version
+                entry.digest = nil
+                entry.contentEpoch += 1
+                entry.isTooLarge = false
+                entry.lastCheck = nil
+            }
+
+            entry.uploaded = []
+            entry.appends = nil
+            entry.knownSize = version.size
+            if let size = version.size {
+                kept = ByteRanges.clamping(kept ?? [0 ..< .max], to: 0 ..< size)
+            }
+
+            // A stat is all a statOnServer check does.
+            if configuration.trustPolicy == .statOnServer {
+                entry.lastCheck = now
+                entry.statSinceCheck = false
+            }
+            else {
+                entry.statSinceCheck = true
+            }
+
+            if !isCacheable(entry) {
+                dropBlocks(of: &entry)
+            }
+            else if let kept {
+                storage.retain(kept, of: entry.id)
+            }
+        }
+    }
+
+    func createEntry(_ key: String, version: FileVersion?) {
+        tick += 1
+        let checked = configuration.trustPolicy == .statOnServer && version != nil
+        insertEntry(key, FileEntry(
+            id: CacheFileID(),
+            version: version,
+            knownSize: version?.size,
+            lastUsed: tick,
+            lastCheck: checked ? Self.uptime() : nil,
+            statSinceCheck: !checked
+        ))
+
+        if files.count > Self.entryLimit {
+            // Down to nine tenths, so the next few files do not each sort every entry again.
+            let victims = files
+                .map { ($0.key, $0.value.lastUsed) }
+                .sorted { $0.1 < $1.1 }
+                .prefix(files.count - Self.entryLimit * 9 / 10)
+            for (victim, _) in victims {
+                removeEntry(victim)
+            }
+        }
+    }
+
+    /// Mutates the entry at `key` in place.
+    @discardableResult
+    func updateEntry<Result>(_ key: String, _ body: (inout FileEntry) -> Result) -> Result? {
+        guard files[key] != nil else {
+            return nil
+        }
+        return body(&files[key]!)
+    }
+
+    /// Stops tracking the file at `key`, and drops its bytes. Reads of it in flight are stale from now on.
+    func removeEntry(_ key: String) {
+        guard takeEntry(key) != nil else {
+            return
+        }
+        changeLog.recordChange(at: key)
+    }
+
+    /// Stops tracking every file at or under `root`, and drops their bytes, without recording a change.
+    ///
+    /// - Returns: Whether any file was tracked there.
+    @discardableResult
+    func removeEntries(atOrUnder root: String) -> Bool {
+        let keys = files.keys.filter { CachePath.isPath($0, atOrUnder: root) }
+        for key in keys {
+            takeEntry(key)
+        }
+        return !keys.isEmpty
+    }
+
+    /// Moves every file at or under `from` to the same place under `to`, bytes and version included, over any file
+    /// already there.
+    func moveEntries(from: String, to: String) {
+        let moving = files.keys.filter { CachePath.isPath($0, atOrUnder: from) }
+        var moved: [(String, FileEntry)] = []
+        for key in moving {
+            if let entry = takeEntry(key, keepingBytes: true) {
+                moved.append((CachePath.rebase(key, from: from, to: to), entry))
+            }
+        }
+
+        for (key, entry) in moved {
+            takeEntry(key)
+
+            var entry = entry
+            entry.contentEpoch += 1
+            insertEntry(key, entry)
+        }
+    }
+
+    /// Starts tracking `entry` at `key`, where no file is tracked.
+    func insertEntry(_ key: String, _ entry: FileEntry) {
+        files[key] = entry
+        filesByDirectory[CachePath.parent(of: key), default: []].insert(key)
+    }
+
+    /// Stops tracking the file at `key`, without recording a change.
+    ///
+    /// - Parameter keepingBytes: Whether the file's bytes stay in the storage, for an entry that moves to another key.
+    /// - Returns: The file's entry, or `nil` when no file was tracked there.
+    @discardableResult
+    func takeEntry(_ key: String, keepingBytes: Bool = false) -> FileEntry? {
+        guard let entry = files.removeValue(forKey: key) else {
+            return nil
+        }
+
+        let directory = CachePath.parent(of: key)
+        filesByDirectory[directory]?.remove(key)
+        if filesByDirectory[directory]?.isEmpty == true {
+            filesByDirectory[directory] = nil
+        }
+        if !keepingBytes {
+            storage.remove(entry.id)
+        }
+        return entry
+    }
+
+    /// `first + second`, or the largest value on overflow.
+    static func saturatingSum(_ first: UInt64, _ second: UInt64) -> UInt64 {
+        let (sum, overflow) = first.addingReportingOverflow(second)
+        return overflow ? .max : sum
+    }
+}
+
+// MARK: Metadata
+
+extension ReferenceCache {
+    /// The answer a stored stat of the normalized `path`, or a stored listing of its directory, gives, if
+    /// ``Configuration/metadata`` allows answering.
+    func storedStat(path: String, followLink: Bool) -> CachedFileStat? {
+        guard case let .answer(maximumAge, includingMissing) = configuration.metadata else {
+            return nil
+        }
+
+        let now = Self.uptime()
+
+        if let stored = stats[StatKey(path: path, followLink: followLink)], now - stored.time < maximumAge {
+            if let metadata = stored.metadata {
+                return .exists(metadata)
+            }
+            return includingMissing ? .doesNotExist : nil
+        }
+
+        // An entry that is not a link is the same whether the stat follows links or not.
+        if followLink, let stored = stats[StatKey(path: path, followLink: false)], now - stored.time < maximumAge,
+           let metadata = stored.metadata, !metadata.isSymLink {
+            return .exists(metadata)
+        }
+
+        // The listing of the parent directory, which lists links themselves rather than what they point to.
+        let parent = CachePath.parent(of: path)
+        guard parent != path else {
+            return nil
+        }
+
+        for recursive in [false, true] {
+            guard let listing = listings[ListingKey(path: parent, recursive: recursive)],
+                  now - listing.time < maximumAge else {
+                continue
+            }
+
+            if let metadata = listing.byPath[path] {
+                return followLink && metadata.isSymLink ? nil : .exists(metadata)
+            }
+            return includingMissing ? .doesNotExist : nil
+        }
+
+        return nil
+    }
+
+    /// Keeps a stat of the normalized `path` to answer from, when ``Configuration/metadata`` says so, and drops the
+    /// stored stat and listings that describe the entry otherwise.
+    func storeStat(_ result: FileMetadata?, path: String, followLink: Bool) {
+        guard case .answer = configuration.metadata else {
+            return
+        }
+
+        stats[StatKey(path: path, followLink: followLink)] = StoredStat(metadata: result, time: Self.uptime())
+
+        let other = StatKey(path: path, followLink: !followLink)
+        if let stored = stats[other], Self.contradicts(stored.metadata, followLink: !followLink, result, followLink) {
+            stats[other] = nil
+        }
+
+        // Listings describe entries the way a stat that does not follow links does.
+        let parent = CachePath.parent(of: path)
+        listings = listings.filter { key, listing in
+            let lists = key.path == parent || (key.recursive && CachePath.isPath(path, atOrUnder: key.path))
+            return !(lists && key.path != path
+                && Self.contradicts(listing.byPath[path], followLink: false, result, followLink))
+        }
+
+        pruneMetadata()
+    }
+
+    /// Keeps a listing of the normalized `path` to answer from, and drops the stored stats of the entries it covers
+    /// that describe them otherwise.
+    func storeListing(_ entries: [FileMetadata], path: String, recursive: Bool) {
+        var byPath: [String: FileMetadata] = [:]
+        for entry in entries {
+            byPath[normalize(entry.fullPath)] = entry
+        }
+        listings[ListingKey(path: path, recursive: recursive)] = StoredListing(
+            entries: entries,
+            byPath: byPath,
+            time: Self.uptime()
+        )
+
+        stats = stats.filter { key, stored in
+            let covered = recursive
+                ? key.path != path && CachePath.isPath(key.path, atOrUnder: path)
+                : key.path != path && CachePath.parent(of: key.path) == path
+            return !(covered && Self.contradicts(stored.metadata, followLink: key.followLink, byPath[key.path], false))
+        }
+
+        pruneMetadata()
+    }
+
+    /// Whether two answers about one path, each from a stat that did or did not follow links, cannot both be current.
+    ///
+    /// Answers that disagree on whether the entry exists, its type, its size, or its modification time contradict each
+    /// other, except where one follows a link the other describes as itself.
+    static func contradicts(
+        _ first: FileMetadata?,
+        followLink firstFollows: Bool,
+        _ second: FileMetadata?,
+        _ secondFollows: Bool
+    ) -> Bool {
+        if firstFollows != secondFollows {
+            // What a stat that does not follow links saw decides whether the other describes the same entry.
+            let (own, followed) = firstFollows ? (second, first) : (first, second)
+            guard let own else {
+                return followed != nil
+            }
+            if own.isSymLink {
+                return false
+            }
+            guard let followed else {
+                return true
+            }
+            return !describeSameVersion(own, followed)
+        }
+
+        switch (first, second) {
+        case (nil, nil):
+            return false
+
+        case let (first?, second?):
+            return !describeSameVersion(first, second)
+
+        default:
+            return true
+        }
+    }
+
+    /// Whether `first` and `second` show an entry of the same type, size, and modification time.
+    static func describeSameVersion(_ first: FileMetadata, _ second: FileMetadata) -> Bool {
+        first.isRegularFile == second.isRegularFile
+            && first.isDirectory == second.isDirectory
+            && first.isSymLink == second.isSymLink
+            && FileVersion(first.attributes) == FileVersion(second.attributes)
+    }
+
+    /// Drops stored stats and listings a change at `path` makes stale: those at or under it, its parent's, and the
+    /// recursive listings above it.
+    ///
+    /// - Parameter parentChanged: Whether the change may have added or removed an entry at `path`, which changes the
+    /// modification time of its parent, so that listings of the directory holding the parent are stale too.
+    func dropMetadata(around path: String, parentChanged: Bool) {
+        guard case .answer = configuration.metadata else {
+            return
+        }
+
+        let parent = CachePath.parent(of: path)
+        let grandparent = parentChanged ? CachePath.parent(of: parent) : parent
+        stats = stats.filter { key, _ in
+            !CachePath.isPath(key.path, atOrUnder: path) && key.path != parent
+        }
+        listings = listings.filter { key, _ in
+            !CachePath.isPath(key.path, atOrUnder: path)
+                && key.path != parent
+                && key.path != grandparent
+                && !(key.recursive && CachePath.isPath(path, atOrUnder: key.path))
+        }
+    }
+
+    /// Keeps the stored stats and listings within ``metadataLimit``, dropping expired ones, then the oldest.
+    func pruneMetadata() {
+        guard case let .answer(maximumAge, _) = configuration.metadata else {
+            return
+        }
+
+        let now = Self.uptime()
+        if stats.count > Self.metadataLimit {
+            stats = stats.filter { now - $0.value.time < maximumAge }
+            if stats.count > Self.metadataLimit {
+                let oldest = stats.sorted { $0.value.time < $1.value.time }.prefix(stats.count - Self.metadataLimit / 2)
+                for (key, _) in oldest {
+                    stats[key] = nil
+                }
+            }
+        }
+
+        if listings.count > Self.metadataLimit {
+            listings = listings.filter { now - $0.value.time < maximumAge }
+            if listings.count > Self.metadataLimit {
+                let oldest = listings.sorted { $0.value.time < $1.value.time }
+                    .prefix(listings.count - Self.metadataLimit / 2)
+                for (key, _) in oldest {
+                    listings[key] = nil
+                }
+            }
+        }
+    }
+}
+
+// MARK: Paths
+
+extension ReferenceCache {
+    /// `path` normalized, and joined to the working directory if relative and
+    /// ``Configuration/resolvesRelativePaths`` is on.
+    func normalize(_ path: String) -> String {
+        let normalized = CachePath.key(path)
+        guard let workingDirectory, normalized.first != "/" else {
+            return normalized
+        }
+        return CachePath.normalize(workingDirectory.appendingPathComponent(normalized))
+    }
+
+    /// The block key of `path`, without asking the server: `nil` when symbolic links are deduplicated and the path was
+    /// not resolved before.
+    func rememberedKey(for path: String) -> String? {
+        let normalized = normalize(path)
+        guard configuration.deduplicatesSymlinks, control != nil else {
+            return normalized
+        }
+        return resolutions[normalized]
+    }
+
+    /// The block key of `path`, asking the server for its real path when symbolic links are deduplicated and the path
+    /// was not resolved before. A path the server cannot resolve keys its blocks by itself.
+    func resolvedKey(for path: String) async -> String {
+        let normalized = normalize(path)
+        guard configuration.deduplicatesSymlinks, let control else {
+            return normalized
+        }
+        if let known = resolutions[normalized] {
+            return known
+        }
+        if let running = resolving[normalized] {
+            return await running.value ?? normalized
+        }
+
+        let generation = changeLog.generation(of: normalized)
+        let task = Task<String?, Never> {
+            await serverRealPath(ofKey: normalized, control: control).map(CachePath.key)
+        }
+        resolving[normalized] = task
+        let resolved = await task.value
+        if resolving[normalized] == task {
+            resolving[normalized] = nil
+        }
+
+        guard let resolved else {
+            return normalized
+        }
+
+        // Resolved again after a change that may have re-pointed a link on the way: files opened through the path
+        // earlier may be elsewhere.
+        if let previous = forgottenResolutions.removeValue(forKey: normalized), previous != resolved {
+            markUnsafe(normalized, candidates: [previous])
+        }
+
+        // A change at the path while the server answered may have made the answer stale: use it once, but do not
+        // remember it.
+        if changeLog.generation(of: normalized) == generation {
+            if resolutions.count >= Self.resolutionLimit {
+                forgetLinkResolutions()
+                resolutions.removeAll(keepingCapacity: true)
+            }
+            resolutions[normalized] = resolved
+        }
+        return resolved
+    }
+
+    /// The real path on the server of the file at block key `key`: `nil` when the server cannot resolve it, or once the
+    /// cache is closed, since the caller may close `control` then.
+    func serverRealPath(ofKey key: String, control: SFTPClient) async -> String? {
+        guard !isClosed else {
+            return nil
+        }
+        return try? await control.realPath(path: CachePath.serverPath(ofKey: key))
+    }
+
+    /// The real path of `path`, which may no longer exist, from the real path of its directory.
+    func resolveThroughParent(_ path: String) async -> String? {
+        guard let control, let name = path.lastPathComponent else {
+            return nil
+        }
+
+        let parent = CachePath.parent(of: path)
+        let resolvedParent: String? = if let known = resolutions[parent] {
+            known
+        }
+        else {
+            await serverRealPath(ofKey: parent, control: control).map(CachePath.key)
+        }
+        return resolvedParent.map { CachePath.normalize($0.appendingPathComponent(name)) }
+    }
+
+    /// The block keys a change at the normalized `path` touches, beyond `path` itself: the real paths of `path` and of
+    /// everything resolved under it.
+    func keysChanged(at path: String) async -> Set<String> {
+        var keys = Set(resolutions.filter { CachePath.isPath($0.key, atOrUnder: path) }.values)
+        if resolutions[path] == nil, let control {
+            if let real = await serverRealPath(ofKey: path, control: control) {
+                keys.insert(CachePath.key(real))
+            }
+            else if let real = await resolveThroughParent(path) {
+                keys.insert(real)
+            }
+        }
+        keys.remove(path)
+        return keys
+    }
+
+    /// Forgets the resolutions of paths at or under `paths`, and those leading at or under `targets`.
+    func forgetResolutions(atOrUnder paths: [String], targetsAtOrUnder targets: [String]) {
+        guard !resolutions.isEmpty else {
+            return
+        }
+
+        resolutions = resolutions.filter { alias, target in
+            !paths.contains { CachePath.isPath(alias, atOrUnder: $0) }
+                && !targets.contains { CachePath.isPath(target, atOrUnder: $0) }
+        }
+    }
+
+    static func uptime() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+}
+
+// MARK: Paths through links
+
+extension ReferenceCache {
+    /// The block key of `path`, and whether files opened through it may be elsewhere.
+    func keyAndSafety(for path: String) async -> (key: String, safety: PathSafety) {
+        let key = await resolvedKey(for: path)
+        return (key, knownSafety(of: normalize(path), key: key))
+    }
+
+    /// Whether files opened through the normalized `path`, whose block key is `key`, may be elsewhere, as far as the
+    /// cache knows without asking the server.
+    func knownSafety(of path: String, key: String) -> PathSafety {
+        if let candidates = unsafePaths[path] {
+            return .elsewhere(candidates)
+        }
+        if everyLinkPathUnsafe, key != path {
+            return .anywhere
+        }
+        return .safe
+    }
+
+    /// Drops what a change reported through the normalized `path`, which may not lead to the file the change was made
+    /// to, may have made stale: the file at `key`, and every file opened through the path may be.
+    func dropEverywhere(key: String, path: String, _ safety: PathSafety) {
+        let keys: Set<String>
+        switch safety {
+        case .safe:
+            keys = [key]
+
+        case let .elsewhere(candidates):
+            keys = candidates.union([key])
+
+        case .anywhere:
+            removeAll()
+            return
+        }
+
+        changeLog.recordChange(at: path)
+        dropMetadata(around: path, parentChanged: false)
+        for key in keys {
+            changeLog.recordChange(at: key)
+            removeEntry(key)
+            dropMetadata(around: key, parentChanged: false)
+        }
+    }
+
+    /// Notes that files opened through the normalized `path` may be at `candidates`, block keys, rather than where the
+    /// path leads.
+    func markUnsafe(_ path: String, candidates: Set<String>) {
+        guard !everyLinkPathUnsafe else {
+            return
+        }
+
+        unsafePaths[path, default: []].formUnion(candidates)
+        if unsafePaths.count > Self.resolutionLimit {
+            everyLinkPathUnsafe = true
+            unsafePaths = [:]
+        }
+    }
+
+    /// Forgets every resolution that led through a link, since a change may have re-pointed one on the way, and
+    /// remembers where each led.
+    func forgetLinkResolutions() {
+        for (alias, target) in resolutions where alias != target && unsafePaths[alias] == nil {
+            if forgottenResolutions[alias] == nil {
+                forgottenResolutions[alias] = target
+            }
+        }
+        resolutions = resolutions.filter { $0.key == $0.value }
+
+        if forgottenResolutions.count > Self.resolutionLimit {
+            everyLinkPathUnsafe = true
+            forgottenResolutions = [:]
+        }
+    }
+
+    /// Follows a rename of the normalized `source` to `destination`, which moved the block keys of `moves`, in what the
+    /// cache knows of paths through links.
+    ///
+    /// Files reached through links into what moved are elsewhere now, and those reached into what the rename replaced
+    /// are gone. Paths the rename moved take what was known of them along, as the client moves the files opened through
+    /// them.
+    func followRename(from source: String, to destination: String, moves: [(from: String, to: String)]) {
+        func moved(_ key: String) -> String? {
+            moves.first { CachePath.isPath(key, atOrUnder: $0.from) }.map { CachePath.rebase(
+                key,
+                from: $0.from,
+                to: $0.to
+            ) }
+        }
+
+        for (alias, target) in resolutions where alias != target {
+            if let now = moved(target) {
+                markUnsafe(alias, candidates: [now])
+            }
+            else if moves.contains(where: { CachePath.isPath(target, atOrUnder: $0.to) }) {
+                markUnsafe(alias, candidates: [])
+            }
+        }
+
+        func movedPath(_ path: String) -> String {
+            CachePath.isPath(path, atOrUnder: source) ? CachePath.rebase(path, from: source, to: destination) : path
+        }
+
+        var rebased: [String: Set<String>] = [:]
+        for (path, candidates) in unsafePaths {
+            rebased[movedPath(path), default: []].formUnion(candidates.map { moved($0) ?? $0 })
+        }
+        unsafePaths = rebased
+
+        var forgotten: [String: String] = [:]
+        for (path, target) in forgottenResolutions where forgotten[movedPath(path)] == nil {
+            forgotten[movedPath(path)] = moved(target) ?? target
+        }
+        forgottenResolutions = forgotten
+    }
+}
+
+// MARK: Inspection
+
+extension ReferenceCache {
+    /// The cached ranges of the file at `path`, sorted.
+    func cachedRanges(path: String) async -> [Range<UInt64>] {
+        await files[resolvedKey(for: path)].map { storage.ranges(of: $0.id) } ?? []
+    }
+}

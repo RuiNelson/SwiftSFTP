@@ -621,7 +621,7 @@ struct SFTPClientResumableRecovery {
 
     /// The names of the resumable temporary files in a remote directory.
     private func temporaries(of client: SFTPClient, in directory: String) async throws -> [String] {
-        try await client.listDirectory(path: directory, recursive: false)
+        try await client.contentsOfDirectory(path: directory, recursive: false)
             .map(\.fileName)
             .filter { $0.hasSuffix(ResumableTrailer.temporaryFileNameSuffix) }
             .sorted()

@@ -30,60 +30,95 @@ public extension SFTPClient {
             try await createDirectory(path: parent, makePath: true, mode: mode)
         }
 
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            try runSFTPCall(.mkdir) { try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode) }
+        let attachment = cacheAttachment
+        try await reportingChange(at: [sanitizedPath], to: attachment, removing: false) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.mkdir, reporting: changeReport(attachment, paths: [sanitizedPath])) {
+                    try SFTPMkdir(sftp: sftp, path: sanitizedPath, mode: mode)
+                }
+            }
         }
     }
 
     func setAttributes(path: String, attributes: FileAttributes) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            let sanitizedPath = path.sanitizePath
-            try runSFTPCall(.stat) { try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes) }
+        let sanitizedPath = path.sanitizePath
+        let attachment = cacheAttachment
+
+        try await reportingChange(at: [sanitizedPath], to: attachment, removing: false) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.stat, reporting: changeReport(attachment, paths: [sanitizedPath])) {
+                    try SFTPSetStat(sftp: sftp, path: sanitizedPath, attributes: attributes)
+                }
+            }
         }
     }
 
     func rename(from: String, to: String) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            try runSFTPCall(.posixRename) {
-                try SFTPPOSIXRename(sftp: sftp, sourceFilename: from.sanitizePath, destinationFilename: to.sanitizePath)
+        let (source, destination) = (from.sanitizePath, to.sanitizePath)
+        let attachment = cacheAttachment
+
+        try await reportingRename(from: source, to: destination, attachment: attachment) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.posixRename, reporting: changeReport(attachment, paths: [source, destination])) {
+                    try SFTPPOSIXRename(sftp: sftp, sourceFilename: source, destinationFilename: destination)
+                }
             }
         }
     }
 
     func renameNonPosix(from: String, to: String, options: RenameOptions = [.native]) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            try runSFTPCall(.rename) {
-                try SFTPRename(
-                    sftp: sftp,
-                    sourceFilename: from.sanitizePath,
-                    destinationFilename: to.sanitizePath,
-                    flags: options
-                )
+        let (source, destination) = (from.sanitizePath, to.sanitizePath)
+        let attachment = cacheAttachment
+
+        try await reportingRename(from: source, to: destination, attachment: attachment) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.rename, reporting: changeReport(attachment, paths: [source, destination])) {
+                    try SFTPRename(
+                        sftp: sftp,
+                        sourceFilename: source,
+                        destinationFilename: destination,
+                        flags: options
+                    )
+                }
             }
         }
     }
 
     func deleteFile(path: String) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            try runSFTPCall(.unlink) { try SFTPUnlink(sftp: sftp, filename: path.sanitizePath) }
+        let sanitizedPath = path.sanitizePath
+        let attachment = cacheAttachment
+
+        try await reportingChange(at: [sanitizedPath], to: attachment, removing: true) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.unlink, reporting: changeReport(attachment, paths: [sanitizedPath])) {
+                    try SFTPUnlink(sftp: sftp, filename: sanitizedPath)
+                }
+            }
         }
     }
 
     func deleteDirectory(path: String) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            try runSFTPCall(.rmdir) { try SFTPRmdir(sftp: sftp, path: path.sanitizePath) }
+        let sanitizedPath = path.sanitizePath
+        let attachment = cacheAttachment
+
+        try await reportingChange(at: [sanitizedPath], to: attachment, removing: true) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                try runSFTPCall(.rmdir, reporting: changeReport(attachment, paths: [sanitizedPath])) {
+                    try SFTPRmdir(sftp: sftp, path: sanitizedPath)
+                }
+            }
         }
     }
 
@@ -96,7 +131,7 @@ public extension SFTPClient {
         }
 
         if metadata.isDirectory {
-            let children = try await listDirectory(path: sanitizedPath, recursive: false)
+            let children = try await contentsOfDirectory(path: sanitizedPath, recursive: false)
             for child in children {
                 try await delete(path: child.fullPath)
             }
@@ -112,7 +147,7 @@ public extension SFTPClient {
 
 public extension SFTPClient {
     func followLink(path: String) async throws -> String {
-        try withSessionIO {
+        try await withSessionIOReportingChanges {
             try checkClosed()
 
             let sftp = try sftp
@@ -129,16 +164,21 @@ public extension SFTPClient {
     }
 
     func createSymLink(path: String, destination: String) async throws {
-        try withSessionIO {
-            try checkClosed()
-            let sftp = try sftp
-            _ = try runSFTPCall(.symlink) {
-                try SFTPSymlink(
-                    sftp: sftp,
-                    path: path.sanitizePath,
-                    target: destination.sanitizePath,
-                    linkType: .symlink
-                )
+        let sanitizedPath = path.sanitizePath
+        let attachment = cacheAttachment
+
+        try await reportingChange(at: [sanitizedPath], to: attachment, removing: false) {
+            try await withSessionIOReportingChanges {
+                try checkClosed()
+                let sftp = try sftp
+                _ = try runSFTPCall(.symlink, reporting: changeReport(attachment, paths: [sanitizedPath])) {
+                    try SFTPSymlink(
+                        sftp: sftp,
+                        path: sanitizedPath,
+                        target: destination.sanitizePath,
+                        linkType: .symlink
+                    )
+                }
             }
         }
     }
@@ -173,16 +213,102 @@ public extension SFTPClient {
             }
         }
 
-        let handle = try withSessionIO {
-            try checkClosed()
-            return try openHandle(path: path.sanitizePath, flags: flags, mode: permissions, openType: .file)
+        let sanitizedPath = path.sanitizePath
+
+        // The file keeps the cache attached now until it closes. Creating or truncating it may change it, or its
+        // directory's listing, also when the open fails. It is registered before the server opens it, so that a rename
+        // or a delete of its path meanwhile reaches it.
+        let attachment = cacheAttachment
+        let registration = attachment?.openFiles.beginOpen(path: sanitizedPath)
+        let changes = !flags.isDisjoint(with: [.create, .truncate])
+        let open = {
+            try await self.withSessionIOReportingChanges {
+                try self.checkClosed()
+                return try self.openHandle(
+                    path: sanitizedPath,
+                    flags: flags,
+                    mode: permissions,
+                    openType: .file,
+                    reporting: changes ? self.changeReport(attachment, paths: [sanitizedPath]) : nil
+                )
+            }
+        }
+        let handle: LibSSH2SFTPHandle
+        do {
+            handle = if changes {
+                try await reportingChange(at: [sanitizedPath], to: attachment, removing: false, open)
+            }
+            else {
+                try await open()
+            }
+        }
+        catch {
+            if let registration {
+                attachment?.openFiles.unregister(registration)
+            }
+            throw error
         }
 
+        if let registration {
+            attachment?.openFiles.finishOpen(registration)
+        }
         return SFTPFile(
             parent: self,
             handle: handle,
+            flags: flags,
+            cache: attachment,
+            registration: registration,
             logger: logger,
             trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
         )
+    }
+}
+
+// MARK: Private implementation
+
+private extension SFTPClient {
+    /// Runs `change`, a call that changes `paths` on the server, then reports them to the cache in `attachment`, also
+    /// when the call fails: a timeout, a cancellation, or a lost connection can come after the server applied it.
+    ///
+    /// - Parameter removing: Whether the change may remove what is at `paths`, so that files open there stop reporting.
+    func reportingChange<R>(
+        at paths: [String],
+        to attachment: CacheAttachment?,
+        removing: Bool,
+        _ change: () async throws -> R
+    ) async throws -> R {
+        let ticket = beginChange(attachment)
+        let result: R
+        do {
+            result = try await change()
+        }
+        catch {
+            await reportChange(at: paths, to: attachment, removing: removing, since: ticket)
+            throw error
+        }
+
+        await reportChange(at: paths, to: attachment, removing: removing, removed: removing, since: ticket)
+        return result
+    }
+
+    /// Runs `rename`, a rename of `from` to `to` on the server, then reports it to the cache in `attachment`. A rename
+    /// that fails may still have happened, so both paths are reported as changed then, and files open at either stop
+    /// reporting, keeping the paths they may be at.
+    func reportingRename(
+        from: String,
+        to: String,
+        attachment: CacheAttachment?,
+        _ rename: () async throws -> Void
+    ) async throws {
+        let ticket = beginChange(attachment)
+        do {
+            try await rename()
+        }
+        catch {
+            await reportFailedRename(from: from, to: to, attachment: attachment, since: ticket)
+            throw error
+        }
+
+        await reportRename(from: from, to: to, attachment: attachment, since: ticket)
     }
 }

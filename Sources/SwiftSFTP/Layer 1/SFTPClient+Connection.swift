@@ -178,6 +178,7 @@ public extension SFTPClient {
             _socket = nil
             _keepAliveTask = nil
             _abandonedHandles = []
+            _cache = nil
 
             return resources
         }
@@ -194,11 +195,18 @@ public extension SFTPClient {
 
         // Not the session-I/O queue: a transfer still blocked in libssh2 owns that queue, and the teardown below is
         // precisely what has to get past it.
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<
+            Result<Void, any Error>,
+            Never
+        >) in
             DispatchQueue.global().async {
-                continuation.resume(with: Result { try self.teardown(box.value) })
+                continuation.resume(returning: Result { try self.teardown(box.value) })
             }
         }
+
+        // The teardown dropped the calls still abandoned, which the server may yet apply.
+        await reportFinishedChanges()
+        try result.get()
     }
 
     var closed: Bool {
@@ -210,8 +218,8 @@ public extension SFTPClient {
     func fork(loggedIn: Bool = true) async throws -> Self {
         try checkClosed()
 
-        let loginTimeOut = internalStateQueue.sync {
-            self.loginTimeOut
+        let (loginTimeOut, cache) = internalStateQueue.sync {
+            (self.loginTimeOut, _cache)
         }
         let instance = try Self(
             openSocketIn: tcpLocation,
@@ -228,6 +236,7 @@ public extension SFTPClient {
             instance._teardownGracePeriod = teardownGracePeriod
             instance._readAhead = readAhead
             instance._writeAhead = writeAhead
+            instance._cache = cache
         }
 
         guard loggedIn else {

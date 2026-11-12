@@ -256,11 +256,11 @@ extension ShellAgentSupport {
         case .infoZip:
             switch shellType {
             case .darwin, .linux, .posixCompatible:
-                return "command -v zip >/dev/null 2>&1"
+                "command -v zip >/dev/null 2>&1"
             case .windowsPowerShell:
-                return "if (-not (Get-Command zip -ErrorAction SilentlyContinue)) { exit 1 }"
+                "if (-not (Get-Command zip -ErrorAction SilentlyContinue)) { exit 1 }"
             case .windowsCommandPrompt:
-                return "where zip >nul 2>nul"
+                "where zip >nul 2>nul"
             }
 
         case .tar:
@@ -270,17 +270,15 @@ extension ShellAgentSupport {
             case .darwin, .linux, .posixCompatible:
                 // The `X`s must trail the template: BSD `mktemp` (macOS) does not substitute them before a suffix, so
                 // `…XXXXXX.zip` would name one fixed file that a stale leftover or a concurrent probe could block.
-                return
-                    "tmp=$(mktemp \"${TMPDIR:-/tmp}/swiftsftp-zip-probe-XXXXXXXX\") && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; (exit $ec)"
+                "tmp=$(mktemp \"${TMPDIR:-/tmp}/swiftsftp-zip-probe-XXXXXXXX\") && tar --format=zip -cf \"$tmp\" --files-from /dev/null 2>/dev/null; ec=$?; rm -f \"$tmp\"; (exit $ec)"
             case .windowsPowerShell:
                 // Runs as one-shot powershell.exe under cmd host framing.
-                return
-                    "$tmp = Join-Path $env:TEMP (\"swiftsftp-zip-probe-\" + [guid]::NewGuid().ToString() + \".zip\"); tar --format=zip -cf $tmp --files-from NUL 2>$null; $ec = $LASTEXITCODE; Remove-Item -Force -ErrorAction SilentlyContinue $tmp; if ($null -eq $ec) { exit 1 } else { exit $ec }"
+                "$tmp = Join-Path $env:TEMP (\"swiftsftp-zip-probe-\" + [guid]::NewGuid().ToString() + \".zip\"); tar --format=zip -cf $tmp --files-from NUL 2>$null; $ec = $LASTEXITCODE; Remove-Item -Force -ErrorAction SilentlyContinue $tmp; if ($null -eq $ec) { exit 1 } else { exit $ec }"
             case .windowsCommandPrompt:
                 // The archive goes to stdout, so there is no temporary file to name and delete. A name held in a
                 // variable could not work anyway: interactive cmd expands the whole line before any `set` on it runs,
                 // and `exit /b` outside a batch file would end the persistent shell. The framing reads the status.
-                return "tar --format=zip -cf - --files-from NUL >nul 2>nul"
+                "tar --format=zip -cf - --files-from NUL >nul 2>nul"
             }
 
         case .microsoft:
@@ -288,11 +286,9 @@ extension ShellAgentSupport {
             case .darwin, .linux, .posixCompatible:
                 throw ShellAgentError.hostDoesNotSupportOperation
             case .windowsPowerShell:
-                return
-                    "if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
+                "if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
             case .windowsCommandPrompt:
-                return
-                    "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
+                "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Compress-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
             }
 
         case .poke:
@@ -572,27 +568,25 @@ extension ShellAgentSupport {
         case .infoZip:
             switch shellType {
             case .darwin, .linux, .posixCompatible:
-                return "command -v unzip >/dev/null 2>&1"
+                "command -v unzip >/dev/null 2>&1"
             case .windowsPowerShell:
-                return "if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) { exit 1 }"
+                "if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) { exit 1 }"
             case .windowsCommandPrompt:
-                return "where unzip >nul 2>nul"
+                "where unzip >nul 2>nul"
             }
 
         case .tar:
             // Same capability gate as create: ZIP format needs bsdtar/libarchive.
-            return try zipToolProbeCommand(tool: .tar, shellType: shellType)
+            try zipToolProbeCommand(tool: .tar, shellType: shellType)
 
         case .microsoft:
             switch shellType {
             case .darwin, .linux, .posixCompatible:
                 throw ShellAgentError.hostDoesNotSupportOperation
             case .windowsPowerShell:
-                return
-                    "if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
+                "if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }"
             case .windowsCommandPrompt:
-                return
-                    "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
+                "powershell -NoProfile -NonInteractive -Command \"if (-not (Get-Command Expand-Archive -ErrorAction SilentlyContinue)) { exit 1 }\""
             }
 
         case .poke:

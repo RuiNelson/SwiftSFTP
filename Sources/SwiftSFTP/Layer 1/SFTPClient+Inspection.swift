@@ -6,7 +6,7 @@ import PathWorks
 public extension SFTPClient {
     var currentWorkingDirectory: String {
         get async throws {
-            try withSessionIO {
+            try await withSessionIOReportingChanges {
                 try checkClosed()
                 let sftp = try sftp
                 return try runSFTPCall(.symlink) { try SFTPSymlink(sftp: sftp, path: ".", linkType: .realPath) } ?? "."
@@ -14,7 +14,7 @@ public extension SFTPClient {
         }
     }
 
-    func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
+    func contentsOfDirectory(path: String, recursive: Bool = false) async throws -> [FileMetadata] {
         try checkClosed()
 
         var sanitizedPath = path.sanitizePath
@@ -24,9 +24,36 @@ public extension SFTPClient {
             sanitizedPath = cwd.appendingPathComponent(sanitizedPath)
         }
 
-        return try withSessionIO {
-            try checkClosed()
-            return try listDirectory(sanitizedPath: sanitizedPath, recursive: recursive, openedDirectories: [])
+        let list = { [sanitizedPath] in
+            try await self.withSessionIOReportingChanges {
+                try self.checkClosed()
+                var entries: [FileMetadata] = []
+                try self.contentsOfDirectory(
+                    sanitizedPath: sanitizedPath,
+                    recursive: recursive,
+                    openedDirectories: [],
+                    into: &entries
+                )
+                return entries
+            }
+        }
+
+        guard let cache else {
+            return try await list()
+        }
+
+        return try await withCacheRequest(on: cache) { request in
+            if let entries = await cache.retrieveDirectoryListing(
+                path: sanitizedPath,
+                recursive: recursive,
+                request: request
+            ) {
+                return entries
+            }
+
+            let entries = try await list()
+            await cache.storeDirectoryListing(entries, path: sanitizedPath, recursive: recursive, request: request)
+            return entries
         }
     }
 
@@ -56,16 +83,37 @@ public extension SFTPClient {
         try checkClosed()
 
         let sanitizedPath = path.sanitizePath
-        guard let attributes = try attributes(sanitizedPath: sanitizedPath, followLink: followLink) else {
-            return nil
+        let statOnServer = {
+            try await self.withSessionIOReportingChanges {
+                try self.attributes(sanitizedPath: sanitizedPath, followLink: followLink)
+            }
+            .map { FileMetadata(sanitizedPath: sanitizedPath, attributes: $0) }
         }
 
-        return FileMetadata(fullPath: sanitizedPath, attributes: attributes)
-            ?? FileMetadata(fileName: sanitizedPath, directory: "", attributes: attributes)
+        guard let cache else {
+            return try await statOnServer()
+        }
+
+        return try await withCacheRequest(on: cache) { request in
+            switch await cache.retrieveFileStat(path: sanitizedPath, followLink: followLink, request: request) {
+            case let .exists(metadata):
+                return metadata
+
+            case .doesNotExist:
+                return nil
+
+            case nil:
+                break
+            }
+
+            let metadata = try await statOnServer()
+            await cache.storeFileStat(metadata, path: sanitizedPath, followLink: followLink, request: request)
+            return metadata
+        }
     }
 
     func filesystemStat(path: String) async throws -> FilesystemStat {
-        try withSessionIO {
+        try await withSessionIOReportingChanges {
             try checkClosed()
             let sftp = try sftp
             return try runSFTPCall(.statvfs) { try SFTPStatVFS(sftp: sftp, path: path.sanitizePath) }
@@ -73,9 +121,39 @@ public extension SFTPClient {
     }
 }
 
-// MARK: Private implementation
+// MARK: SFTPClient + Paths
 
-private extension SFTPClient {
+public extension SFTPClient {
+    /// Asks the server for the canonical absolute form of `path`, with symbolic links, `.`, and `..` resolved.
+    ///
+    /// Servers differ on a path whose last component does not exist: some resolve it, others throw.
+    ///
+    /// - Parameter path: Remote path, absolute or relative to the working directory.
+    /// - Returns: The canonical absolute path.
+    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors, such as when the path cannot be resolved.
+    func realPath(path: String) async throws -> String {
+        try await withSessionIOReportingChanges {
+            try checkClosed()
+            let sftp = try sftp
+            let resolved = try runSFTPCall(.symlink) {
+                try SFTPSymlink(sftp: sftp, path: path.sanitizePath, linkType: .realPath)
+            }
+
+            guard let resolved else {
+                throw LibSSH2Error.nullPointer(function: "SFTPSymlink")
+            }
+
+            return resolved
+        }
+    }
+}
+
+// MARK: Server calls
+
+extension SFTPClient {
+    /// Stats `sanitizedPath` on the server, without the cache.
+    ///
+    /// - Returns: The attributes, or `nil` when nothing exists at the path.
     func attributes(sanitizedPath: String, followLink: Bool) throws -> FileAttributes? {
         try withSessionIO {
             try checkClosed()
@@ -108,14 +186,25 @@ private extension SFTPClient {
             }
         }
     }
+}
 
-    func listDirectory(
+// MARK: Private implementation
+
+private extension SFTPClient {
+    /// Appends the entries of the directory at `sanitizedPath` to `entries`, in the order the server returns them, each
+    /// subdirectory's entries after its own when `recursive`.
+    ///
+    /// - Parameter openedDirectories: The directories being listed above this one, by their bytes: names that differ
+    /// only in Unicode normalization are different directories.
+    func contentsOfDirectory(
         sanitizedPath: String,
         recursive: Bool,
-        openedDirectories: Set<String>
-    ) throws -> Set<FileMetadata> {
-        guard openedDirectories.contains(sanitizedPath) == false else {
-            return []
+        openedDirectories: Set<[UInt8]>,
+        into entries: inout [FileMetadata]
+    ) throws {
+        let directoryBytes = Array(sanitizedPath.utf8)
+        guard openedDirectories.contains(directoryBytes) == false else {
+            return
         }
 
         let handle = try openHandle(path: sanitizedPath, flags: .read, mode: [], openType: .directory)
@@ -128,9 +217,8 @@ private extension SFTPClient {
             }
         }
 
-        var entries = Set<FileMetadata>()
         var openedDirectories = openedDirectories
-        openedDirectories.insert(sanitizedPath)
+        openedDirectories.insert(directoryBytes)
 
         while true {
             let entry = try runSFTPCall(.readdir, on: handle) {
@@ -149,19 +237,16 @@ private extension SFTPClient {
                 directory: sanitizedPath,
                 attributes: entry.attributes
             )
-            entries.insert(metadata)
+            entries.append(metadata)
 
             if recursive, metadata.isDirectory {
-                try entries.formUnion(
-                    listDirectory(
-                        sanitizedPath: metadata.fullPath,
-                        recursive: true,
-                        openedDirectories: openedDirectories
-                    )
+                try contentsOfDirectory(
+                    sanitizedPath: metadata.fullPath,
+                    recursive: true,
+                    openedDirectories: openedDirectories,
+                    into: &entries
                 )
             }
         }
-
-        return entries
     }
 }

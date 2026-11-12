@@ -13,6 +13,10 @@ import Foundation
 /// SFTP call other than a read or a write. That costs nothing when the answer has already arrived, and otherwise waits
 /// for it under the new call's own budget; a server that still does not answer fails the new call with the same timeout
 /// or cancellation instead of handing it the wrong answer.
+///
+/// An abandoned call that changes the server may be applied whenever the server gets to it, after its caller already
+/// reported the change as possible to the cache. Finishing the call, or dropping it when the client closes, queues the
+/// report again, and ``reportFinishedChanges()`` hands it to the cache once the session I/O lock is released.
 extension SFTPClient {
     /// Runs `call`, one libssh2 SFTP call of `kind`, after finishing a packet an interrupted write left half sent and
     /// the calls abandoned before it. Callers must hold the session I/O lock.
@@ -21,6 +25,8 @@ extension SFTPClient {
     ///   - kind: The libssh2 state machine `call` uses.
     ///   - handle: The handle `call` runs on, kept out of a close while the call stays abandoned.
     ///   - slice: The slicer of a cancellable operation, or `nil` for a plain blocking call.
+    ///   - report: The paths `call` may change on the server and the cache to tell, reported again if the call is
+    /// abandoned and later finished or dropped.
     ///   - discard: Releases what the call returns once it is finished on behalf of a later call.
     ///   - call: Exactly one libssh2 entry point, repeatable with the same arguments.
     /// - Returns: What `call` returns.
@@ -30,6 +36,7 @@ extension SFTPClient {
         _ kind: SFTPCallKind,
         on handle: LibSSH2SFTPHandle? = nil,
         slice: SessionIOSlicer? = nil,
+        reporting report: CacheChangeReport? = nil,
         discarding discard: @escaping (R, SessionIOSlicer?) -> Void = { _, _ in },
         _ call: @escaping () throws -> R
     ) throws -> R {
@@ -40,15 +47,15 @@ extension SFTPClient {
             return try perform(call, slice: slice)
         }
         catch where leftCallUnfinished(error) {
-            _abandonedCalls[kind] = AbandonedSFTPCall(handle: handle) { [unowned self] slice in
+            _abandonedCalls[kind] = AbandonedSFTPCall(handle: handle, changeReport: report) { [unowned self] slice in
                 try discard(perform(call, slice: slice), slice)
             }
             throw error
         }
     }
 
-    /// Finishes the abandoned calls, or only those on `handle`, discarding their answers. Callers must hold the session
-    /// I/O lock.
+    /// Finishes the abandoned calls, or only those on `handle`, discarding their answers, and queues the reports of
+    /// those that change the server. Callers must hold the session I/O lock.
     ///
     /// - Throws: The timeout or cancellation that keeps a call from finishing; it then stays abandoned.
     func finishAbandonedCalls(on handle: LibSSH2SFTPHandle? = nil, slice: SessionIOSlicer?) throws {
@@ -69,7 +76,17 @@ extension SFTPClient {
             }
 
             _abandonedCalls[kind] = nil
+            noteFinishedChange(abandoned.changeReport)
         }
+    }
+
+    /// Drops every abandoned call, queuing the reports of those that change the server: the server may still apply
+    /// them. Callers must hold the session I/O lock.
+    func dropAbandonedCalls() {
+        for abandoned in _abandonedCalls.values {
+            noteFinishedChange(abandoned.changeReport)
+        }
+        _abandonedCalls = [:]
     }
 
     /// Closes `handle`, first finishing the calls abandoned on it. Callers must hold the session I/O lock.

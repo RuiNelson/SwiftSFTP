@@ -521,7 +521,7 @@ struct SFTPClientHostkeyAndAuth {
                 _ = try await client.currentWorkingDirectory
             }
             await #expect(throws: AlreadyClosed.self) {
-                try await client.listDirectory(path: ".", recursive: false)
+                try await client.contentsOfDirectory(path: ".", recursive: false)
             }
             await #expect(throws: AlreadyClosed.self) {
                 _ = try await client.stat(path: ".", followLink: false)
@@ -557,7 +557,7 @@ struct SFTPClientHostkeyAndAuth {
                 _ = try await client.currentWorkingDirectory
             }
             await #expect(throws: NotLoggedIn.self) {
-                try await client.listDirectory(path: ".", recursive: false)
+                try await client.contentsOfDirectory(path: ".", recursive: false)
             }
             await #expect(throws: NotLoggedIn.self) {
                 _ = try await client.stat(path: ".", followLink: false)

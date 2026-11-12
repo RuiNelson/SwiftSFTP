@@ -211,7 +211,7 @@
     /// Expects that no temporary file of an edit to `path` is left in its directory.
     private func expectNoTemporaryFiles(_ client: SFTPClient, for path: String) async throws {
         let name = try #require(path.split(separator: "/").last)
-        let entries = try await client.listDirectory(path: TS.testHome, recursive: false)
+        let entries = try await client.contentsOfDirectory(path: TS.testHome, recursive: false)
         #expect(!entries.contains { $0.fileName.hasPrefix(".\(name).") && $0.fileName.hasSuffix(".exifkit.tmp") })
     }
 

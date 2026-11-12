@@ -36,7 +36,7 @@ struct SFTPReadOnlyRegressionTests {
     @Test("a listed whitespace filename opens using its exact path")
     func exactWhitespacePath() async throws {
         try await withFixture { client in
-            let entries = try await client.listDirectory(path: "/")
+            let entries = try await client.contentsOfDirectory(path: "/")
             #expect(entries.contains { $0.fileName == " spaced.bin " })
             let handle = try await client.openFile(.read, path: "/ spaced.bin ", permissions: [])
             do {

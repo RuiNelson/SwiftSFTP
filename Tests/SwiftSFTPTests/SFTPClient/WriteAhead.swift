@@ -430,7 +430,7 @@ struct WriteAheadTests {
 
 // MARK: Helpers
 
-private extension WriteAheadTests {
+extension WriteAheadTests {
     /// Reads `remotePath` back through a fresh connection, then deletes it.
     func remoteContents(_ remotePath: String) async throws -> Data {
         var contents = Data()

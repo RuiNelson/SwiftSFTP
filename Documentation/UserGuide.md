@@ -340,7 +340,7 @@ let remote = #"C:\Users\alice\Documents\report.pdf"#.sftpPathFromWindows
 // → "/C:/Users/alice/Documents/report.pdf"
 
 try await client.upload(from: localURL, to: remote)
-try await client.listDirectory(path: #"D:\data"#.sftpPathFromWindows) // → "/D:/data"
+try await client.contentsOfDirectory(path: #"D:\data"#.sftpPathFromWindows) // → "/D:/data"
 ```
 
 Relative Windows paths keep a relative shape (`#"docs\file.txt"#.sftpPathFromWindows` → `"docs/file.txt"`). Paths that
@@ -354,12 +354,12 @@ When unsure of the server layout, start from `currentWorkingDirectory` and list 
 let cwd = try await client.currentWorkingDirectory
 
 // List a directory (non-recursive)
-let entries = try await client.listDirectory(path: "uploads") // (list the directory "uploads" under the current working directory)
+let entries = try await client.contentsOfDirectory(path: "uploads") // (list the directory "uploads" under the current working directory)
 
 // Recursive listing
-let all: Set<FileMetadata> = try await client.listDirectory(path: "/data", recursive: true) // (list the directory "data" from the root)
+let all: [FileMetadata] = try await client.contentsOfDirectory(path: "/data", recursive: true) // (list the directory "data" from the root)
 
-// Useful subsets and conversions to array on Set<FileMetadata>
+// Useful subsets and sorted copies of [FileMetadata]
 let files       = entries.regularFiles
 let dirs        = entries.directories
 let visible     = entries.nonHidden
@@ -367,7 +367,11 @@ let sorted      = entries.bySize
 let dirFirst    = entries.directoriesFirst
 ```
 
-`listDirectory` returns `Set<FileMetadata>`. Each entry exposes:
+`contentsOfDirectory` returns `[FileMetadata]` in the order the server lists the entries; with `recursive`, each
+subdirectory's entries follow its own. It keeps every entry, including names that differ only in Unicode normalization
+(`café` with a precomposed `é`, and with `e` plus a combining accent), which servers hold as different files while
+`String` compares them as equal. `listDirectory`, which returns a `Set<FileMetadata>` and can merge such entries, is
+deprecated. Each entry exposes:
 
 | Property | Type | Notes |
 |----------|------|-------|
