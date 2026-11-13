@@ -48,11 +48,12 @@ jobs:
       - name: Generate test keys and fixtures
         run: bash Scripts/generate-test-keys-and-fixtures.sh
 
+      # Swift 6.4 also prints `Test run with 0 tests` for bundles the filter skips, so require one run with tests.
       - name: Test (offline)
         run: |
           set -o pipefail
           swift test --scratch-path /tmp/swift-test --traits EXIFKit --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee /tmp/swift-test-offline.log
-          if grep -qE 'No matching test cases were run|^Test run with 0 tests' /tmp/swift-test-offline.log; then
+          if grep -qE 'No matching test cases were run' /tmp/swift-test-offline.log || ! grep -qE 'Test run with [1-9][0-9]* tests?' /tmp/swift-test-offline.log; then
             echo "::error::Offline test filter '$OFFLINE_TEST_FILTER' executed zero tests" >&2
             exit 1
           fi
@@ -64,7 +65,7 @@ jobs:
         run: |
           set -o pipefail
           swift test --scratch-path /tmp/swift-test --traits EXIFKit --filter AVFoundationUnitTests 2>&1 | tee /tmp/swift-test-media.log
-          if grep -qE 'No matching test cases were run|Test run with 0 tests' /tmp/swift-test-media.log; then
+          if grep -qE 'No matching test cases were run' /tmp/swift-test-media.log || ! grep -qE 'Test run with [1-9][0-9]* tests?' /tmp/swift-test-media.log; then
             echo "::error::AVFoundation test filter executed zero tests" >&2
             exit 1
           fi
@@ -132,7 +133,7 @@ jobs:
         run: |
           set -o pipefail
           swift test --scratch-path /tmp/swift-test --traits EXIFKit --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee /tmp/swift-test-offline.log
-          if grep -qE 'No matching test cases were run|Test run with 0 tests' /tmp/swift-test-offline.log; then
+          if grep -qE 'No matching test cases were run' /tmp/swift-test-offline.log || ! grep -qE 'Test run with [1-9][0-9]* tests?' /tmp/swift-test-offline.log; then
             echo "::error::Offline test filter '$OFFLINE_TEST_FILTER' executed zero tests" >&2
             exit 1
           fi
