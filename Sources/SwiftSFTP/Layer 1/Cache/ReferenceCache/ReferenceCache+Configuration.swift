@@ -109,8 +109,11 @@ public extension ReferenceCache {
 
         /// Also stats the file on the server.
         ///
-        /// One round trip per check. Notices changes to a file that stays open, but not a change that keeps both the
-        /// size and the modification time second. Every stat the client reports counts as a check too, so with a
+        /// One round trip per check. The stat goes through the control connection's shell agent, which reads the
+        /// modification time to the nanosecond, and falls back to SFTP's whole seconds on a server without shell
+        /// access. Notices changes to a file that stays open, but not a change that keeps both the size and the
+        /// modification time: the nanosecond with the shell agent, the second without it. Every stat the client reports
+        /// counts as a check too, so with a
         /// `nil` ``Configuration/revalidationInterval`` this only adds a stat of a file written through the client
         /// before the client's own final stat of it.
         case statOnServer

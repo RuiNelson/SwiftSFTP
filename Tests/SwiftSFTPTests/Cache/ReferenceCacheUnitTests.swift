@@ -1057,4 +1057,28 @@ struct OpenFileRegistryTests {
         _ = registry.finishRename(registry.beginRename(from: "/d", to: "/e"))
         #expect(registry.endReport(file, read) == ["/d/f", "/e/f"])
     }
+
+    @Test("a version known to the nanosecond differs from one that differs only there, and matches a whole-second one")
+    func versionNanoseconds() {
+        func version(_ seconds: Double) -> ReferenceCache.FileVersion {
+            .init(ShellFileStatus(kind: .regular, size: 10, modificationDate: Date(timeIntervalSince1970: seconds)))
+        }
+        let a = version(1_700_000_000.25)
+        let b = version(1_700_000_000.75)
+        #expect(a.modificationTime == 1_700_000_000)
+        #expect(a.modificationNanoseconds == 250_000_000)
+        #expect(a.isSame(as: a))
+        #expect(!a.isSame(as: b))
+
+        var attributes = FileAttributes()
+        attributes.flags = [.size, .accessModificationTime]
+        attributes.fileSize = 10
+        attributes.modificationTime = 1_700_000_000
+        let seconds = ReferenceCache.FileVersion(attributes)
+        #expect(a.isSame(as: seconds))
+        #expect(seconds.isSame(as: b))
+
+        attributes.modificationTime = 1_700_000_001
+        #expect(!a.isSame(as: ReferenceCache.FileVersion(attributes)))
+    }
 }

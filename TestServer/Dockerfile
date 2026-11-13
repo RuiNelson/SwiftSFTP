@@ -3,6 +3,7 @@ FROM debian:testing
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     openssh-server \
+    attr \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /run/sshd

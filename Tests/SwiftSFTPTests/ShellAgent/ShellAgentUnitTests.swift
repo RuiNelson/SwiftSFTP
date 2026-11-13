@@ -920,6 +920,124 @@ struct ShellAgentUnitTests {
         #expect(ShellAgentSupport.digestByteCount(for: .sha512224) == 28)
         #expect(ShellAgentSupport.digestByteCount(for: .sha512256) == 32)
     }
+
+    // MARK: - stat
+
+    @Test("stat commands per shell family")
+    func statCommands() {
+        let path = "/data/it's.bin"
+        #expect(
+            ShellAgentSupport.statCommand(shellType: .darwin, file: path, options: [])
+                == #"stat -L -f '%z|%Xp|%u|%g|%i|%Fa|%Fm|%Fc|%FB' -- '/data/it'\''s.bin'"#
+        )
+        #expect(
+            ShellAgentSupport.statCommand(shellType: .linux, file: path, options: .noFollowSymlinks)
+                == #"stat -c '%s|%f|%u|%g|%i|%.9X|%.9Y|%.9Z|%.9W' -- '/data/it'\''s.bin'"#
+        )
+        let ps = ShellAgentSupport.statCommand(shellType: .windowsPowerShell, file: "/C:/a b/f.txt", options: [])
+        #expect(ps.contains(#"Get-Item -LiteralPath 'C:\a b\f.txt' -Force"#))
+        let cmd = ShellAgentSupport.statCommand(shellType: .windowsCommandPrompt, file: "/C:/f.txt", options: [])
+        #expect(cmd.hasPrefix("powershell -NoProfile"))
+    }
+
+    @Test("stat parses macOS output with nanosecond timestamps")
+    func parseDarwinStat() throws {
+        let out = "3|81a4|501|20|36530749|1794524884.650214374|1794524884.650464749|1794524884.650464749|1794524884.650214374\n"
+        let status = try ShellAgentSupport.parseStatOutput(shellType: .darwin, stdout: out)
+        #expect(status.kind == .regular)
+        #expect(status.size == 3)
+        #expect(status.permissions == 0o644)
+        #expect(status.ownerID == 501)
+        #expect(status.groupID == 20)
+        #expect(status.inode == 36_530_749)
+        let modified = status.modificationDate.timeIntervalSince1970
+        #expect(abs(modified - 1_794_524_884.650464749) < 1e-6)
+        #expect(status.creationDate != nil)
+        #expect(status.creationDate != status.modificationDate)
+        #expect(status.extendedAttributes == nil)
+    }
+
+    @Test("stat treats an unknown Linux birth time as nil, and reads directories")
+    func parseLinuxStat() throws {
+        let out = "4096|41ed|0|0|2|1700000000.000000001|1700000001.500000000|1700000002.000000000|-\n"
+        let status = try ShellAgentSupport.parseStatOutput(shellType: .linux, stdout: out)
+        #expect(status.kind == .directory)
+        #expect(status.permissions == 0o755)
+        #expect(status.creationDate == nil)
+        #expect(status.modificationDate == Date(timeIntervalSince1970: 1_700_000_001.5))
+
+        let zero = "1|81a4|0|0|2|1|2|3|0.000000000\n"
+        #expect(try ShellAgentSupport.parseStatOutput(shellType: .darwin, stdout: zero).creationDate == nil)
+    }
+
+    @Test("stat parses Windows ticks")
+    func parseWindowsStat() throws {
+        // 2023-11-14T22:13:20Z is 1700000000 s; one tick is 100 ns.
+        let ticks = 621_355_968_000_000_000 + 1_700_000_000 * 10_000_000 + 1_234_567
+        let out = "12|32|\(ticks)|\(ticks)|\(ticks - 10_000_000)\r\n"
+        let status = try ShellAgentSupport.parseStatOutput(shellType: .windowsPowerShell, stdout: out)
+        #expect(status.kind == .regular)
+        #expect(status.size == 12)
+        #expect(abs(status.modificationDate.timeIntervalSince1970 - 1_700_000_000.1234567) < 1e-6)
+        #expect(status.creationDate == Date(timeIntervalSince1970: status.modificationDate.timeIntervalSince1970 - 1))
+        #expect(status.permissions == nil)
+
+        let dir = try ShellAgentSupport.parseStatOutput(
+            shellType: .windowsCommandPrompt,
+            stdout: "0|16|\(ticks)|\(ticks)|\(ticks)\n"
+        )
+        #expect(dir.kind == .directory)
+    }
+
+    @Test("stat rejects output it cannot parse")
+    func parseStatGarbage() {
+        #expect(throws: ShellAgentError.self) {
+            try ShellAgentSupport.parseStatOutput(shellType: .linux, stdout: "stat: illegal option\n")
+        }
+    }
+
+    @Test("extended attributes parse from macOS xattr and Linux getfattr output")
+    func parseExtendedAttributes() {
+        let mac = """
+        com.apple.provenance:
+        00000000  01 02 00 B9 16 B5 39 EE D7 64 FE                 |......9..d.|
+        0000000B
+        com.x:
+        00000000  61 20 62                                         |a b|
+        00000003
+        long:
+        00000000  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  |................|
+        00000010  10                                               |.|
+        00000011
+        """
+        let macAttributes = ShellAgentSupport.parseExtendedAttributes(shellType: .darwin, stdout: mac)
+        #expect(macAttributes.count == 3)
+        #expect(macAttributes["com.x"] == Data("a b".utf8))
+        #expect(macAttributes["com.apple.provenance"]?.count == 11)
+        #expect(macAttributes["long"] == Data(0 ... 16))
+
+        let linux = """
+        # file: f
+        user.empty=""
+        user.name=0x68c3a96c6c6f
+        """
+        let linuxAttributes = ShellAgentSupport.parseExtendedAttributes(shellType: .linux, stdout: linux)
+        #expect(linuxAttributes["user.empty"] == Data())
+        #expect(linuxAttributes["user.name"] == Data("héllo".utf8))
+    }
+
+    @Test("extended attribute commands exist only where a tool does")
+    func extendedAttributeCommands() {
+        #expect(ShellAgentSupport
+            .extendedAttributesCommand(shellType: .darwin, file: "/f", options: []) == "xattr -lx -- '/f'")
+        #expect(ShellAgentSupport
+            .extendedAttributesCommand(shellType: .linux, file: "/f", options: .noFollowSymlinks) ==
+            "getfattr -d -m - -e hex -h -- '/f'")
+        #expect(ShellAgentSupport
+            .extendedAttributesCommand(shellType: .windowsPowerShell, file: "/f", options: []) == nil)
+        #expect(ShellAgentSupport
+            .extendedAttributesCommand(shellType: .posixCompatible, file: "/f", options: []) == nil)
+    }
 }
 
 // MARK: - Test helpers

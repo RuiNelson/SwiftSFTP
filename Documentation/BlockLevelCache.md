@@ -99,7 +99,8 @@ Line by line:
   cache itself, and use it for nothing else while the cache has it.
 - `trustPolicy: .statOnServer` has the cache stat a file on the server before answering from it, so changes made by
   others are noticed even while the file stays open. `revalidationInterval: 10` repeats that check at most every 10
-  seconds per file.
+  seconds per file. The check goes through the control connection's [shell agent](ShellAgent.md#reading-file-metadata-stat)
+  when the host has one, which compares modification times to the nanosecond; otherwise it falls back to SFTP's whole seconds.
 - `metadata: .answer(for: 5, includingMissing: false)` answers stats and directory listings from the cache for up to 5
   seconds, which makes browsing faster. Changes made by others can go unnoticed for that long; changes made through the
   client never do.

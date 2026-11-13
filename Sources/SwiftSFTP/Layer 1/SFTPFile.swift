@@ -743,7 +743,7 @@ public extension SFTPFile {
     func close() async throws {
         // The final stat of a written file is a request of its own, so the cache can refuse it if anything changed at
         // the file's path since it began.
-        let request: CacheRequestID? = if let cache, changeSnapshot != nil,
+        let request: CacheRequestID? = if cache != nil, changeSnapshot != nil,
                                           internalStateQueue.sync(execute: { _wroteToFile }) {
             CacheRequestID()
         }

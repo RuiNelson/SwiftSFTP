@@ -131,6 +131,10 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// The shell agent ``TrustPolicy/hashOnServer(_:)`` hashes with, opened on first use.
     var shellAgentTask: Task<SSHShellAgent, any Error>?
 
+    /// Whether the shell agent could not be opened, or its `stat` made no sense to the cache:
+    /// ``TrustPolicy/statOnServer`` then stats over SFTP only. Cleared when the cache closes.
+    var shellStatUnavailable = false
+
     var isClosed = false
 
     #if canImport(Darwin)
@@ -239,6 +243,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
             try? await agent.close()
         }
         shellAgentTask = nil
+        shellStatUnavailable = false
     }
 
     // MARK: SFTPBlockLevelReadCache: Blocks
@@ -709,6 +714,15 @@ extension ReferenceCache {
            let entry = files[key], entry.digest == nil, !entry.lastCheckFailedToRun || isDue(entry) {
             startCheck(key: key)
         }
+
+        // The same for the nanoseconds of the modification time, which only a stat through the shell agent gives: the
+        // stats the client makes carry whole seconds, so without a first one with nanoseconds the checks could not tell
+        // a change within that second.
+        if configuration.trustPolicy == .statOnServer, !shellStatUnavailable, checks[key] == nil,
+           let entry = files[key], entry.version != nil, entry.version?.modificationNanoseconds == nil,
+           !entry.lastCheckFailedToRun || isDue(entry) {
+            startCheck(key: key)
+        }
     }
 
     /// Keeps written bytes, when ``Configuration/keepsUploads`` is on, or drops the file's blocks, and drops the stored
@@ -808,7 +822,10 @@ extension ReferenceCache {
     /// Blocks written through the client since the last stat belong to the new version, so they are kept, and so are
     /// the blocks before bytes the client appended.
     func applyVersion(_ attributes: FileAttributes, key: String, createIfMissing: Bool) {
-        let version = FileVersion(attributes)
+        applyVersion(FileVersion(attributes), key: key, createIfMissing: createIfMissing)
+    }
+
+    func applyVersion(_ version: FileVersion, key: String, createIfMissing: Bool) {
         guard files[key] != nil else {
             if createIfMissing {
                 createEntry(key, version: version)
@@ -837,6 +854,10 @@ extension ReferenceCache {
                 entry.contentEpoch += 1
                 entry.isTooLarge = false
                 entry.lastCheck = nil
+            }
+            else if entry.version?.modificationNanoseconds == nil, version.modificationNanoseconds != nil {
+                // The same version, now known to the nanosecond: later stats are told apart by it.
+                entry.version = version
             }
 
             entry.uploaded = []

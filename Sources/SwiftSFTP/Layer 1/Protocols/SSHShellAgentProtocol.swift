@@ -181,6 +181,23 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
     func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data
 
+    /// Reads a remote file's metadata with the host's own `stat`, at full timestamp resolution.
+    ///
+    /// SFTP attributes carry whole seconds only; this returns the modification, access, change and creation (birth)
+    /// times as the file system stores them, plus size, kind, permissions, owner and inode on Unix hosts. One round
+    /// trip, or two with ``ShellStatOptions/extendedAttributes``.
+    ///
+    /// - Parameters:
+    ///   - file: Remote path of a file, directory or link.
+    ///   - options: Symlink handling and extra data to read.
+    /// - Returns: The file's metadata. Fields the host does not record are `nil`.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `file`;
+    /// ``ShellAgentError/commandFailed(exitCode:stdout:stderr:)`` when the path does not exist;
+    /// ``ShellAgentError/hostDoesNotSupportOperation`` when extended attributes are requested and unavailable;
+    /// ``ShellAgentError/unexpectedOutput(_:)`` when the host's `stat` prints an unknown format (for example BusyBox);
+    /// otherwise ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    func stat(file: String, options: ShellStatOptions) async throws -> ShellFileStatus
+
     /// Downloads a remote URL onto the server with `curl` (or `curl.exe` on Windows).
     ///
     /// The server fetches the URL itself; the payload does not pass through the SFTP client. Parent directories of
@@ -213,6 +230,11 @@ public extension SSHShellAgentProtocol {
     /// Extracts a ZIP archive, probing the host for a suitable tool (``ZipTool/poke``).
     func unzip(file: String, to: String) async throws {
         try await unzip(file: file, to: to, tool: .poke)
+    }
+
+    /// Reads a file's metadata with the default options (follows symbolic links, no extended attributes).
+    func stat(file: String) async throws -> ShellFileStatus {
+        try await stat(file: file, options: [])
     }
 
     /// Downloads a URL onto the server with no extra HTTP headers.

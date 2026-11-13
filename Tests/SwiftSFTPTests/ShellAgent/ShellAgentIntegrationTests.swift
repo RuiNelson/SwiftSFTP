@@ -599,6 +599,145 @@ struct ShellAgentIntegrationTests {
         }
     }
 
+    // MARK: - stat
+
+    @Test("stat returns sub-second timestamps and metadata")
+    func stat() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-stat")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+                let path = "\(dir)/file.bin"
+                let handle = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: path,
+                    permissions: .serverDefault
+                )
+                try await handle.write(Data(repeating: 7, count: 1234))
+                try await handle.close()
+
+                let status = try await agent.stat(file: path)
+                #expect(status.kind == .regular)
+                #expect(status.size == 1234)
+                #expect(status.ownerID != nil)
+
+                let attributes = try #require(try await client.statFile(path: path, followLink: false))
+                #expect(abs(status.modificationDate.timeIntervalSince(attributes.attributes.modificationDate)) < 1)
+
+                let directory = try await agent.stat(file: dir)
+                #expect(directory.kind == .directory)
+
+                await #expect(throws: ShellAgentError.self) {
+                    _ = try await agent.stat(file: "\(dir)/missing")
+                }
+            }
+        }
+    }
+
+    @Test("stat on Linux reports nanosecond timestamps, birth time and permissions")
+    func statLinuxDetails() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let path = "\(TS.fixturesPath)/TINY.bin"
+                let status = try await agent.stat(file: path)
+                let sftp = try #require(try await client.statFile(path: path, followLink: false))
+
+                #expect(status.kind == .regular)
+                #expect(status.size == 1)
+                #expect(status.permissions != nil)
+                #expect(status.inode != nil)
+                #expect(status.changeDate != nil)
+                #expect(status.accessDate != nil)
+                // The whole second SFTP reports is the one `stat` reports, with the fraction on top.
+                #expect(
+                    Int(status.modificationDate.timeIntervalSince1970.rounded(.down))
+                        == Int(sftp.attributes.modificationDate.timeIntervalSince1970)
+                )
+                #expect(status.extendedAttributes == nil)
+            }
+        }
+    }
+
+    @Test("stat keeps sub-second resolution for a file written just now")
+    func statSubsecond() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-stat-ns")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+
+                var fractions = Set<Double>()
+                for index in 0 ..< 4 {
+                    let path = "\(dir)/f\(index).bin"
+                    let handle = try await client.openFile(
+                        [.write, .create, .truncate],
+                        path: path,
+                        permissions: .serverDefault
+                    )
+                    try await handle.write(Data([1]))
+                    try await handle.close()
+
+                    let seconds = try await agent.stat(file: path).modificationDate.timeIntervalSince1970
+                    fractions.insert(seconds - seconds.rounded(.down))
+                }
+                // Four files cannot all land on an exact second unless the timestamps are truncated.
+                #expect(fractions != [0])
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
+    @Test("stat follows symbolic links unless told not to")
+    func statSymlink() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                // `/bin` is a link to `usr/bin` on the Debian test image.
+                let link = "/bin"
+
+                let target = try await agent.stat(file: link)
+                #expect(target.kind == .directory)
+
+                let itself = try await agent.stat(file: link, options: .noFollowSymlinks)
+                #expect(itself.kind == .symbolicLink)
+            }
+        }
+    }
+
+    @Test("stat reads extended attributes with getfattr")
+    func statExtendedAttributes() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let status = try await agent.stat(file: "\(TS.fixturesPath)/TINY.bin", options: .extendedAttributes)
+                #expect(status.extendedAttributes?["user.swiftsftp"] == Data("hello".utf8))
+
+                let bare = try await agent.stat(file: "\(TS.fixturesPath)/SMALL.bin", options: .extendedAttributes)
+                #expect(bare.extendedAttributes?["user.swiftsftp"] == nil)
+            }
+        }
+    }
+
+    @Test("stat handles paths with spaces and quotes")
+    func statAwkwardPath() async throws {
+        try await withClient { client in
+            try await withShellAgent(client) { agent in
+                let dir = uniqueRemotePath("shell-stat-quote")
+                try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
+                let path = "\(dir)/it's a \"file\" $HOME.bin"
+                let handle = try await client.openFile(
+                    [.write, .create, .truncate],
+                    path: path,
+                    permissions: .serverDefault
+                )
+                try await handle.write(Data([1, 2, 3]))
+                try await handle.close()
+
+                #expect(try await agent.stat(file: path).size == 3)
+
+                try await client.delete(path: dir)
+            }
+        }
+    }
+
     // MARK: - Hashing
 
     @Test("calculateHash matches known digests for TINY.bin")
