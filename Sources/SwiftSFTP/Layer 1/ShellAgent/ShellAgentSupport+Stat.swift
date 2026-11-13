@@ -58,15 +58,20 @@ extension ShellAgentSupport {
     // MARK: Parsing
 
     static func parseStatOutput(shellType: ShellType, stdout: String) throws -> ShellFileStatus {
-        let fields = stdout
-            .split(whereSeparator: \.isNewline)
-            .map {
-                $0.split(separator: "|", omittingEmptySubsequences: false)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-            }
-            .first { $0.count == 9 || ($0.count == 5 && !shellType.iKnowThis) }
+        let allowsWindowsLayout = !shellType.iKnowThis
+        var matched: [String]?
 
-        guard let fields else {
+        for line in stdout.split(whereSeparator: \.isNewline) {
+            let parts: [String] = line
+                .split(separator: "|", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+            if parts.count == 9 || (parts.count == 5 && allowsWindowsLayout) {
+                matched = parts
+                break
+            }
+        }
+
+        guard let fields = matched else {
             throw ShellAgentError.unexpectedOutput(stdout)
         }
 
