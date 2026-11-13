@@ -315,7 +315,7 @@ Fields the host does not record are `nil`: `creationDate` on older Linux kernels
 `ownerID`, `groupID` and `inode` on Windows. A `Date` holds roughly a tenth of a microsecond at today's epoch, so the
 last digits of a nanosecond timestamp may round. A path that does not exist throws
 `ShellAgentError.commandFailed(exitCode:stdout:stderr:)`, and a `stat` that prints an unknown format (BusyBox, for
-example) throws `ShellAgentError.unexpectedOutput(_:)`. On Windows, PowerShell and `cmd` were checked against OpenSSH for Windows 9.5, and the parsers are covered by unit tests.
+example) throws `ShellAgentError.unexpectedOutput(_:)`.
 
 ---
 
