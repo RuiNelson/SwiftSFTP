@@ -20,7 +20,7 @@ private func contents(of handle: any SFTPFileProtocol) async -> Data? {
     guard let data = try? await handle.readAll() else {
         // An empty file, or a failed read: a read of one byte tells them apart.
         handle.offset = 0
-        return await (try? handle.read(upTo: 1)).map { $0 ?? Data() }
+        return try? await handle.read(upTo: 1)
     }
     return data
 }
