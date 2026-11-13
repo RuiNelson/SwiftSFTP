@@ -27,7 +27,7 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 - **Fast**: Outperforms other Swift SFTP clients — 5.3× upload and 2.8× download over one connection, keeping up to 2 MiB in flight per connection; `multiUpload` / `multiDownload` add connections when a link has headroom; see [Benchmarks](#benchmarks).
 - **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
 - **Block-Level Cache (optional)**: Keeps what a client reads from the server so that reading it again costs nothing: attach a `ReferenceCache` in two lines, choose the memory budget, replace the storage backend, or plug in a custom cache; see [Block-Level Cache](Documentation/BlockLevelCache.md).
-- **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations).
+- **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download, nanosecond-resolution `stat` and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/ShellAgent.md).
 - **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
 - **EXIF Metadata**: The optional `SwiftSFTPEXIFKit` product reads, edits and removes the EXIF of remote images with [EXIFKit](https://github.com/RuiNelson/EXIFKit), reading only the byte ranges that hold metadata; see [EXIF Metadata](#exif-metadata).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
@@ -110,12 +110,21 @@ For complete details, see:
   - [Working with Files](Documentation/UserGuide.md#working-with-files)
   - [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading)
   - [Copying, Renaming, and Deleting](Documentation/UserGuide.md#copying-renaming-and-deleting)
-  - [Shell Agent](Documentation/UserGuide.md#shell-agent-server-side-operations)
   - [Symlinks](Documentation/UserGuide.md#symlinks)
   - [Filesystem Statistics](Documentation/UserGuide.md#filesystem-statistics)
   - [Keeping the Connection Alive](Documentation/UserGuide.md#keeping-the-connection-alive)
   - [Validating SSH Keys](Documentation/UserGuide.md#validating-ssh-keys-offline)
   - [Error Handling](Documentation/UserGuide.md#error-handling)
+
+- [Shell Agent](Documentation/ShellAgent.md) — server-side operations:
+  - [Obtaining an agent](Documentation/ShellAgent.md#obtaining-an-agent)
+  - [Shell types](Documentation/ShellAgent.md#shell-types)
+  - [Server-side copy](Documentation/ShellAgent.md#server-side-copy)
+  - [Create archives](Documentation/ShellAgent.md#create-archives)
+  - [Download a URL onto the server](Documentation/ShellAgent.md#download-a-url-onto-the-server)
+  - [Calculating a remote hash](Documentation/ShellAgent.md#calculating-a-remote-hash)
+  - [Reading file metadata (`stat`)](Documentation/ShellAgent.md#reading-file-metadata-stat)
+  - [Paths on Windows](Documentation/ShellAgent.md#paths-on-windows)
 
 - [Block-Level Cache](Documentation/BlockLevelCache.md) — caching what a client reads:
   - [Getting started](Documentation/BlockLevelCache.md#getting-started)
