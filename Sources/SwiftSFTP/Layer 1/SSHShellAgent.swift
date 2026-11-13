@@ -490,6 +490,61 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         )
     }
 
+    public func stat(file: String, options: ShellStatOptions = []) async throws -> ShellFileStatus {
+        guard !file.isEmpty else {
+            throw ShellAgentError.invalidArgument("stat requires a non-empty path")
+        }
+
+        let command = ShellAgentSupport.statCommand(shellType: shellType, file: file, options: options)
+        var status = try ShellAgentSupport.parseStatOutput(
+            shellType: shellType,
+            stdout: runChecked(command).stdoutString
+        )
+
+        if options.contains(.extendedAttributes) {
+            guard let xattrCommand = ShellAgentSupport.extendedAttributesCommand(
+                shellType: shellType,
+                file: file,
+                options: options
+            ) else {
+                throw ShellAgentError.hostDoesNotSupportOperation
+            }
+
+            let result = try executeOnPersistentShell(xattrCommand)
+            // A missing tool (127) means the host cannot do this; any other failure is the command's own.
+            guard result.exitStatus != 127 else {
+                throw ShellAgentError.hostDoesNotSupportOperation
+            }
+            guard result.exitStatus == 0 else {
+                throw ShellAgentError.commandFailed(
+                    exitCode: result.exitStatus,
+                    stdout: result.stdoutString,
+                    stderr: result.stderrString
+                )
+            }
+            status.extendedAttributes = ShellAgentSupport.parseExtendedAttributes(
+                shellType: shellType,
+                stdout: result.stdoutString
+            )
+        }
+
+        return status
+    }
+
+    /// Runs `command` on the persistent shell and throws ``ShellAgentError/commandFailed(exitCode:stdout:stderr:)`` on
+    /// a non-zero exit.
+    private func runChecked(_ command: String) throws -> RemoteProcessResult {
+        let result = try executeOnPersistentShell(command)
+        guard result.exitStatus == 0 else {
+            throw ShellAgentError.commandFailed(
+                exitCode: result.exitStatus,
+                stdout: result.stdoutString,
+                stderr: result.stderrString
+            )
+        }
+        return result
+    }
+
     public func download(url: URL, file: String, headers: [String] = []) async throws {
         guard !file.isEmpty else {
             throw ShellAgentError.invalidArgument("download requires a non-empty destination path")
