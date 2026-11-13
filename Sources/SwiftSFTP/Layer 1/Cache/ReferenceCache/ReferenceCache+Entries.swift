@@ -69,19 +69,42 @@ extension ReferenceCache {
     }
 
     /// The size and modification time of a version of a file, as far as the server reported them.
+    ///
+    /// SFTP reports whole seconds. A stat through the shell agent also gives the nanoseconds, which tell apart two
+    /// versions written within the same second; a version without them is the same as one with them when the rest
+    /// matches, as nothing shows otherwise.
     struct FileVersion: Equatable {
         let size: UInt64?
         let modificationTime: UInt?
+        /// Nanoseconds past ``modificationTime``, when the stat came from the shell agent.
+        let modificationNanoseconds: UInt32?
 
         init(_ attributes: FileAttributes) {
             size = attributes.flags.contains(.size) ? attributes.fileSize : nil
             modificationTime = attributes.flags.contains(.accessModificationTime) ? attributes.modificationTime : nil
+            modificationNanoseconds = nil
+        }
+
+        init(_ status: ShellFileStatus) {
+            let interval = status.modificationDate.timeIntervalSince1970
+            let seconds = interval.rounded(.down)
+            size = status.size
+            modificationTime = seconds >= 0 ? UInt(seconds) : nil
+            modificationNanoseconds = seconds >= 0 ? UInt32(min(((interval - seconds) * 1e9).rounded(), 999_999_999)) :
+                nil
         }
 
         /// Whether both versions are known to be the same. A version missing its size or modification time is never the
         /// same as another.
         func isSame(as other: FileVersion?) -> Bool {
-            size != nil && modificationTime != nil && self == other
+            guard let other, size != nil, modificationTime != nil, size == other.size,
+                  modificationTime == other.modificationTime else {
+                return false
+            }
+            if let ours = modificationNanoseconds, let theirs = other.modificationNanoseconds {
+                return ours == theirs
+            }
+            return true
         }
     }
 

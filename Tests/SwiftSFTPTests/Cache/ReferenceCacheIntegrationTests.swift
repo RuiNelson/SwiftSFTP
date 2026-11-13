@@ -221,6 +221,50 @@ struct ReferenceCacheIntegrationTests {
         }
     }
 
+    @Test("statOnServer stats through the shell agent, and sees a change within the same second")
+    func statOnServerSeesSubsecondChange() async throws {
+        let path = uniqueRemotePath("inmemory-stat-subsecond")
+        let changed = overwritten(Self.payload, at: 0, with: Self.marker)
+
+        try await withClient { client in
+            try await writeRemoteFile(client, path: path, contents: Self.payload)
+            let other = try await client.fork(loggedIn: true)
+            let control = try await client.fork(loggedIn: true)
+            let cache = try await ReferenceCache(
+                controlConnection: control,
+                configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 0)
+            )
+            client.attachCache(cache)
+
+            let handle = try await client.openFile(.read, path: path, permissions: [])
+            let first = try await handle.readAll()
+
+            // A check in the background stats through the shell agent once the first bytes are stored, so the version
+            // knows the nanoseconds.
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let nanosecondsAfterFirst = await cache.files[path]?.version?.modificationNanoseconds
+            let epochAfterFirst = await cache.files[path]?.contentEpoch
+
+            // Same size, a moment later: SFTP stats would show the same second.
+            try await writeRemoteFile(other, path: path, contents: changed)
+            handle.offset = 0
+            let second = try await handle.readAll()
+            let epochAfterSecond = await cache.files[path]?.contentEpoch
+            try await handle.close()
+
+            client.detachCache()
+            try await other.delete(path: path)
+            try await other.close()
+            await cache.close()
+            try await control.close()
+
+            #expect(first == Self.payload)
+            #expect(nanosecondsAfterFirst != nil)
+            #expect(second == changed)
+            #expect(epochAfterSecond == (epochAfterFirst ?? 0) + 1)
+        }
+    }
+
     @Test("sampleBlocks notices changed bytes where it samples")
     func sampleBlocksNoticesChange() async throws {
         let path = uniqueRemotePath("inmemory-sample-blocks")

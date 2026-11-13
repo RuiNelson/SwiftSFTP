@@ -86,9 +86,9 @@ extension ReferenceCache {
             return
 
         case .statOnServer:
-            let metadata: FileMetadata?
+            let result: ServerStat
             do {
-                metadata = try await control.stat(path: serverPath, followLink: true)
+                result = try await serverStat(serverPath, control: control)
             }
             catch {
                 failCheck(key, snapshot, ran: false)
@@ -98,11 +98,21 @@ extension ReferenceCache {
             guard isCurrent(key, snapshot) else {
                 return
             }
-            guard let metadata, metadata.isRegularFile else {
-                failCheck(key, snapshot, ran: true)
-                return
+            switch result {
+            case let .shell(status):
+                guard status.kind == .regular else {
+                    failCheck(key, snapshot, ran: true)
+                    return
+                }
+                applyVersion(FileVersion(status), key: key, createIfMissing: false)
+
+            case let .sftp(metadata):
+                guard let metadata, metadata.isRegularFile else {
+                    failCheck(key, snapshot, ran: true)
+                    return
+                }
+                applyVersion(metadata.attributes, key: key, createIfMissing: false)
             }
-            applyVersion(metadata.attributes, key: key, createIfMissing: false)
 
         case let .hashOnServer(algorithm):
             let digest: Data
@@ -224,8 +234,45 @@ extension ReferenceCache {
         }
     }
 
-    /// The digest of the file at `path`, computed on the server through the control connection's shell agent.
-    private func hash(_ path: String, algorithm: CalculateHashAlgorithm, control: SFTPClient) async throws -> Data {
+    /// A stat of a file on the server, from the shell agent or, failing that, from SFTP.
+    enum ServerStat {
+        /// Nanosecond timestamps, from the shell agent.
+        case shell(ShellFileStatus)
+        /// Whole seconds, from SFTP; `nil` when nothing exists at the path.
+        case sftp(FileMetadata?)
+    }
+
+    /// Stats `path` through the shell agent for its nanosecond timestamps, falling back to an SFTP stat when the host
+    /// has no usable shell, or its `stat` is not one the agent understands. A path the shell cannot stat is left to
+    /// SFTP too, which tells a missing file from a failed command.
+    private func serverStat(_ path: String, control: SFTPClient) async throws -> ServerStat {
+        if !shellStatUnavailable {
+            do {
+                return try await .shell(withShellAgent(control) { agent in
+                    try await agent.stat(file: path)
+                })
+            }
+            catch let error as ShellAgentError {
+                switch error {
+                case .commandFailed:
+                    break
+                default:
+                    shellStatUnavailable = true
+                }
+            }
+            catch {
+                // A channel or connection failure: SFTP will find out if the connection is gone. Ask the shell again at
+                // the next check.
+            }
+        }
+        return try await .sftp(control.stat(path: path, followLink: true))
+    }
+
+    /// Runs `operation` with the control connection's shell agent, opened on first use.
+    private func withShellAgent<T>(
+        _ control: SFTPClient,
+        _ operation: (SSHShellAgent) async throws -> T
+    ) async throws -> T {
         let task = shellAgentTask ?? Task {
             try await control.shellAgent()
         }
@@ -244,7 +291,7 @@ extension ReferenceCache {
         }
 
         do {
-            return try await agent.calculateHash(file: path, algorithm: algorithm)
+            return try await operation(agent)
         }
         catch {
             // A channel failure closes the agent: open another one at the next check.
@@ -252,6 +299,13 @@ extension ReferenceCache {
                 shellAgentTask = nil
             }
             throw error
+        }
+    }
+
+    /// The digest of the file at `path`, computed on the server through the control connection's shell agent.
+    private func hash(_ path: String, algorithm: CalculateHashAlgorithm, control: SFTPClient) async throws -> Data {
+        try await withShellAgent(control) { agent in
+            try await agent.calculateHash(file: path, algorithm: algorithm)
         }
     }
 
