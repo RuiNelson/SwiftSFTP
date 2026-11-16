@@ -235,6 +235,25 @@ let libssh2Sources = [
     "Vendor/libssh2/src/wincng.c",
 ]
 
+// Opt-in trait for the methods libssh2 no longer builds by default (see the deprecation notices in its RELEASE-NOTES):
+// SHA-1 key exchange, ssh-rsa and ssh-dss host keys, SHA-1, MD5 and RIPEMD-160 MACs, MD5-encrypted PEM keys, and the
+// 3DES, Blowfish, RC4 and CAST ciphers. Only for clients that must reach servers too old for anything else.
+let legacyAlgorithmsTrait = "LegacyAlgorithms"
+
+let legacyAlgorithmDefines = [
+    "LIBSSH2_RSA_SHA1_ENABLE",
+    "LIBSSH2_KEX_SHA1_ENABLE",
+    "LIBSSH2_DSA_ENABLE",
+    "LIBSSH2_HMAC_SHA1_ENABLE",
+    "LIBSSH2_MD5_ENABLE",
+    "LIBSSH2_MD5_PEM_ENABLE",
+    "LIBSSH2_3DES_ENABLE",
+    "LIBSSH2_HMAC_RIPEMD_ENABLE",
+    "LIBSSH2_BLOWFISH_ENABLE",
+    "LIBSSH2_RC4_ENABLE",
+    "LIBSSH2_CAST_ENABLE",
+]
+
 let libssh2CSettings: [CSetting] = [
     .headerSearchPath("Vendor/libssh2/include"),
     .headerSearchPath("Vendor/libssh2/src"),
@@ -252,7 +271,7 @@ let libssh2CSettings: [CSetting] = [
     .define("HAVE_UNISTD_H"),
     .define("LIBSSH2_HAVE_ZLIB"),
     .define("LIBSSH2_OPENSSL"),
-]
+] + legacyAlgorithmDefines.map { .define($0, .when(traits: [legacyAlgorithmsTrait])) }
 
 let libssh2Target = Target.target(
     name: "libssh2",
@@ -358,7 +377,11 @@ let package = Package(
             name: exifKitTrait,
             description: "Adds EXIF metadata access over SFTP to the SwiftSFTPEXIFKit product, through EXIFKit."
         ),
-        // Disabled by default, so consumers of the core products never resolve EXIFKit.
+        .trait(
+            name: legacyAlgorithmsTrait,
+            description: "Builds libssh2 with the SHA-1, DSA, MD5, 3DES and other legacy methods it disables by default."
+        ),
+        // Disabled by default, so consumers of the core products never resolve EXIFKit or offer legacy algorithms.
         .default(enabledTraits: []),
     ],
     dependencies: [

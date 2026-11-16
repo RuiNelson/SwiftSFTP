@@ -240,6 +240,20 @@ The product supplies the `SwiftSFTP` and `SwiftSFTPEXIFKit` modules, with EXIFKi
 EXIFKit's own product to the same target, which would link a second copy. The trait is disabled by default, so
 packages that don't enable it never resolve or fetch EXIFKit; without it, the `SwiftSFTPEXIFKit` module is empty.
 
+To reach very old servers (for example OpenSSH 5.x), enable the `LegacyAlgorithms` trait. It builds libssh2 with the
+methods it disables by default: SHA-1 key exchange, `ssh-rsa` and `ssh-dss` host keys, SHA-1, MD5 and RIPEMD-160 MACs,
+MD5-encrypted PEM keys, and the 3DES, Blowfish, RC4 and CAST ciphers.
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.22.0", traits: ["LegacyAlgorithms"])
+]
+```
+
+These methods are weak. The trait is disabled by default; when you enable it, restrict what a session offers with
+`SessionMethodPreference` wherever the server does not need them. libssh2 has announced that it will remove these
+methods in a later release, and the trait will stop having an effect then.
+
 ### Xcode
 
 If you are using Xcode, you can directly add this repository as a Swift Package dependency in your project settings:
