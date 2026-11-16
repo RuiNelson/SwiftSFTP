@@ -58,7 +58,18 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests"
+
+      # The trait changes the libssh2 build, so it needs its own scratch path. Without the trait, the offline run
+      # above checks that the legacy methods are absent.
+      - name: Test LegacyAlgorithms trait
+        run: |
+          set -o pipefail
+          swift test --scratch-path /tmp/swift-test-legacy --traits LegacyAlgorithms --filter LegacyAlgorithmsTests 2>&1 | tee /tmp/swift-test-legacy.log
+          if ! grep -qE 'Test run with [1-9][0-9]* tests?' /tmp/swift-test-legacy.log; then
+            echo "::error::LegacyAlgorithms test filter executed zero tests" >&2
+            exit 1
+          fi
 
       # Crypto validation can occupy the cooperative executor long enough to starve media timing checks.
       - name: Test AVFoundation (offline)
@@ -138,7 +149,19 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests"
+
+      # The trait changes the libssh2 build, so it needs its own scratch path. Without the trait, the offline run
+      # above checks that the legacy methods are absent.
+      - name: Test LegacyAlgorithms trait
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --scratch-path /tmp/swift-test-legacy --traits LegacyAlgorithms --filter LegacyAlgorithmsTests 2>&1 | tee /tmp/swift-test-legacy.log
+          if ! grep -qE 'Test run with [1-9][0-9]* tests?' /tmp/swift-test-legacy.log; then
+            echo "::error::LegacyAlgorithms test filter executed zero tests" >&2
+            exit 1
+          fi
 
       - name: Test consumer crypto symbol isolation
         run: swift test --package-path Tests/Packaging/CryptoIsolation --scratch-path /tmp/swift-crypto-isolation
