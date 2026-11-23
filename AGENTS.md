@@ -114,10 +114,18 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   to 0 ms in the test's 2 s. The flaw is probably the same on other platforms, but it has not been reproduced or tested
   there, so they keep upstream's behaviour; making the change universal, and sending it upstream, needs its own test.
   Waiting with `WSAPoll` instead of `select()` changes nothing: libssh2 uses `select()` on every platform.
-- Open: in `AbandonedCallTests` the tests of the form "... after a timed-out ..." fail intermittently on Windows against
-  a Podman/WSL2 server (about half of the isolated runs, a different test each time, with `Caught error: timeout` on the
-  first call after the proxy resumes). They fail as often with or without the transport change (4 of 5 runs and 3 of 5),
-  so that change is not the cause, which is not known yet.
+- Unverified fix: the tests of `AbandonedCallTests` of the form "... after a timed-out ..." failed intermittently on
+  Windows against a Podman/WSL2 server (about half of the isolated runs, a different test each time, `Caught error:
+  timeout` recorded on the test function's own line), with or without the transport change. From the code and the saved
+  logs, the error comes from the final `handle.close()`, not from the call after the proxy resumes: failing and passing
+  runs last the same, far short of the 15 s that call would wait. The stalled read left `peerStoppedResponding` set, and
+  the plain blocking calls after it (`stat`, `readlink`, `rename`, `unlink`) never cleared it, so `close()` gave
+  `SSH_FXP_CLOSE` 1 ms (`teardownTimeoutMilliseconds`), which only a fast reply meets. `runSFTPCall` now records the
+  peer as responding after a call that finishes and as unresponsive after a timeout, and `withAbandonableConnection`
+  checks the flag before closing; an SFTP status reply also counts as the peer responding. The fix is in shared code,
+  not Windows-specific: the same 1 ms close could fail on any platform whose reply is slow enough. This has not been
+  run on Windows yet: confirm that those tests stop failing there.
+
 ## Testing
 
 - Run `swift build` after wrapper API changes.

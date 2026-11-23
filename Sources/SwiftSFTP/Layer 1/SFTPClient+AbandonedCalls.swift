@@ -11,8 +11,9 @@ import Foundation
 ///
 /// `SFTPClient` records each abandoned call with its arguments and finishes it, discarding the answer, before the next
 /// SFTP call other than a read or a write. That costs nothing when the answer has already arrived, and otherwise waits
-/// for it under the new call's own budget; a server that still does not answer fails the new call with the same timeout
-/// or cancellation instead of handing it the wrong answer.
+/// for it with the new call's timeout and cancellation; each abandoned call gets that whole timeout, in no set order,
+/// before the new call gets its own. A server that still does not answer fails the new call with the same timeout or
+/// cancellation instead of handing it the wrong answer.
 ///
 /// An abandoned call that changes the server may be applied whenever the server gets to it, after its caller already
 /// reported the change as possible to the cache. Finishing the call, or dropping it when the client closes, queues the
@@ -20,6 +21,12 @@ import Foundation
 extension SFTPClient {
     /// Runs `call`, one libssh2 SFTP call of `kind`, after finishing a packet an interrupted write left half sent and
     /// the calls abandoned before it. Callers must hold the session I/O lock.
+    ///
+    /// A call that finishes, or that fails with an SFTP status or a reply libssh2 rejects, has been answered by the
+    /// server (except a `readdir` served from names libssh2 already holds), so it records the peer as responding; a
+    /// timeout records the opposite, and other failures leave the record as it was. Without that, a plain blocking call
+    /// made after a timeout left the earlier verdict standing, and ``SFTPFile/close()`` then gave its
+    /// `SSH_FXP_CLOSE` a budget of 1 ms on a connection that had recovered.
     ///
     /// - Parameters:
     ///   - kind: The libssh2 state machine `call` uses.
@@ -40,15 +47,33 @@ extension SFTPClient {
         discarding discard: @escaping (R, SessionIOSlicer?) -> Void = { _, _ in },
         _ call: @escaping () throws -> R
     ) throws -> R {
-        try finishInterruptedSend(slice: slice)
-        try finishAbandonedCalls(slice: slice)
+        do {
+            try finishInterruptedSend(slice: slice)
+            try finishAbandonedCalls(slice: slice)
+        }
+        catch {
+            noteTimeout(error)
+            throw error
+        }
 
         do {
-            return try perform(call, slice: slice)
+            let result = try perform(call, slice: slice)
+            notePeerResponded(true)
+            return result
         }
         catch where leftCallUnfinished(error) {
+            noteTimeout(error)
             _abandonedCalls[kind] = AbandonedSFTPCall(handle: handle, changeReport: report) { [unowned self] slice in
                 try discard(perform(call, slice: slice), slice)
+            }
+            throw error
+        }
+        catch {
+            if Self.isServerReply(error) {
+                notePeerResponded(true)
+            }
+            else {
+                noteTimeout(error)
             }
             throw error
         }
@@ -151,6 +176,23 @@ private extension SFTPClient {
         }
 
         return session.lastErrorMessage.map(Self.blockingTimeoutMessages.contains) ?? false
+    }
+
+    /// Records that the peer stopped answering when `error` is a timeout. A cancellation says nothing about the peer.
+    func noteTimeout(_ error: any Error) {
+        if case .timeout = error as? LibSSH2Error {
+            notePeerResponded(false)
+        }
+    }
+
+    /// Whether `error` is the server's own answer to the request: an SFTP status, or a reply libssh2 could not accept.
+    static func isServerReply(_ error: any Error) -> Bool {
+        switch error as? LibSSH2Error {
+        case .sftp, .sftpProtocol:
+            true
+        default:
+            false
+        }
     }
 
     static func isTimeoutOrCancellation(_ error: any Error) -> Bool {

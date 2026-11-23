@@ -67,6 +67,22 @@ struct AbandonedCallTests {
         }
     }
 
+    /// An SFTP status is the server's answer too: after it, closing the stalled file's handle gets its full budget
+    /// instead of the 1 ms of a peer that stopped responding. `withAbandonableConnection` checks both.
+    @Test("a stat of a missing path after a timed-out stat records the peer as responding")
+    func missingStatAfterTimedOutStat() async throws {
+        try await withAbandonableConnection("abandoned-stat-missing", by: .timeout, smallFiles: 0) { fixture in
+            let client = fixture.wedged.client
+
+            try await fixture.stall()
+            try await fixture.abandon { _ = try await client.stat(path: fixture.wedged.remotePath) }
+            #expect(client.withSessionIO { client.peerStoppedResponding })
+            fixture.resume()
+
+            #expect(try await client.stat(path: fixture.directory + "/missing") == nil)
+        }
+    }
+
     @Test("open of another path after a timed-out open returns a handle to that path")
     func openAfterTimedOutOpen() async throws {
         try await withAbandonableConnection("abandoned-open", by: .timeout, smallFiles: 1) { fixture in
@@ -255,6 +271,12 @@ private extension AbandonedCallTests {
                     directory: directory,
                     smallFiles: smallFiles
                 ))
+
+                // The body ends with a call the server answered. The close below only gets the 1 ms of a peer that
+                // stopped responding while that is not recorded, and then fails whenever the reply takes longer.
+                let stopped = wedged.client.withSessionIO { wedged.client.peerStoppedResponding }
+                #expect(!stopped, "the client still treats the peer as unresponsive after a call it answered")
+
                 try await handle.close()
             }
             result = .success(())
