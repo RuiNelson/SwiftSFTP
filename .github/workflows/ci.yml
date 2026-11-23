@@ -254,3 +254,6 @@ jobs:
 
       - name: Build
         run: swift build --scratch-path ${{ runner.temp }}\swift-build -v
+
+      - name: Build tests
+        run: swift build --build-tests --scratch-path ${{ runner.temp }}\swift-build

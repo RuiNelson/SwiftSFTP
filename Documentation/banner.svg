@@ -1,9 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="sftp-t">
   <title id="sftp-t">SwiftSFTP — Fast, resumable SFTP for Swift</title>
+  <style>
+    :root {
+      --bg0: #0A0A0F; --bg1: #17151B;
+      --ink: #FFFFFF; --ink2: #B4B4BC; --ink3: #8E8E93; --eyebrow: #FF8A4C;
+      --wa: #FFA24A; --wb: #FF5A36;
+      --lane: #FFFFFF;
+      --card-a: #FFFFFF; --card-ao: 0.26; --card-b: #FFFFFF; --card-bo: 0.08;
+      --card-stroke: #FFFFFF; --card-ink: #FFFFFF; --card-detail: #FFFFFF;
+      --shadow-o: 0.35;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg0: #FFFFFF; --bg1: #FFF3EA;
+        --ink: #1D1D1F; --ink2: #55555C; --ink3: #6E6E73; --eyebrow: #C93B16;
+        --wa: #F2701F; --wb: #E5382B;
+        --lane: #E5601F;
+        --card-a: #FFFFFF; --card-ao: 0.96; --card-b: #FFFFFF; --card-bo: 0.72;
+        --card-stroke: #E5601F; --card-ink: #C93B16; --card-detail: #E5601F;
+        --shadow-o: 0.14;
+      }
+    }
+    .bg0 { stop-color: var(--bg0); } .bg1 { stop-color: var(--bg1); }
+    .ink { fill: var(--ink); } .ink2 { fill: var(--ink2); } .ink3 { fill: var(--ink3); } .eyebrow { fill: var(--eyebrow); }
+    .wa { stop-color: var(--wa); } .wb { stop-color: var(--wb); }
+    .lane { stroke: var(--lane); } .tw { fill: var(--lane); }
+    .ca { stop-color: var(--card-a); stop-opacity: var(--card-ao); }
+    .cb { stop-color: var(--card-b); stop-opacity: var(--card-bo); }
+    .cstroke { stroke: var(--card-stroke); } .cink { fill: var(--card-ink); } .cdetail { fill: var(--card-detail); }
+    .shadow { flood-opacity: var(--shadow-o); }
+  </style>
   <defs>
     <linearGradient id="sftp-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0A0A0F"/>
-      <stop offset="1" stop-color="#17151B"/>
+      <stop class="bg0" offset="0"/>
+      <stop class="bg1" offset="1"/>
     </linearGradient>
     <radialGradient id="sftp-glowL" cx="150" cy="160" r="340" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FF9F43" stop-opacity="0.16"/>
@@ -19,8 +49,8 @@
       <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="sftp-word" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#FFA24A"/>
-      <stop offset="1" stop-color="#FF5A36"/>
+      <stop class="wa" offset="0"/>
+      <stop class="wb" offset="1"/>
     </linearGradient>
     <!-- silk waves -->
     <linearGradient id="sftp-w1" gradientUnits="userSpaceOnUse" x1="520" y1="330" x2="1280" y2="30">
@@ -39,21 +69,21 @@
       <stop offset="1" stop-color="#FF6A2B" stop-opacity="0.8"/>
     </linearGradient>
     <linearGradient id="sftp-card" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity="0.26"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0.08"/>
+      <stop class="ca" offset="0"/>
+      <stop class="cb" offset="1"/>
     </linearGradient>
     <filter id="sftp-glow" x="-30%" y="-30%" width="160%" height="160%">
       <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#FF6A2B" flood-opacity="0.45"/>
     </filter>
     <filter id="sftp-soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity="0.35"/>
+      <feDropShadow class="shadow" dx="0" dy="6" stdDeviation="6" flood-color="#000"/>
     </filter>
     <!-- a file card, centred on the origin -->
     <g id="sftp-file">
-      <rect x="-21" y="-27" width="42" height="54" rx="8" fill="url(#sftp-card)" stroke="#fff" stroke-opacity="0.45"/>
-      <path d="M5-27 21-11H9a4 4 0 0 1-4-4Z" fill="#fff" fill-opacity="0.35"/>
-      <rect x="-12" y="-6" width="24" height="3" rx="1.5" fill="#fff" fill-opacity="0.45"/>
-      <rect x="-12" y="0" width="16" height="3" rx="1.5" fill="#fff" fill-opacity="0.3"/>
+      <rect x="-21" y="-27" width="42" height="54" rx="8" fill="url(#sftp-card)" class="cstroke" stroke-opacity="0.45"/>
+      <path d="M5-27 21-11H9a4 4 0 0 1-4-4Z" class="cdetail" fill-opacity="0.35"/>
+      <rect x="-12" y="-6" width="24" height="3" rx="1.5" class="cdetail" fill-opacity="0.45"/>
+      <rect x="-12" y="0" width="16" height="3" rx="1.5" class="cdetail" fill-opacity="0.3"/>
     </g>
   </defs>
 
@@ -69,10 +99,10 @@
   <path d="M640 338C760 328 810 200 980 215 1120 227 1190 170 1280 130" fill="none" stroke="#fff" stroke-opacity="0.28" stroke-width="1.2"/>
 
   <!-- Transfer lanes -->
-  <path d="M700 240C790 236 830 100 960 106S1170 42 1300 22" fill="none" stroke="#fff" stroke-opacity="0.22" stroke-width="1.5" stroke-dasharray="3 9" stroke-linecap="round">
+  <path d="M700 240C790 236 830 100 960 106S1170 42 1300 22" fill="none" class="lane" stroke-opacity="0.28" stroke-width="1.5" stroke-dasharray="3 9" stroke-linecap="round">
     <animate attributeName="stroke-dashoffset" from="0" to="-48" dur="3s" repeatCount="indefinite"/>
   </path>
-  <path d="M1300 168C1150 208 1080 160 950 212S800 280 700 292" fill="none" stroke="#fff" stroke-opacity="0.22" stroke-width="1.5" stroke-dasharray="3 9" stroke-linecap="round">
+  <path d="M1300 168C1150 208 1080 160 950 212S800 280 700 292" fill="none" class="lane" stroke-opacity="0.28" stroke-width="1.5" stroke-dasharray="3 9" stroke-linecap="round">
     <animate attributeName="stroke-dashoffset" from="0" to="48" dur="3s" repeatCount="indefinite"/>
   </path>
 
@@ -80,39 +110,39 @@
   <g filter="url(#sftp-soft)">
     <g opacity="0">
       <use href="#sftp-file"/>
-      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">MOV</text>
+      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" class="cink" text-anchor="middle">MOV</text>
       <animateMotion dur="10s" begin="0s" repeatCount="indefinite" path="M700 240C790 236 830 100 960 106S1170 42 1300 22"/>
       <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="10s" begin="0s" repeatCount="indefinite"/>
     </g>
     <g opacity="0">
       <use href="#sftp-file"/>
-      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">JPG</text>
+      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" class="cink" text-anchor="middle">JPG</text>
       <animateMotion dur="10s" begin="-3.3s" repeatCount="indefinite" path="M700 240C790 236 830 100 960 106S1170 42 1300 22"/>
       <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="10s" begin="-3.3s" repeatCount="indefinite"/>
     </g>
     <g opacity="0">
       <use href="#sftp-file"/>
-      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">ZIP</text>
+      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" class="cink" text-anchor="middle">ZIP</text>
       <animateMotion dur="10s" begin="-6.6s" repeatCount="indefinite" path="M700 240C790 236 830 100 960 106S1170 42 1300 22"/>
       <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="10s" begin="-6.6s" repeatCount="indefinite"/>
     </g>
     <!-- Files coming back (right to left) -->
     <g opacity="0">
       <use href="#sftp-file"/>
-      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">PDF</text>
+      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" class="cink" text-anchor="middle">PDF</text>
       <animateMotion dur="12s" begin="-1s" repeatCount="indefinite" path="M1300 168C1150 208 1080 160 950 212S800 280 700 292"/>
       <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="12s" begin="-1s" repeatCount="indefinite"/>
     </g>
     <g opacity="0">
       <use href="#sftp-file"/>
-      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">RAW</text>
+      <text y="19" font-family="'SF Pro Text', -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="700" class="cink" text-anchor="middle">RAW</text>
       <animateMotion dur="12s" begin="-7s" repeatCount="indefinite" path="M1300 168C1150 208 1080 160 950 212S800 280 700 292"/>
       <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="12s" begin="-7s" repeatCount="indefinite"/>
     </g>
   </g>
 
   <!-- Twinkles -->
-  <g fill="#fff">
+  <g class="tw">
     <circle cx="880" cy="52" r="1.8" opacity="0.5"><animate attributeName="opacity" values="0.15;0.8;0.15" dur="4s" repeatCount="indefinite"/></circle>
     <circle cx="1090" cy="34" r="1.5" opacity="0.5"><animate attributeName="opacity" values="0.8;0.15;0.8" dur="5s" repeatCount="indefinite"/></circle>
     <circle cx="1210" cy="92" r="2" opacity="0.5"><animate attributeName="opacity" values="0.2;0.9;0.2" dur="3.5s" repeatCount="indefinite"/></circle>
@@ -125,17 +155,21 @@
   </g>
   <rect x="80" y="96" width="128" height="128" rx="30" fill="url(#sftp-sheen)"/>
   <rect x="80.5" y="96.5" width="127" height="127" rx="29.5" fill="none" stroke="#fff" stroke-opacity="0.28"/>
-  <path d="M108 144a8 8 0 0 1 8-8h20l8 8h28a8 8 0 0 1 8 8v30a8 8 0 0 1-8 8h-56a8 8 0 0 1-8-8z" fill="#fff" fill-opacity="0.96"/>
-  <g fill="none" stroke="#F2502E" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M132 183v-24M123.5 167l8.5-8.5 8.5 8.5"/>
-    <path d="M156 159v24M147.5 175l8.5 8.5 8.5-8.5"/>
+  <!-- local folder ⇄ remote server -->
+  <g transform="translate(144 160) scale(1.12) translate(-144 -160)">
+    <path d="M100 151a5 5 0 0 1 5-5h9l5 5h8a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5h-22a5 5 0 0 1-5-5z" fill="#fff" fill-opacity="0.96"/>
+    <path d="M138 154h16M148 148l6 6-6 6M154 167h-16M144 161l-6 6 6 6" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="160" y="137" width="28" height="46" rx="7" fill="#fff" fill-opacity="0.96"/>
+    <rect x="165" y="146" width="18" height="4" rx="2" fill="#F2502E" fill-opacity="0.4"/>
+    <rect x="165" y="155" width="18" height="4" rx="2" fill="#F2502E" fill-opacity="0.4"/>
+    <circle cx="174" cy="171" r="3.2" fill="#F2502E"/>
   </g>
 
   <!-- Wordmark -->
   <g font-family="'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif">
-    <text x="248" y="106" font-size="13" font-weight="600" letter-spacing="2.6" fill="#FF8A4C">SWIFT PACKAGE</text>
-    <text x="246" y="164" font-size="62" font-weight="700" letter-spacing="-1.8" fill="#fff">Swift<tspan fill="url(#sftp-word)">SFTP</tspan></text>
-    <text x="248" y="198" font-size="22" font-weight="400" fill="#B4B4BC">Fast, resumable SFTP for Swift.</text>
-    <text x="248" y="238" font-size="13.5" font-weight="500" letter-spacing="0.2" fill="#8E8E93">macOS  ·  iOS  ·  visionOS  ·  watchOS  ·  tvOS  ·  Linux  ·  Android</text>
+    <text x="248" y="106" font-size="13" font-weight="600" letter-spacing="2.6" class="eyebrow">SWIFT PACKAGE</text>
+    <text x="246" y="164" font-size="62" font-weight="700" letter-spacing="-1.8" class="ink">Swift<tspan fill="url(#sftp-word)">SFTP</tspan></text>
+    <text x="248" y="198" font-size="22" font-weight="400" class="ink2">Fast, resumable SFTP for Swift.</text>
+    <text x="248" y="238" font-size="15" font-weight="500" letter-spacing="0.3" class="ink3">Apple  ·  Linux  ·  Android  ·  Windows</text>
   </g>
 </svg>
