@@ -101,6 +101,16 @@ The generator verifies the exact fatal-send patch site as well as the decompress
 that code, review the remaining corrections before dropping the transport adapter. Regenerate it with
 `python3 Scripts/generate-libssh2-backend.py` and verify it with `--check`.
 
+## Waiting while a packet is half sent (Windows)
+
+On Windows the transport adapter also makes a pending packet that the socket will not take wait for the socket to take
+data and nothing else. Upstream leaves libssh2's inbound wait bit set from an earlier read that ended in EAGAIN, and
+clears it only on the next read. While a packet is half sent nothing reads, so any unread server data (an SFTP status, a
+window adjustment) made the wait return at once and a blocking call spun until its timeout. The change is inside
+`#ifdef _WIN32`, so the other platforms keep upstream's behaviour; the generator checks the exact patch site.
+`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures it, and `SWIFTSFTP_SPIN_PROBE=1` prints the wait
+directions, the unread bytes and the socket's readiness around its timed call.
+
 ## Per-handle SFTP read state
 
 `Sources/libssh2/sftp.c` and `Sources/libssh2/sftp.h` are generated from the pinned libssh2 sources by the same script.

@@ -106,14 +106,18 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   `Scripts/generate-test-keys-and-fixtures.sh` (Git Bash, with a `python3` on the `PATH`). The tests reach it through
   `localhost`, which Windows resolves to `::1` first. Git's CRLF conversion would break the container's scripts; the
   `.gitattributes` keeps them LF.
-- Known difference: with a peer that stops reading and a full socket, a blocked libssh2 call burns CPU on Windows instead
-  of sleeping until its timeout (`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures 1.9 s of CPU in 2 s
-  there, deterministically). The cause is not established. libssh2 waits with `select()` on every platform (`HAVE_POLL` is
-  not defined anywhere), so waiting with `WSAPoll` instead changed nothing. Two hypotheses remain, both unmeasured: the
-  wait keeps asking for read readiness (`transport.c` clears the INBOUND bit only when it reads) while unread server
-  data arrives through the WSL2 relay used in testing, or Winsock reports the socket writable while `send` still answers
-  `WSAEWOULDBLOCK`. On a full run, five timing-sensitive stalled-connection tests also failed under load and passed alone.
-
+- A blocked send used to spin on Windows. With a pending packet that the socket would not take, libssh2 left its inbound
+  wait bit set (it clears it only when it reads), so unread server data made `select()` return at once and a blocking
+  call behind a half-sent packet burned CPU until its timeout. `SWIFTSFTP_SPIN_PROBE=1` showed it on Windows:
+  `directions=3`, 104 unread bytes, socket readable and not writable. The generated transport adapter
+  (`Scripts/generate-libssh2-backend.py`) now waits for the socket to take data only, on Windows: CPU went from 2000 ms
+  to 0 ms in the test's 2 s. The flaw is probably the same on other platforms, but it has not been reproduced or tested
+  there, so they keep upstream's behaviour; making the change universal, and sending it upstream, needs its own test.
+  Waiting with `WSAPoll` instead of `select()` changes nothing: libssh2 uses `select()` on every platform.
+- Open: in `AbandonedCallTests` the tests of the form "... after a timed-out ..." fail intermittently on Windows against
+  a Podman/WSL2 server (about half of the isolated runs, a different test each time, with `Caught error: timeout` on the
+  first call after the proxy resumes). They fail as often with or without the transport change (4 of 5 runs and 3 of 5),
+  so that change is not the cause, which is not known yet.
 ## Testing
 
 - Run `swift build` after wrapper API changes.

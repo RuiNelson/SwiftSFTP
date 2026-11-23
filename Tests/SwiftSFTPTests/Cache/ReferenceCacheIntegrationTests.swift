@@ -212,6 +212,16 @@ struct ReferenceCacheIntegrationTests {
             let first = try await handle.readAll()
             let checkedAfterFirst = await cache.files[path]?.lastCheck
 
+            // The first read starts a stat through the shell agent, to learn the nanoseconds of the modification time.
+            // Let it finish before the file is changed: a stat that lands between the overwrite and the restored time
+            // sees a different version, and the cache then rightly serves the new bytes.
+            for _ in 0 ..< 200 {
+                if await cache.files[path]?.version?.modificationNanoseconds != nil {
+                    break
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+
             // A change the stat cannot see: only a hit still hands out the original bytes.
             try await overwriteKeepingVersion(other, path: path, offset: 0, with: Self.marker)
             handle.offset = 0
