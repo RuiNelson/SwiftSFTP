@@ -21,7 +21,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await fixture.handle.stat }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let attributes = try await other.stat
             try await other.close()
@@ -36,7 +36,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await fixture.handle.set(Self.permissions([.ownerRead, .ownerWrite])) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await other.set(Self.permissions([.ownerRead]))
             try await other.close()
@@ -60,7 +60,7 @@ struct AbandonedCallTests {
             }
             #expect(silent.map(Fixture.isTimeout) == true)
 
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let metadata = try await client.stat(path: fixture.smallFiles[0])
             #expect(metadata?.attributes.fileSize == UInt64(Self.smallSize))
@@ -74,7 +74,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await client.contentsOfDirectory(path: fixture.directory) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let other = try await client.openFile(.read, path: fixture.smallFiles[0], permissions: [])
             let data = try await other.read(upTo: 2 * Self.smallSize)
@@ -90,7 +90,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await client.deleteFile(path: fixture.smallFiles[0]) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await client.deleteFile(path: fixture.smallFiles[1])
             #expect(try await client.stat(path: fixture.smallFiles[1]) == nil)
@@ -106,7 +106,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await client.rename(from: fixture.smallFiles[0], to: firstTarget) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await client.rename(from: fixture.smallFiles[1], to: secondTarget)
             #expect(try await client.stat(path: secondTarget) != nil)
@@ -127,7 +127,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await client.followLink(path: links[0]) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             #expect(try await client.followLink(path: links[1]) == fixture.smallFiles[1])
         }
@@ -169,6 +169,17 @@ private extension AbandonedCallTests {
 
             if case let .success(data) = await read.result {
                 try #require((data?.count ?? 0) < wedged.payload.count, "the read finished before the server stalled")
+            }
+        }
+
+        /// Lets the server's answers through again.
+        ///
+        /// Everything that piled up behind the stall has to arrive before the next answer does, and on a loaded machine
+        /// that can take longer than the 2 s that makes the calls of a timeout test give up, so those get more room.
+        func resume() {
+            wedged.proxy.resume()
+            if abandonment == .timeout {
+                wedged.client.timeout = 15
             }
         }
 

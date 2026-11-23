@@ -162,7 +162,7 @@ struct WriteAheadTests {
             "write-ahead-per-call-timeout",
             megabytes: 1,
             stallAfterBytes: .max,
-            operationsTimeOut: 1.5
+            operationsTimeOut: 2.5
         ) { wedged in
             let remotePath = wedged.remotePath + "-written"
             let handle = try await wedged.client.openFile(
@@ -174,8 +174,9 @@ struct WriteAheadTests {
             var mark = wedged.proxy.relayedToClient
             let write = Task { try await handle.write(payload) }
 
-            // Two pauses that each stay well under the timeout, but add up to more than it.
-            for _ in 0 ..< 2 {
+            // Three pauses that each stay well under the timeout (1.5 s of slack, which a loaded machine or a relay can
+            // eat into), but add up to more than it.
+            for _ in 0 ..< 3 {
                 try await waitUntil { wedged.proxy.relayedToClient > mark + 2048 }
                 wedged.proxy.stall()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -389,6 +390,18 @@ struct WriteAheadTests {
             let (handle, result, _) = try await giveUpOnHalfSentPacket(wedged, writing: payload, to: remotePath)
             #expect(throws: CancellationError.self) { try result.get() }
 
+            #if os(Windows)
+                // Opt-in diagnostics for the spin this test finds on Windows; see WindowsSpinProbe.
+                let probeSocket = client.internalStateQueue.sync { client._socket }
+                if WindowsSpinProbe.isEnabled, let probeSocket {
+                    print(WindowsSpinProbe.describe(
+                        "before the timed call",
+                        session: client.session,
+                        socket: probeSocket
+                    ))
+                }
+            #endif
+
             // A plain blocking call, timed on the thread that runs it.
             let (outcome, elapsed, cpu) = client.withSessionIO {
                 let start = DispatchTime.now()
@@ -400,6 +413,16 @@ struct WriteAheadTests {
                 }
                 return (outcome, start.millisecondsUntilNow, Int((threadCPUNanoseconds() - cpuStart) / 1_000_000))
             }
+            #if os(Windows)
+                if WindowsSpinProbe.isEnabled, let probeSocket {
+                    print(WindowsSpinProbe.describe(
+                        "after the timed call",
+                        session: client.session,
+                        socket: probeSocket
+                    ))
+                    print("[spin-probe] outcome: \(outcome), elapsed \(elapsed) ms, cpu \(cpu) ms")
+                }
+            #endif
             #expect(isTimeout(outcome), "expected a timeout, got \(outcome)")
             #expect(elapsed >= 1900, "the call gave up after \(elapsed) ms, before its own timeout")
             #expect(elapsed < 4000, "the call took \(elapsed) ms; it should time out after its own timeout")

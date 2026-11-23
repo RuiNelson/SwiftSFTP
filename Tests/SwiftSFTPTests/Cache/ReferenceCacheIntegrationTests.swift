@@ -188,6 +188,18 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
+            // SFTP carries whole seconds only, and overwriteKeepingVersion puts the time back that way. Start from a
+            // whole second, so that a stat which sees nanoseconds (the shell agent's, run in the background after the
+            // first read) cannot tell the restored file from the original one either, whichever of the two finishes
+            // first.
+            let written = try #require(try await client.stat(path: path, followLink: true))
+            try await client.setAttributes(
+                path: path,
+                date: (
+                    modification: Date(timeIntervalSince1970: TimeInterval(written.attributes.modificationTime)),
+                    access: Date(timeIntervalSince1970: TimeInterval(written.attributes.accessTime))
+                )
+            )
             let other = try await client.fork(loggedIn: true)
             let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(

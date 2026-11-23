@@ -103,6 +103,14 @@ final class StallingProxy: @unchecked Sendable {
         return _relayedToServer
     }
 
+    /// Whether the server-to-client direction has spent its byte budget and gone silent.
+    ///
+    /// A transfer that merely stops reporting progress has not proved this: on a loaded machine the relay can pause for
+    /// longer than a test's idle window before the budget is spent.
+    var hasStalled: Bool {
+        isStalled
+    }
+
     /// Goes silent in the server-to-client direction now, as if the server had stopped answering at this point.
     func stall() {
         lock.lock()
