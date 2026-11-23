@@ -362,10 +362,15 @@
                 options: nil
             )
             weak let loader = asset?.loader
+            // Only for the report of a failure: what AVFoundation still holds after the release.
+            weak let releasedAsset = asset
             var item = asset.map { AVPlayerItem(asset: $0) }
+            weak let releasedItem = item
             item?.preferredForwardBufferDuration = 1
             asset = nil
             var player: AVPlayer? = AVPlayer(playerItem: item)
+            weak let releasedPlayer = player
+            let seekOutcome = SeekOutcome()
             try await waitForMediaCondition("the player did not become ready") { item?.status == .readyToPlay }
             for file in files {
                 file.delayReads(nanoseconds: 5_000_000_000)
@@ -375,7 +380,7 @@
                 to: CMTime(seconds: 21590, preferredTimescale: 600),
                 toleranceBefore: .zero,
                 toleranceAfter: .zero,
-                completionHandler: { _ in }
+                completionHandler: { finished in seekOutcome.record("finished=\(finished)") }
             )
             try await waitForMediaCondition("the seek did not start reading") {
                 files.map(\.readCount).reduce(0, +) > previousReads
@@ -384,7 +389,28 @@
             player?.replaceCurrentItem(with: nil)
             player = nil
             item = nil
-            try await waitForMediaCondition("the loader outlived the asset") { loader == nil }
+            do {
+                try await waitForMediaCondition("the loader outlived the asset") { loader == nil }
+            }
+            catch {
+                // The wait already recorded the failure; this says who still held what, since the loader is only
+                // released once AVFoundation lets go of the asset.
+                var openCounts: [Int] = []
+                for opener in openers {
+                    await openCounts.append(opener.openCount)
+                }
+                Issue.record(
+                    """
+                    \(Date().timeIntervalSince(released)) s after the release: \
+                    asset alive=\(releasedAsset != nil), item alive=\(releasedItem != nil), \
+                    player alive=\(releasedPlayer != nil), serving requests=\(loader?.servingRequestCount ?? -1), \
+                    seek completion=\(seekOutcome.value ?? "not called"); \
+                    reads=\(files.map(\.readCount)), cancelled reads=\(files.map(\.cancelledReadCount)), \
+                    handles opened=\(openCounts), closed=\(files.map(\.closeCount))
+                    """
+                )
+                throw error
+            }
             for (file, opener) in zip(files, openers) {
                 let opened = await opener.openCount
                 try await waitForMediaCondition("a handle was not closed") { file.closeCount == opened }
@@ -685,6 +711,20 @@
 
         var statFilesystem: FilesystemStat {
             get async throws { throw LibSSH2Error.methodNotSupported(nil) }
+        }
+    }
+
+    /// What the seek of a test reported, readable from the test's own task.
+    private final class SeekOutcome: @unchecked Sendable {
+        private let lock = NSLock()
+        private var outcome: String?
+
+        var value: String? {
+            lock.withLock { outcome }
+        }
+
+        func record(_ value: String) {
+            lock.withLock { outcome = value }
         }
     }
 
