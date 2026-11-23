@@ -100,8 +100,17 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 - Qualify `UUID` as `Foundation.UUID` in files that import `libssh2`, whose module pulls in `<windows.h>`.
 - The `libssh2` target's POSIX `HAVE_*` defines are limited to `posixPlatforms`. The vendored zlib (`Vendor/zlib`,
   target `SwiftSFTPZlib`) is a dependency of libssh2 on Windows only; see `Documentation/OpenSSLSourceBuild.md`.
-- The Windows CI job builds, builds the tests, and runs the offline tests. The integration tests need the Docker test
-  server, which the Windows runner does not have.
+- The Windows CI job (x86_64 and arm64) builds, builds the tests, and runs the offline tests. The integration tests need
+  the Docker test server, which the Windows runners do not have. On a Windows machine, run the server with Podman
+  (`podman build -t swiftsftp-testserver TestServer`, `podman run -d -p 6922:22 swiftsftp-testserver`) after
+  `Scripts/generate-test-keys-and-fixtures.sh` (Git Bash, with a `python3` on the `PATH`). The tests reach it through
+  `localhost`, which Windows resolves to `::1` first. Git's CRLF conversion would break the container's scripts; the
+  `.gitattributes` keeps them LF.
+- Known difference: with a peer that stops reading and a full socket, a blocked libssh2 call burns CPU on Windows instead
+  of sleeping until the timeout (`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures 1.9 s of CPU in 2 s
+  there). Waiting with `WSAPoll` instead of `select()` made no difference: Winsock reports the socket writable while
+  `send` still answers `WSAEWOULDBLOCK`. On a full run, five timing-sensitive stalled-connection tests also failed under
+  load and passed alone.
 
 ## Testing
 
