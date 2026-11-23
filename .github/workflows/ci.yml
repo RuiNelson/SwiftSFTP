@@ -262,7 +262,6 @@ jobs:
         shell: bash
         run: bash Scripts/generate-test-keys-and-fixtures.sh
 
-      # Compression is not built on Windows yet, so CompressionTests is left out.
       - name: Test (offline)
         shell: bash
         run: |
@@ -273,4 +272,4 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"

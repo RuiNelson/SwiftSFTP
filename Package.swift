@@ -201,7 +201,9 @@ let libssh2ExcludedPaths = [
     "Scripts",
     "SampleApp",
     "TestServer",
+    "Sources/zlib",
     "Vendor/SwiftSFTP-OpenSSL",
+    "Vendor/zlib",
     "Vendor/libssh2/.github",
     "Vendor/libssh2/cmake",
     "Vendor/libssh2/docs",
@@ -294,15 +296,32 @@ let libssh2CSettings: [CSetting] = [
     .define("HAVE_SYS_TIME_H", .when(platforms: posixPlatforms)),
     .define("HAVE_SYS_UIO_H", .when(platforms: posixPlatforms)),
     .define("HAVE_UNISTD_H", .when(platforms: posixPlatforms)),
-    // Windows has no system zlib, so SSH compression is only built where there is one.
-    .define("LIBSSH2_HAVE_ZLIB", .when(platforms: posixPlatforms)),
+    // SSH compression: the system's zlib everywhere but Windows, which uses the vendored one.
+    .define("LIBSSH2_HAVE_ZLIB"),
     .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
     .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
 ] + legacyAlgorithmDefines.map { .define($0, .when(traits: [legacyAlgorithmsTrait])) }
 
+// zlib, compiled from the pinned Vendor/zlib submodule where the system has none (Windows). The sources are
+// one-line forwarders into the submodule, which stays unmodified, and zlib.h and zconf.h are forwarded the same way,
+// because the submodule has no include directory of its own. libssh2 builds it only on Windows; the other platforms link
+// the system's zlib.
+let zlibTarget = Target.target(
+    name: "SwiftSFTPZlib",
+    path: "Sources/zlib",
+    publicHeadersPath: "include",
+    cSettings: [
+        .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        .define("_CRT_NONSTDC_NO_DEPRECATE", .when(platforms: windowsPlatforms)),
+    ]
+)
+
 let libssh2Target = Target.target(
     name: "libssh2",
-    dependencies: ["OpenSSLCrypto"],
+    dependencies: [
+        "OpenSSLCrypto",
+        .target(name: "SwiftSFTPZlib", condition: .when(platforms: windowsPlatforms)),
+    ],
     path: ".",
     exclude: libssh2ExcludedPaths,
     sources: libssh2Sources,
@@ -422,6 +441,7 @@ let package = Package(
     ],
     targets: [
         opensslTarget,
+        zlibTarget,
         libssh2Target,
         swiftSFTPTarget,
         swiftSFTPAVFoundationTarget,
