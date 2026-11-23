@@ -62,7 +62,7 @@ public final class SSHShellAgent: Sendable {
     deinit {
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SSHShellAgent` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
+            raiseTrap()
         }
     }
 }

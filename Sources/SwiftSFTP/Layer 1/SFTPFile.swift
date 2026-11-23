@@ -81,7 +81,7 @@ public final class SFTPFile: SFTPFileProtocol {
 
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPFile` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
+            raiseTrap()
         }
     }
 }

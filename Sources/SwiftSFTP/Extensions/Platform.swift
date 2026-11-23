@@ -31,3 +31,13 @@ func tcpAddrInfoHints() -> addrinfo {
     #endif
     return hints
 }
+
+/// Stops the process the way `raise(SIGTRAP)` does: a breakpoint trap that a debugger catches and that crashes the
+/// process otherwise. Windows has no `SIGTRAP`; `DebugBreak()` raises the equivalent exception.
+func raiseTrap() {
+    #if os(Windows)
+        DebugBreak()
+    #else
+        raise(SIGTRAP)
+    #endif
+}

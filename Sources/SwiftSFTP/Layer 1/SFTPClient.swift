@@ -204,7 +204,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
 
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
+            raiseTrap()
         }
     }
 }
