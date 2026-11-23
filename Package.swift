@@ -140,6 +140,12 @@ let opensslExcludedPaths: [String] = [
 ]
 // END OPENSSL SOURCE MANIFEST
 
+// Every platform with a POSIX socket and libc API. Windows is the one that is not: it uses Winsock and has no system zlib.
+let posixPlatforms: [Platform] = [
+    .macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .driverKit, .linux, .android, .openbsd, .wasi,
+]
+let windowsPlatforms: [Platform] = [.windows]
+
 // Prepared in the pinned SwiftSFTP-OpenSSL submodule. SwiftPM compiles these
 // portable C sources for the destination: no binary targets or build-time tools.
 let opensslTarget = Target.target(
@@ -165,8 +171,18 @@ let opensslTarget = Target.target(
         .define("NDEBUG"),
         .define("_GNU_SOURCE", .when(platforms: [.linux, .android])),
         .define("OPENSSL_APPLE_CRYPTO_RANDOM", .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS])),
+        // Windows 10 or later: OpenSSL then seeds from BCryptGenRandom.
+        .define("_WIN32_WINNT", to: "0x0A00", .when(platforms: windowsPlatforms)),
+        .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
     ],
-    linkerSettings: [.linkedLibrary("pthread", .when(platforms: [.linux]))]
+    linkerSettings: [
+        .linkedLibrary("pthread", .when(platforms: [.linux])),
+        .linkedLibrary("ws2_32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("crypt32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("advapi32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("user32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("bcrypt", .when(platforms: windowsPlatforms)),
+    ]
 )
 
 let libssh2ExcludedPaths = [
@@ -260,17 +276,22 @@ let libssh2CSettings: [CSetting] = [
     // Select our qualified backend before another SDK's openssl/ headers.
     .headerSearchPath("Sources/libssh2/openssl"),
     .define("HAVE_CONFIG_H"),
-    .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
-    .define("HAVE_O_NONBLOCK"),
     .define("HAVE_SELECT"),
     .define("HAVE_SNPRINTF"),
-    .define("HAVE_SYS_SOCKET_H"),
-    .define("HAVE_SYS_TIME_H"),
-    .define("HAVE_SYS_UIO_H"),
-    .define("HAVE_UNISTD_H"),
-    .define("LIBSSH2_HAVE_ZLIB"),
     .define("LIBSSH2_OPENSSL"),
+    // Without POSIX headers or fcntl(): Windows has none of them, and libssh2 falls back to Winsock and its own
+    // gettimeofday().
+    .define("HAVE_GETTIMEOFDAY", .when(platforms: posixPlatforms)),
+    .define("HAVE_O_NONBLOCK", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_SOCKET_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_TIME_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_UIO_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_UNISTD_H", .when(platforms: posixPlatforms)),
+    // Windows has no system zlib, so SSH compression is only built where there is one.
+    .define("LIBSSH2_HAVE_ZLIB", .when(platforms: posixPlatforms)),
+    .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+    .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
 ] + legacyAlgorithmDefines.map { .define($0, .when(traits: [legacyAlgorithmsTrait])) }
 
 let libssh2Target = Target.target(
@@ -281,7 +302,10 @@ let libssh2Target = Target.target(
     sources: libssh2Sources,
     publicHeadersPath: "Sources/libssh2/include",
     cSettings: libssh2CSettings,
-    linkerSettings: [.linkedLibrary("z")]
+    linkerSettings: [
+        .linkedLibrary("z", .when(platforms: posixPlatforms)),
+        .linkedLibrary("ws2_32", .when(platforms: windowsPlatforms)),
+    ]
 )
 
 let swiftSFTPTarget = Target.target(
@@ -292,7 +316,8 @@ let swiftSFTPTarget = Target.target(
         .product(name: "PathWorks", package: "PathWorks"),
         .product(name: "Logging", package: "swift-log"),
     ],
-    resources: [.copy("PrivacyInfo.xcprivacy")]
+    resources: [.copy("PrivacyInfo.xcprivacy")],
+    linkerSettings: [.linkedLibrary("ws2_32", .when(platforms: windowsPlatforms))]
 )
 
 let swiftSFTPTestsTarget = Target.testTarget(

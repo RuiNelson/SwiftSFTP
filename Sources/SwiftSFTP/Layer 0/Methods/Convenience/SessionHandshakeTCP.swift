@@ -1,7 +1,24 @@
 import Foundation
 
-/// A connected socket descriptor used by libssh2 session handshakes.
-public typealias SwiftSFTPSocket = Int32
+#if os(Windows)
+    /// A connected socket used by libssh2 session handshakes (a Winsock `SOCKET` on Windows).
+    public typealias SwiftSFTPSocket = SOCKET
+#else
+    /// A connected socket descriptor used by libssh2 session handshakes.
+    public typealias SwiftSFTPSocket = Int32
+#endif
+
+#if os(Windows)
+    /// Initializes Winsock once per process. libssh2 does not do it, and `getaddrinfo` fails until it has run.
+    private let winsockStartup: Int32 = {
+        var data = WSADATA()
+        return WSAStartup(WORD(0x0202), &data)
+    }()
+
+    private func winsockError(_ function: String, code: Int32 = WSAGetLastError()) -> LibSSH2Error {
+        LibSSH2Error.badSocket("\(function) failed (Winsock error \(code))")
+    }
+#endif
 
 /// Shuts a socket descriptor down in both directions without releasing the descriptor.
 ///
@@ -10,21 +27,37 @@ public typealias SwiftSFTPSocket = Int32
 /// process opens. A descriptor the peer already dropped reports `ENOTCONN`, which is treated as success.
 ///
 /// - Parameter socket: The socket descriptor to shut down.
-/// - Throws: `POSIXError` when the descriptor could not be shut down.
+/// - Throws: `POSIXError` when the descriptor could not be shut down (``LibSSH2Error`` on Windows).
 public func ShutdownSocket(_ socket: SwiftSFTPSocket) throws {
-    guard shutdown(socket, Int32(SHUT_RDWR)) == 0 else {
-        if errno == ENOTCONN {
-            return
+    #if os(Windows)
+        guard shutdown(socket, SD_BOTH) == 0 else {
+            let code = WSAGetLastError()
+            if code == WSAENOTCONN {
+                return
+            }
+            throw winsockError("shutdown", code: code)
         }
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-    }
+    #else
+        guard shutdown(socket, Int32(SHUT_RDWR)) == 0 else {
+            if errno == ENOTCONN {
+                return
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    #endif
 }
 
 /// Closes a socket descriptor returned by ``SessionHandshakeTCP(session:host:port:)``.
 public func CloseSocket(_ socket: SwiftSFTPSocket) throws {
-    guard close(socket) == 0 else {
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-    }
+    #if os(Windows)
+        guard closesocket(socket) == 0 else {
+            throw winsockError("closesocket")
+        }
+    #else
+        guard close(socket) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    #endif
 }
 
 /// Opens a TCP connection to a host, performs the SSH handshake, and returns the connected socket.
@@ -39,11 +72,22 @@ public func CloseSocket(_ socket: SwiftSFTPSocket) throws {
 /// - Returns: The connected socket descriptor.
 /// - Throws: ``LibSSH2Error`` for address lookup, connection, or handshake failures.
 public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int) throws -> SwiftSFTPSocket {
+    #if os(Windows)
+        let startup = winsockStartup
+        guard startup == 0 else {
+            throw LibSSH2Error.badSocket("WSAStartup failed (Winsock error \(startup))")
+        }
+    #endif
+
     var hints = tcpAddrInfoHints()
     var results: UnsafeMutablePointer<addrinfo>?
     let lookupResult = getaddrinfo(host, String(port), &hints, &results)
     guard lookupResult == 0, let results else {
-        let message = String(cString: gai_strerror(lookupResult))
+        #if os(Windows)
+            let message = "getaddrinfo failed (Winsock error \(lookupResult))"
+        #else
+            let message = String(cString: gai_strerror(lookupResult))
+        #endif
         throw LibSSH2Error.couldNotResolveHostname(hostname: host, message: message)
     }
     defer { freeaddrinfo(results) }
@@ -51,8 +95,17 @@ public func SessionHandshakeTCP(session: LibSSH2Session, host: String, port: Int
     var current: UnsafeMutablePointer<addrinfo>? = results
     while let info = current {
         let descriptor = socket(info.pointee.ai_family, info.pointee.ai_socktype, info.pointee.ai_protocol)
-        if descriptor >= 0 {
-            if connect(descriptor, info.pointee.ai_addr, info.pointee.ai_addrlen) == 0 {
+        #if os(Windows)
+            let isValid = descriptor != INVALID_SOCKET
+            let connectResult = isValid
+                ? connect(descriptor, info.pointee.ai_addr, Int32(info.pointee.ai_addrlen))
+                : -1
+        #else
+            let isValid = descriptor >= 0
+            let connectResult = isValid ? connect(descriptor, info.pointee.ai_addr, info.pointee.ai_addrlen) : -1
+        #endif
+        if isValid {
+            if connectResult == 0 {
                 do {
                     try SessionHandshake(session: session, socket: descriptor)
                     return descriptor

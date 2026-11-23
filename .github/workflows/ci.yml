@@ -227,3 +227,28 @@ jobs:
             --android-ndk-version=r27d \
             --build-command="swift build --scratch-path /tmp/swift-android-build --traits EXIFKit" \
             6.4
+
+  windows:
+    name: Windows (x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      # OpenSSL and libssh2 have deep source trees.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.4"
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build --scratch-path ${{ runner.temp }}\swift-build -v
