@@ -11,11 +11,11 @@ final class StallingProxy: @unchecked Sendable {
     let port: Int
 
     private let targetPort: Int
-    private let listenSocket: Int32
+    private let listenSocket: ProxySocket
 
     private let lock = NSLock()
     private var _running = true
-    private var _openSockets: [Int32] = []
+    private var _openSockets: [ProxySocket] = []
     private var _relayedToClient = 0
     private var _relayedToServer = 0
     private var _stallAfterBytes: Int
@@ -33,47 +33,51 @@ final class StallingProxy: @unchecked Sendable {
         self.targetPort = targetPort
         _stallAfterBytes = stallAfterBytes
 
+        Self.startNetworking()
+
         let descriptor = socket(AF_INET, Self.streamType, 0)
-        guard descriptor >= 0 else {
+        guard Self.isValid(descriptor) else {
             throw ProxyError.couldNotListen
         }
 
-        var reuse: Int32 = 1
-        setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        #if !os(Windows)
+            // Not on Windows, where SO_REUSEADDR lets another process take the port over.
+            var reuse: Int32 = 1
+            setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        #endif
 
         // Accepted connections inherit the listening socket's buffer size.
         if let receiveBufferSize {
-            var size = Int32(receiveBufferSize)
-            setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+            Self.setReceiveBufferSize(receiveBufferSize, on: descriptor)
         }
 
         var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
+        address.sin_family = Self.addressFamily
         address.sin_port = 0
-        address.sin_addr.s_addr = Self.loopbackAddress
+        Self.setAddress(&address, to: Self.loopbackAddress)
         #if canImport(Darwin)
             address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         #endif
 
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                bind(descriptor, $0, Self.addressLength)
             }
         }
         guard bound == 0, listen(descriptor, 8) == 0 else {
-            close(descriptor)
+            Self.closeSocket(descriptor)
             throw ProxyError.couldNotListen
         }
 
         var assigned = sockaddr_in()
-        var assignedLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        var assignedLength = Self.addressLength
         let named = withUnsafeMutablePointer(to: &assigned) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 getsockname(descriptor, $0, &assignedLength)
             }
         }
         guard named == 0 else {
-            close(descriptor)
+            Self.closeSocket(descriptor)
             throw ProxyError.couldNotListen
         }
 
@@ -140,10 +144,10 @@ final class StallingProxy: @unchecked Sendable {
         _openSockets = []
         lock.unlock()
 
-        close(listenSocket)
+        Self.closeSocket(listenSocket)
         for descriptor in sockets {
-            shutdown(descriptor, Self.shutdownBoth)
-            close(descriptor)
+            Self.shutdownSocket(descriptor)
+            Self.closeSocket(descriptor)
         }
     }
 
@@ -154,17 +158,105 @@ final class StallingProxy: @unchecked Sendable {
 
 // MARK: Private implementation
 
+/// The proxy's socket handle: a descriptor, or a Winsock `SOCKET` on Windows.
+private typealias ProxySocket = SwiftSFTPSocket
+
 private extension StallingProxy {
-    #if canImport(Darwin)
+    #if os(Windows)
         static let streamType = SOCK_STREAM
-        static let shutdownBoth = SHUT_RDWR
+        static let addressFamily = ADDRESS_FAMILY(AF_INET)
+        static let addressLength = Int32(MemoryLayout<sockaddr_in>.size)
+
+        /// Winsock must be started before the first socket call; it counts calls, so every proxy may do it.
+        static func startNetworking() {
+            var data = WSADATA()
+            _ = WSAStartup(WORD(0x0202), &data)
+        }
+
+        static func isValid(_ descriptor: ProxySocket) -> Bool {
+            descriptor != INVALID_SOCKET
+        }
+
+        static func closeSocket(_ descriptor: ProxySocket) {
+            closesocket(descriptor)
+        }
+
+        static func shutdownSocket(_ descriptor: ProxySocket) {
+            shutdown(descriptor, SD_BOTH)
+        }
+
+        static func setAddress(_ address: inout sockaddr_in, to value: UInt32) {
+            address.sin_addr.S_un.S_addr = value
+        }
+
+        static func setReceiveBufferSize(_ bytes: Int, on descriptor: ProxySocket) {
+            var size = Int32(bytes)
+            withUnsafePointer(to: &size) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<Int32>.size) {
+                    _ = setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF, $0, Int32(MemoryLayout<Int32>.size))
+                }
+            }
+        }
+
+        static func receive(from descriptor: ProxySocket, into buffer: UnsafeMutableRawBufferPointer) -> Int {
+            let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self)
+            return Int(recv(descriptor, base, Int32(buffer.count), 0))
+        }
+
+        static func transmit(to descriptor: ProxySocket, from start: UnsafeRawPointer, count: Int) -> Int {
+            Int(send(descriptor, start.assumingMemoryBound(to: CChar.self), Int32(count), 0))
+        }
     #else
-        static let streamType = Int32(SOCK_STREAM.rawValue)
-        static let shutdownBoth = Int32(SHUT_RDWR)
+        #if canImport(Darwin)
+            static let streamType = SOCK_STREAM
+            static let shutdownBoth = SHUT_RDWR
+        #else
+            static let streamType = Int32(SOCK_STREAM.rawValue)
+            static let shutdownBoth = Int32(SHUT_RDWR)
+        #endif
+
+        static let addressFamily = sa_family_t(AF_INET)
+        static let addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+
+        static func startNetworking() {
+        }
+
+        static func isValid(_ descriptor: ProxySocket) -> Bool {
+            descriptor >= 0
+        }
+
+        static func closeSocket(_ descriptor: ProxySocket) {
+            close(descriptor)
+        }
+
+        static func shutdownSocket(_ descriptor: ProxySocket) {
+            shutdown(descriptor, shutdownBoth)
+        }
+
+        static func setAddress(_ address: inout sockaddr_in, to value: UInt32) {
+            address.sin_addr.s_addr = value
+        }
+
+        static func setReceiveBufferSize(_ bytes: Int, on descriptor: ProxySocket) {
+            var size = Int32(bytes)
+            setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        }
+
+        static func receive(from descriptor: ProxySocket, into buffer: UnsafeMutableRawBufferPointer) -> Int {
+            read(descriptor, buffer.baseAddress, buffer.count)
+        }
+
+        static func transmit(to descriptor: ProxySocket, from start: UnsafeRawPointer, count: Int) -> Int {
+            #if canImport(Darwin)
+                write(descriptor, start, count)
+            #else
+                send(descriptor, start, count, Int32(MSG_NOSIGNAL))
+            #endif
+        }
     #endif
 
-    static var loopbackAddress: in_addr_t {
-        in_addr_t(0x7F00_0001).bigEndian
+    static var loopbackAddress: UInt32 {
+        UInt32(0x7F00_0001).bigEndian
     }
 
     var running: Bool {
@@ -185,7 +277,7 @@ private extension StallingProxy {
         return _uploadsStalled
     }
 
-    func track(_ descriptor: Int32) -> Bool {
+    func track(_ descriptor: ProxySocket) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard _running else {
@@ -198,12 +290,12 @@ private extension StallingProxy {
     func acceptLoop() {
         while running {
             let client = accept(listenSocket, nil, nil)
-            guard client >= 0 else {
+            guard Self.isValid(client) else {
                 return
             }
 
             guard track(client), let server = connectToTarget() else {
-                close(client)
+                Self.closeSocket(client)
                 return
             }
 
@@ -212,16 +304,16 @@ private extension StallingProxy {
         }
     }
 
-    func connectToTarget() -> Int32? {
+    func connectToTarget() -> ProxySocket? {
         let descriptor = socket(AF_INET, Self.streamType, 0)
-        guard descriptor >= 0 else {
+        guard Self.isValid(descriptor) else {
             return nil
         }
 
         var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
+        address.sin_family = Self.addressFamily
         address.sin_port = UInt16(targetPort).bigEndian
-        address.sin_addr.s_addr = Self.loopbackAddress
+        Self.setAddress(&address, to: Self.loopbackAddress)
         #if canImport(Darwin)
             address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
             var noSignal: Int32 = 1
@@ -230,11 +322,11 @@ private extension StallingProxy {
 
         let connected = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                connect(descriptor, $0, Self.addressLength)
             }
         }
         guard connected == 0, track(descriptor) else {
-            close(descriptor)
+            Self.closeSocket(descriptor)
             return nil
         }
 
@@ -244,16 +336,16 @@ private extension StallingProxy {
     /// Relays bytes one way. The stalling direction stops reading once the byte budget is spent, so the peer's data
     /// piles up in kernel buffers and the client simply never hears anything again. The other direction stops reading
     /// while uploads are stalled.
-    func pump(from source: Int32, to destination: Int32, stalling: Bool) {
+    func pump(from source: ProxySocket, to destination: ProxySocket, stalling: Bool) {
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
 
         while running {
             if stalling ? isStalled : uploadsStalled {
-                usleep(20000)
+                Thread.sleep(forTimeInterval: 0.02)
                 continue
             }
 
-            let received = buffer.withUnsafeMutableBytes { read(source, $0.baseAddress, $0.count) }
+            let received = buffer.withUnsafeMutableBytes { Self.receive(from: source, into: $0) }
             guard received > 0 else {
                 return
             }
@@ -270,12 +362,7 @@ private extension StallingProxy {
             var sent = 0
             while sent < received {
                 let wrote = buffer.withUnsafeBytes { raw -> Int in
-                    let start = raw.baseAddress!.advanced(by: sent)
-                    #if canImport(Darwin)
-                        return write(destination, start, received - sent)
-                    #else
-                        return send(destination, start, received - sent, Int32(MSG_NOSIGNAL))
-                    #endif
+                    Self.transmit(to: destination, from: raw.baseAddress!.advanced(by: sent), count: received - sent)
                 }
                 guard wrote > 0 else {
                     return
