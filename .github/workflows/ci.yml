@@ -257,3 +257,20 @@ jobs:
 
       - name: Build tests
         run: swift build --build-tests --scratch-path ${{ runner.temp }}\swift-build
+
+      - name: Generate test keys and fixtures
+        shell: bash
+        run: bash Scripts/generate-test-keys-and-fixtures.sh
+
+      # Compression is not built on Windows yet, so CompressionTests is left out.
+      - name: Test (offline)
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --scratch-path "$RUNNER_TEMP/swift-build" --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test-offline.log"
+          if grep -qE 'No matching test cases were run' "$RUNNER_TEMP/swift-test-offline.log" || ! grep -qE 'Test run with [1-9][0-9]* tests?' "$RUNNER_TEMP/swift-test-offline.log"; then
+            echo "::error::Offline test filter '$OFFLINE_TEST_FILTER' executed zero tests" >&2
+            exit 1
+          fi
+        env:
+          OFFLINE_TEST_FILTER: "KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"

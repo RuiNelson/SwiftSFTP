@@ -476,9 +476,19 @@ extension WriteAheadTests {
 
     /// CPU time the calling thread has used.
     func threadCPUNanoseconds() -> UInt64 {
-        var time = timespec()
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
-        return UInt64(time.tv_sec) * 1_000_000_000 + UInt64(time.tv_nsec)
+        #if os(Windows)
+            // Kernel and user time of the thread, in 100 ns FILETIME ticks.
+            var created = FILETIME(), exited = FILETIME(), kernel = FILETIME(), user = FILETIME()
+            GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)
+            func ticks(_ time: FILETIME) -> UInt64 {
+                UInt64(time.dwHighDateTime) << 32 | UInt64(time.dwLowDateTime)
+            }
+            return (ticks(kernel) + ticks(user)) * 100
+        #else
+            var time = timespec()
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
+            return UInt64(time.tv_sec) * 1_000_000_000 + UInt64(time.tv_nsec)
+        #endif
     }
 
     /// Polls `condition` until it holds, for up to 30 seconds.
@@ -499,7 +509,15 @@ extension WriteAheadTests {
             return
         }
         var size = Int32(64 * 1024)
-        setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        #if os(Windows)
+            withUnsafePointer(to: &size) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<Int32>.size) {
+                    _ = setsockopt(socket, SOL_SOCKET, SO_SNDBUF, $0, Int32(MemoryLayout<Int32>.size))
+                }
+            }
+        #else
+            setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        #endif
     }
 
     struct WaitTimeout: Error {
