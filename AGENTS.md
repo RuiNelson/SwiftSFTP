@@ -107,10 +107,12 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   `localhost`, which Windows resolves to `::1` first. Git's CRLF conversion would break the container's scripts; the
   `.gitattributes` keeps them LF.
 - Known difference: with a peer that stops reading and a full socket, a blocked libssh2 call burns CPU on Windows instead
-  of sleeping until the timeout (`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures 1.9 s of CPU in 2 s
-  there). Waiting with `WSAPoll` instead of `select()` made no difference: Winsock reports the socket writable while
-  `send` still answers `WSAEWOULDBLOCK`. On a full run, five timing-sensitive stalled-connection tests also failed under
-  load and passed alone.
+  of sleeping until its timeout (`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures 1.9 s of CPU in 2 s
+  there, deterministically). The cause is not established. libssh2 waits with `select()` on every platform (`HAVE_POLL` is
+  not defined anywhere), so waiting with `WSAPoll` instead changed nothing. Two hypotheses remain, both unmeasured: the
+  wait keeps asking for read readiness (`transport.c` clears the INBOUND bit only when it reads) while unread server
+  data arrives through the WSL2 relay used in testing, or Winsock reports the socket writable while `send` still answers
+  `WSAEWOULDBLOCK`. On a full run, five timing-sensitive stalled-connection tests also failed under load and passed alone.
 
 ## Testing
 
