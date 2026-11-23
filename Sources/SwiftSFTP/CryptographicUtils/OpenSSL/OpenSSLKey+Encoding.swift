@@ -10,7 +10,7 @@ extension OpenSSLKey {
         let key = der.withUnsafeBytes { buffer -> OpaquePointer? in
             guard let base = buffer.baseAddress else { return nil }
             var bytes: UnsafePointer<UInt8>? = base.assumingMemoryBound(to: UInt8.self)
-            return d2i_PUBKEY(nil, &bytes, buffer.count)
+            return d2i_PUBKEY(nil, &bytes, CLong(clamping: buffer.count))
         }
         guard let key else { throw OpenSSLErrorQueue.invalidKeyData() }
         self.init(taking: key)
@@ -21,7 +21,7 @@ extension OpenSSLKey {
         let key = der.withUnsafeBytes { buffer -> OpaquePointer? in
             guard let base = buffer.baseAddress else { return nil }
             var bytes: UnsafePointer<UInt8>? = base.assumingMemoryBound(to: UInt8.self)
-            return d2i_AutoPrivateKey(nil, &bytes, buffer.count)
+            return d2i_AutoPrivateKey(nil, &bytes, CLong(clamping: buffer.count))
         }
         guard let key else { throw OpenSSLErrorQueue.invalidKeyData() }
         self.init(taking: key)
