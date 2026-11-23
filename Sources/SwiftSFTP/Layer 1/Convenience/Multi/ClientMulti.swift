@@ -154,7 +154,7 @@ public extension SFTPClientProtocol {
 
         let fileSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
         let temporaryPath = destinationPath.removingLastPathComponent.appendingPathComponent(
-            "\(UUID().uuidString).tmp"
+            "\(Foundation.UUID().uuidString).tmp"
         )
         let allocationHandle = try await openFile(
             [.create, .write, .exclusive],

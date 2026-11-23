@@ -4,7 +4,7 @@ import Logging
 public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     // MARK: Identity
 
-    public let id = UUID()
+    public let id = Foundation.UUID()
 
     // MARK: libssh2 handles
 

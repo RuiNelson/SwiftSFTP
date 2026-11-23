@@ -42,7 +42,7 @@ public final class SSHShellAgent: Sendable {
 
     /// Hex token safe to embed in shell echo lines (no spaces or metacharacters).
     static func makeCommandNonce() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        Foundation.UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     init(
