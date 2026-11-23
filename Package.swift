@@ -174,6 +174,12 @@ let opensslTarget = Target.target(
         // Windows 10 or later: OpenSSL then seeds from BCryptGenRandom.
         .define("_WIN32_WINNT", to: "0x0A00", .when(platforms: windowsPlatforms)),
         .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        // What OpenSSL's own Configure passes on Windows. Without WIN32_LEAN_AND_MEAN, <windows.h> pulls in the old
+        // <winsock.h> before e_winsock.h includes <winsock2.h>, and every type they share is redefined.
+        .define("WIN32_LEAN_AND_MEAN", .when(platforms: windowsPlatforms)),
+        .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        .define("UNICODE", .when(platforms: windowsPlatforms)),
+        .define("_UNICODE", .when(platforms: windowsPlatforms)),
     ],
     linkerSettings: [
         .linkedLibrary("pthread", .when(platforms: [.linux])),
