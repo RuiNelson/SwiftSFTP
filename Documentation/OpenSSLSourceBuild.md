@@ -59,6 +59,19 @@ No unsafe compiler/linker flags
 are needed in the package manifest. Keep the standalone crypto coexistence test:
 the root test target alone does not verify a consumer's product linkage.
 
+## Windows
+
+The prepared OpenSSL sources build on Windows with the defines OpenSSL's own `Configure` passes there
+(`WIN32_LEAN_AND_MEAN`, `UNICODE`, `_UNICODE`, `_WINSOCK_DEPRECATED_NO_WARNINGS`) and `_WIN32_WINNT=0x0A00`, so the
+random generator seeds from `BCryptGenRandom`. `Package.swift` links `ws2_32`, `crypt32`, `advapi32`, `user32` and
+`bcrypt`. libssh2 is built without its POSIX `HAVE_*` defines there, and its own Winsock code paths apply.
+
+Windows has no system zlib. SSH compression is built from `Vendor/zlib` (madler/zlib, a stable release tag), compiled as
+the `SwiftSFTPZlib` target: its sources and its `zlib.h` and `zconf.h` are one-line forwarders in `Sources/zlib` into the
+unmodified submodule, because the submodule has no include directory. Only libssh2's Windows build depends on the
+target; the other platforms link the system's zlib. To update zlib, check out the new release tag in `Vendor/zlib`,
+confirm the forwarders still name its source files, and run `CompressionTests`.
+
 ## Directional SSH compression
 
 `Sources/libssh2/transport.c` is generated from the pinned libssh2 source. Its incoming packet decompression checks

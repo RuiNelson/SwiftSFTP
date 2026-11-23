@@ -89,6 +89,20 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 - Preserve the crypto coexistence consumer tests when changing linkage, visibility, or headers. See
   `Documentation/OpenSSLSourceBuild.md` for the portable C configuration and maintenance workflow.
 
+## Windows
+
+- `SwiftSFTPSocket` is a Winsock `SOCKET` on Windows and an `Int32` elsewhere. The TCP helpers in
+  `Layer 0/Methods/Convenience/SessionHandshakeTCP.swift` start Winsock once (libssh2 does not), use `closesocket` and
+  `WSAGetLastError`, and report failures as `LibSSH2Error` there, where they are `POSIXError` elsewhere.
+- Windows has no `SIGTRAP`: use `raiseTrap()` (`Extensions/Platform.swift`), not `raise(SIGTRAP)`.
+- A C `long` is 32 bits on Windows. Convert explicitly (`CLong(clamping:)`) where a libssh2 or OpenSSL call takes one.
+  `libssh2_struct_stat` is `_stat64` there; use it rather than `stat`.
+- Qualify `UUID` as `Foundation.UUID` in files that import `libssh2`, whose module pulls in `<windows.h>`.
+- The `libssh2` target's POSIX `HAVE_*` defines are limited to `posixPlatforms`. The vendored zlib (`Vendor/zlib`,
+  target `SwiftSFTPZlib`) is a dependency of libssh2 on Windows only; see `Documentation/OpenSSLSourceBuild.md`.
+- The Windows CI job builds, builds the tests, and runs the offline tests. The integration tests need the Docker test
+  server, which the Windows runner does not have.
+
 ## Testing
 
 - Run `swift build` after wrapper API changes.
