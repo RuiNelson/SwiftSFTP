@@ -101,8 +101,9 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 - The `libssh2` target's POSIX `HAVE_*` defines are limited to `posixPlatforms`. The vendored zlib (`Vendor/zlib`,
   target `SwiftSFTPZlib`) is a dependency of libssh2 on Windows only; see `Documentation/OpenSSLSourceBuild.md`.
 - The Windows CI job (x86_64 and arm64) builds, builds the tests, and runs the offline tests. The integration tests need
-  the Docker test server, which the Windows runners do not have. On a Windows machine, run the server with Podman
-  (`podman build -t swiftsftp-testserver TestServer`, `podman run -d -p 6922:22 swiftsftp-testserver`) after
+  the Docker test server, which the Windows runners do not have. On a Windows machine, run the server with Docker
+  Desktop or Podman (`docker build -t swiftsftp-testserver TestServer`, `docker run -d -p 6922:22 swiftsftp-testserver`)
+  after
   `Scripts/generate-test-keys-and-fixtures.sh` (Git Bash, with a `python3` on the `PATH`). The tests reach it through
   `localhost`, which Windows resolves to `::1` first. Git's CRLF conversion would break the container's scripts; the
   `.gitattributes` keeps them LF.
@@ -114,17 +115,20 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   to 0 ms in the test's 2 s. The flaw is probably the same on other platforms, but it has not been reproduced or tested
   there, so they keep upstream's behaviour; making the change universal, and sending it upstream, needs its own test.
   Waiting with `WSAPoll` instead of `select()` changes nothing: libssh2 uses `select()` on every platform.
-- Unverified fix: the tests of `AbandonedCallTests` of the form "... after a timed-out ..." failed intermittently on
-  Windows against a Podman/WSL2 server (about half of the isolated runs, a different test each time, `Caught error:
-  timeout` recorded on the test function's own line), with or without the transport change. From the code and the saved
-  logs, the error comes from the final `handle.close()`, not from the call after the proxy resumes: failing and passing
-  runs last the same, far short of the 15 s that call would wait. The stalled read left `peerStoppedResponding` set, and
+- The tests of `AbandonedCallTests` of the form "... after a timed-out ..." used to fail intermittently on Windows
+  (about half of the isolated runs on a Podman/WSL2 server, 7 of 10 on Docker Desktop, a different test each time,
+  `Caught error: timeout` recorded on the test function's own line), with or without the transport change. The error
+  came from the final `handle.close()`, not from the call after the proxy resumes: failing and passing runs last the
+  same, far short of the 15 s that call would wait. The stalled read left `peerStoppedResponding` set, and
   the plain blocking calls after it (`stat`, `readlink`, `rename`, `unlink`) never cleared it, so `close()` gave
   `SSH_FXP_CLOSE` 1 ms (`teardownTimeoutMilliseconds`), which only a fast reply meets. `runSFTPCall` now records the
   peer as responding after a call that finishes and as unresponsive after a timeout, and `withAbandonableConnection`
   checks the flag before closing; an SFTP status reply also counts as the peer responding. The fix is in shared code,
-  not Windows-specific: the same 1 ms close could fail on any platform whose reply is slow enough. This has not been
-  run on Windows yet: confirm that those tests stop failing there.
+  not Windows-specific: the same 1 ms close could fail on any platform whose reply is slow enough. On Windows with
+  Docker Desktop, 10 runs of `AbandonedCallTests|StalledCacheReportTests` of the code before the fix failed 7 times;
+  20 runs with the fix passed every time, and the whole suite passed (840 tests, without the fuzz suites). Docker
+  Desktop's credential helper needs an interactive logon: over SSH, point `DOCKER_CONFIG` at a directory holding `{}`
+  and `DOCKER_HOST` at `npipe:////./pipe/dockerDesktopLinuxEngine` to build.
 
 ## Testing
 
