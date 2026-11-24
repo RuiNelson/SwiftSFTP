@@ -2,6 +2,7 @@
  * Based on Vendor/libssh2/src/transport.c, with upstream license preserved.
  * Incoming decompression uses the remote endpoint's negotiated compression.
  * A fatal socket send releases the pending packet for local cleanup.
+ * On Windows, a pending packet that cannot be sent waits for the socket to take data only.
  */
 /* Copyright (C) The Written Word, Inc.
  * Copyright (C) Daniel Stenberg
@@ -980,7 +981,13 @@ static int transport_send_existing(LIBSSH2_SESSION *session,
             return LIBSSH2_ERROR_SOCKET_SEND;
         }
 
+#ifdef _WIN32
+        /* Wait for the socket to take data only: unread server data must not wake a wait that
+           cannot make progress until the pending packet is out. */
+        session->socket_block_directions = LIBSSH2_SESSION_BLOCK_OUTBOUND;
+#else
         session->socket_block_directions |= LIBSSH2_SESSION_BLOCK_OUTBOUND;
+#endif
         return LIBSSH2_ERROR_EAGAIN;
     }
 

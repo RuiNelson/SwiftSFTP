@@ -188,6 +188,18 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
+            // SFTP carries whole seconds only, and overwriteKeepingVersion puts the time back that way. Start from a
+            // whole second, so that a stat which sees nanoseconds (the shell agent's, run in the background after the
+            // first read) cannot tell the restored file from the original one either, whichever of the two finishes
+            // first.
+            let written = try #require(try await client.stat(path: path, followLink: true))
+            try await client.setAttributes(
+                path: path,
+                date: (
+                    modification: Date(timeIntervalSince1970: TimeInterval(written.attributes.modificationTime)),
+                    access: Date(timeIntervalSince1970: TimeInterval(written.attributes.accessTime))
+                )
+            )
             let other = try await client.fork(loggedIn: true)
             let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
@@ -199,6 +211,16 @@ struct ReferenceCacheIntegrationTests {
             let handle = try await client.openFile(.read, path: path, permissions: [])
             let first = try await handle.readAll()
             let checkedAfterFirst = await cache.files[path]?.lastCheck
+
+            // The first read starts a stat through the shell agent, to learn the nanoseconds of the modification time.
+            // Let it finish before the file is changed: a stat that lands between the overwrite and the restored time
+            // sees a different version, and the cache then rightly serves the new bytes.
+            for _ in 0 ..< 200 {
+                if await cache.files[path]?.version?.modificationNanoseconds != nil {
+                    break
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
 
             // A change the stat cannot see: only a hit still hands out the original bytes.
             try await overwriteKeepingVersion(other, path: path, offset: 0, with: Self.marker)

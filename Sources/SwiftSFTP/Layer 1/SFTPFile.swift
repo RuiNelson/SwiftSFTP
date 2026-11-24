@@ -81,7 +81,7 @@ public final class SFTPFile: SFTPFileProtocol {
 
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPFile` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
+            raiseTrap()
         }
     }
 }
@@ -861,9 +861,8 @@ private extension SFTPFile {
 
         do {
             let handle = handle
-            let attributes = try parent.runSFTPCall(.fstat, on: handle) { try SFTPFStat(handle: handle) }
-            parent.notePeerResponded(true)
-            return attributes
+            // `runSFTPCall` records the peer as responding once the stat is answered.
+            return try parent.runSFTPCall(.fstat, on: handle) { try SFTPFStat(handle: handle) }
         }
         catch {
             // The close that follows then gives up at once instead of waiting out its own cap.

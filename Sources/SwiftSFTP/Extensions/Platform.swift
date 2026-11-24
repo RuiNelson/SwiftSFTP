@@ -4,6 +4,8 @@
     @_exported import Android
 #elseif canImport(Glibc)
     @_exported import Glibc
+#elseif os(Windows)
+    @_exported import WinSDK
 #endif
 
 /// Hints for `getaddrinfo` TCP stream lookups.
@@ -22,6 +24,20 @@ func tcpAddrInfoHints() -> addrinfo {
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = Int32(bitPattern: SOCK_STREAM.rawValue)
         hints.ai_protocol = Int32(IPPROTO_TCP)
+    #elseif os(Windows)
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        hints.ai_protocol = Int32(IPPROTO_TCP.rawValue)
     #endif
     return hints
+}
+
+/// Stops the process the way `raise(SIGTRAP)` does: a breakpoint trap that a debugger catches and that crashes the
+/// process otherwise. Windows has no `SIGTRAP`; `DebugBreak()` raises the equivalent exception.
+func raiseTrap() {
+    #if os(Windows)
+        DebugBreak()
+    #else
+        raise(SIGTRAP)
+    #endif
 }

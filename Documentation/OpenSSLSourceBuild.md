@@ -59,6 +59,19 @@ No unsafe compiler/linker flags
 are needed in the package manifest. Keep the standalone crypto coexistence test:
 the root test target alone does not verify a consumer's product linkage.
 
+## Windows
+
+The prepared OpenSSL sources build on Windows with the defines OpenSSL's own `Configure` passes there
+(`WIN32_LEAN_AND_MEAN`, `UNICODE`, `_UNICODE`, `_WINSOCK_DEPRECATED_NO_WARNINGS`) and `_WIN32_WINNT=0x0A00`, so the
+random generator seeds from `BCryptGenRandom`. `Package.swift` links `ws2_32`, `crypt32`, `advapi32`, `user32` and
+`bcrypt`. libssh2 is built without its POSIX `HAVE_*` defines there, and its own Winsock code paths apply.
+
+Windows has no system zlib. SSH compression is built from `Vendor/zlib` (madler/zlib, a stable release tag), compiled as
+the `SwiftSFTPZlib` target: its sources and its `zlib.h` and `zconf.h` are one-line forwarders in `Sources/zlib` into the
+unmodified submodule, because the submodule has no include directory. Only libssh2's Windows build depends on the
+target; the other platforms link the system's zlib. To update zlib, check out the new release tag in `Vendor/zlib`,
+confirm the forwarders still name its source files, and run `CompressionTests`.
+
 ## Directional SSH compression
 
 `Sources/libssh2/transport.c` is generated from the pinned libssh2 source. Its incoming packet decompression checks
@@ -87,6 +100,16 @@ throughout cancellation and teardown and checks that closing succeeds within its
 The generator verifies the exact fatal-send patch site as well as the decompression correction. If upstream changes
 that code, review the remaining corrections before dropping the transport adapter. Regenerate it with
 `python3 Scripts/generate-libssh2-backend.py` and verify it with `--check`.
+
+## Waiting while a packet is half sent (Windows)
+
+On Windows the transport adapter also makes a pending packet that the socket will not take wait for the socket to take
+data and nothing else. Upstream leaves libssh2's inbound wait bit set from an earlier read that ended in EAGAIN, and
+clears it only on the next read. While a packet is half sent nothing reads, so any unread server data (an SFTP status, a
+window adjustment) made the wait return at once and a blocking call spun until its timeout. The change is inside
+`#ifdef _WIN32`, so the other platforms keep upstream's behaviour; the generator checks the exact patch site.
+`WriteAheadTests.halfSentPacketTimesOutWithoutSpinning` measures it, and `SWIFTSFTP_SPIN_PROBE=1` prints the wait
+directions, the unread bytes and the socket's readiness around its timed call.
 
 ## Per-handle SFTP read state
 

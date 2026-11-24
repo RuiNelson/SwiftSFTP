@@ -5,3 +5,6 @@
 [submodule "vendor/SwiftSFTP-OpenSSL"]
 	path = Vendor/SwiftSFTP-OpenSSL
 	url = https://github.com/RuiNelson/SwiftSFTP-OpenSSL.git
+[submodule "Vendor/zlib"]
+	path = Vendor/zlib
+	url = https://github.com/madler/zlib.git

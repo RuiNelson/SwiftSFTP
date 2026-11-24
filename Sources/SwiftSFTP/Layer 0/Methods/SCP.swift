@@ -2,8 +2,12 @@ import Foundation
 import libssh2
 
 /// Receives a remote file over SCP with file metadata.
-public func SCPRecv2(session: LibSSH2Session, path: String) throws -> (channel: LibSSH2Channel, stat: stat) {
-    var fileStat = stat()
+public func SCPRecv2(
+    session: LibSSH2Session,
+    path: String
+) throws -> (channel: LibSSH2Channel, stat: libssh2_struct_stat) {
+    // libssh2's own stat type: `struct stat` on POSIX platforms, `_stat64` on Windows.
+    var fileStat = libssh2_struct_stat()
     let channel = path.withCString {
         libssh2.libssh2_scp_recv2(session.rawValue, $0, &fileStat)
     }

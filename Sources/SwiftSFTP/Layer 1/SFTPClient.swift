@@ -4,7 +4,7 @@ import Logging
 public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     // MARK: Identity
 
-    public let id = UUID()
+    public let id = Foundation.UUID()
 
     // MARK: libssh2 handles
 
@@ -204,7 +204,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
 
         if trapOnDeInitWithoutClose, !closed {
             logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
-            raise(SIGTRAP)
+            raiseTrap()
         }
     }
 }

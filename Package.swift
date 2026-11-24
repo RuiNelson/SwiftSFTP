@@ -140,6 +140,12 @@ let opensslExcludedPaths: [String] = [
 ]
 // END OPENSSL SOURCE MANIFEST
 
+// Every platform with a POSIX socket and libc API. Windows is the one that is not: it uses Winsock and has no system zlib.
+let posixPlatforms: [Platform] = [
+    .macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .driverKit, .linux, .android, .openbsd, .wasi,
+]
+let windowsPlatforms: [Platform] = [.windows]
+
 // Prepared in the pinned SwiftSFTP-OpenSSL submodule. SwiftPM compiles these
 // portable C sources for the destination: no binary targets or build-time tools.
 let opensslTarget = Target.target(
@@ -165,8 +171,24 @@ let opensslTarget = Target.target(
         .define("NDEBUG"),
         .define("_GNU_SOURCE", .when(platforms: [.linux, .android])),
         .define("OPENSSL_APPLE_CRYPTO_RANDOM", .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS])),
+        // Windows 10 or later: OpenSSL then seeds from BCryptGenRandom.
+        .define("_WIN32_WINNT", to: "0x0A00", .when(platforms: windowsPlatforms)),
+        .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        // What OpenSSL's own Configure passes on Windows. Without WIN32_LEAN_AND_MEAN, <windows.h> pulls in the old
+        // <winsock.h> before e_winsock.h includes <winsock2.h>, and every type they share is redefined.
+        .define("WIN32_LEAN_AND_MEAN", .when(platforms: windowsPlatforms)),
+        .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        .define("UNICODE", .when(platforms: windowsPlatforms)),
+        .define("_UNICODE", .when(platforms: windowsPlatforms)),
     ],
-    linkerSettings: [.linkedLibrary("pthread", .when(platforms: [.linux]))]
+    linkerSettings: [
+        .linkedLibrary("pthread", .when(platforms: [.linux])),
+        .linkedLibrary("ws2_32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("crypt32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("advapi32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("user32", .when(platforms: windowsPlatforms)),
+        .linkedLibrary("bcrypt", .when(platforms: windowsPlatforms)),
+    ]
 )
 
 let libssh2ExcludedPaths = [
@@ -179,7 +201,9 @@ let libssh2ExcludedPaths = [
     "Scripts",
     "SampleApp",
     "TestServer",
+    "Sources/zlib",
     "Vendor/SwiftSFTP-OpenSSL",
+    "Vendor/zlib",
     "Vendor/libssh2/.github",
     "Vendor/libssh2/cmake",
     "Vendor/libssh2/docs",
@@ -260,28 +284,53 @@ let libssh2CSettings: [CSetting] = [
     // Select our qualified backend before another SDK's openssl/ headers.
     .headerSearchPath("Sources/libssh2/openssl"),
     .define("HAVE_CONFIG_H"),
-    .define("HAVE_GETTIMEOFDAY"),
     .define("HAVE_INTTYPES_H"),
-    .define("HAVE_O_NONBLOCK"),
     .define("HAVE_SELECT"),
     .define("HAVE_SNPRINTF"),
-    .define("HAVE_SYS_SOCKET_H"),
-    .define("HAVE_SYS_TIME_H"),
-    .define("HAVE_SYS_UIO_H"),
-    .define("HAVE_UNISTD_H"),
-    .define("LIBSSH2_HAVE_ZLIB"),
     .define("LIBSSH2_OPENSSL"),
+    // Without POSIX headers or fcntl(): Windows has none of them, and libssh2 falls back to Winsock and its own
+    // gettimeofday().
+    .define("HAVE_GETTIMEOFDAY", .when(platforms: posixPlatforms)),
+    .define("HAVE_O_NONBLOCK", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_SOCKET_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_TIME_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_SYS_UIO_H", .when(platforms: posixPlatforms)),
+    .define("HAVE_UNISTD_H", .when(platforms: posixPlatforms)),
+    // SSH compression: the system's zlib everywhere but Windows, which uses the vendored one.
+    .define("LIBSSH2_HAVE_ZLIB"),
+    .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+    .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
 ] + legacyAlgorithmDefines.map { .define($0, .when(traits: [legacyAlgorithmsTrait])) }
+
+// zlib, compiled from the pinned Vendor/zlib submodule where the system has none (Windows). The sources are
+// one-line forwarders into the submodule, which stays unmodified, and zlib.h and zconf.h are forwarded the same way,
+// because the submodule has no include directory of its own. libssh2 builds it only on Windows; the other platforms link
+// the system's zlib.
+let zlibTarget = Target.target(
+    name: "SwiftSFTPZlib",
+    path: "Sources/zlib",
+    publicHeadersPath: "include",
+    cSettings: [
+        .define("_CRT_SECURE_NO_WARNINGS", .when(platforms: windowsPlatforms)),
+        .define("_CRT_NONSTDC_NO_DEPRECATE", .when(platforms: windowsPlatforms)),
+    ]
+)
 
 let libssh2Target = Target.target(
     name: "libssh2",
-    dependencies: ["OpenSSLCrypto"],
+    dependencies: [
+        "OpenSSLCrypto",
+        .target(name: "SwiftSFTPZlib", condition: .when(platforms: windowsPlatforms)),
+    ],
     path: ".",
     exclude: libssh2ExcludedPaths,
     sources: libssh2Sources,
     publicHeadersPath: "Sources/libssh2/include",
     cSettings: libssh2CSettings,
-    linkerSettings: [.linkedLibrary("z")]
+    linkerSettings: [
+        .linkedLibrary("z", .when(platforms: posixPlatforms)),
+        .linkedLibrary("ws2_32", .when(platforms: windowsPlatforms)),
+    ]
 )
 
 let swiftSFTPTarget = Target.target(
@@ -292,7 +341,8 @@ let swiftSFTPTarget = Target.target(
         .product(name: "PathWorks", package: "PathWorks"),
         .product(name: "Logging", package: "swift-log"),
     ],
-    resources: [.copy("PrivacyInfo.xcprivacy")]
+    resources: [.copy("PrivacyInfo.xcprivacy")],
+    linkerSettings: [.linkedLibrary("ws2_32", .when(platforms: windowsPlatforms))]
 )
 
 let swiftSFTPTestsTarget = Target.testTarget(
@@ -391,6 +441,7 @@ let package = Package(
     ],
     targets: [
         opensslTarget,
+        zlibTarget,
         libssh2Target,
         swiftSFTPTarget,
         swiftSFTPAVFoundationTarget,

@@ -227,3 +227,60 @@ jobs:
             --android-ndk-version=r27d \
             --build-command="swift build --scratch-path /tmp/swift-android-build --traits EXIFKit" \
             6.4
+
+  windows:
+    name: Windows (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: windows-latest
+            build_arch: amd64
+          - arch: arm64
+            runner: windows-11-arm
+            build_arch: arm64
+    timeout-minutes: 60
+    steps:
+      # OpenSSL and libssh2 have deep source trees.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      # swift-actions/setup-swift does not support Windows.
+      - name: Setup Swift
+        uses: compnerd/gha-setup-swift@main
+        with:
+          swift-version: swift-6.4.3-release
+          swift-build: 6.4.3-RELEASE
+          build_arch: ${{ matrix.build_arch }}
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build --scratch-path ${{ runner.temp }}\swift-build -v
+
+      - name: Build tests
+        run: swift build --build-tests --scratch-path ${{ runner.temp }}\swift-build
+
+      - name: Generate test keys and fixtures
+        shell: bash
+        run: bash Scripts/generate-test-keys-and-fixtures.sh
+
+      - name: Test (offline)
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --scratch-path "$RUNNER_TEMP/swift-build" --filter "$OFFLINE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test-offline.log"
+          if grep -qE 'No matching test cases were run' "$RUNNER_TEMP/swift-test-offline.log" || ! grep -qE 'Test run with [1-9][0-9]* tests?' "$RUNNER_TEMP/swift-test-offline.log"; then
+            echo "::error::Offline test filter '$OFFLINE_TEST_FILTER' executed zero tests" >&2
+            exit 1
+          fi
+        env:
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"

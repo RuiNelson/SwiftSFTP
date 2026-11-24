@@ -9,12 +9,13 @@
 [![tvOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](Scripts/LinuxBuild/build.sh)
 [![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](Scripts/AndroidBuild/build.sh)
+[![Windows](https://img.shields.io/badge/Windows-supported-lightgrey?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuNHYxMS40SDB6TTEyLjYgMEgyNHYxMS40SDEyLjZ6TTAgMTIuNmgxMS40VjI0SDB6TTEyLjYgMTIuNkgyNFYyNEgxMi42eiIvPjwvc3ZnPg%3D%3D)](.github/workflows/ci.yml)
 
 [![Swift Package Manager](https://img.shields.io/badge/SPM-supported-orange.svg)](https://swift.org/package-manager/)
 [![Release](https://img.shields.io/github/v/release/RuiNelson/SwiftSFTP)](https://github.com/RuiNelson/SwiftSFTP/releases)
 [![CI](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/ci.yml/badge.svg)](https://github.com/RuiNelson/SwiftSFTP/actions/workflows/ci.yml)
 
-![SwiftSFTP Banner](Documentation/banner.webp)
+![SwiftSFTP Banner](Documentation/banner.svg)
 
 SwiftSFTP is a modern, ergonomic Swift Package Manager library that wraps `libssh2` and `OpenSSL`. It provides a high-level `async/await` API for seamless SFTP file transfers and SSH-based interactions, while also exposing the underlying C APIs for advanced use cases.
 
@@ -276,7 +277,9 @@ The first build compiles OpenSSL; subsequent builds are incremental.
 
 Libssh2 is built with SSH zlib compression support and links the platform's `libz`.
 Apple SDKs and the Android NDK provide it; Linux builds require the zlib development
-package (for example, `sudo apt-get install zlib1g-dev` on Debian/Ubuntu).
+package (for example, `sudo apt-get install zlib1g-dev` on Debian/Ubuntu). Windows has no system zlib,
+so SwiftPM compiles the pinned [zlib](https://github.com/madler/zlib) source (`Vendor/zlib`, under the zlib license)
+into SwiftSFTP, and Windows consumers need nothing installed.
 Compression is disabled by default per session. Configure it with `compressionPreference` when creating an
 `SFTPClient`; see [SSH compression](Documentation/UserGuide.md#ssh-compression). Layer 0 callers can enable it with
 `SessionFlag(session: session, flag: .compress, value: true)` before the SSH handshake.

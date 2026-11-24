@@ -145,6 +145,15 @@ struct BoundedTeardownTests {
                 }
             }
 
+            // Idle progress alone is not a stall: under load the proxy can still have budget left, and then the close
+            // below is answered at once. Wait for the proxy to have gone silent first.
+            let deadline = DispatchTime.now() + .seconds(30)
+            while !wedged.proxy.hasStalled {
+                guard DispatchTime.now() < deadline else {
+                    throw TransferProgressProbe.ProbeTimeout()
+                }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
             try await progress.waitUntilStalled()
             try await body(wedged, handle, download)
         }

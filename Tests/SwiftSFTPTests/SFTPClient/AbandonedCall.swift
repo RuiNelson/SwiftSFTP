@@ -21,7 +21,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await fixture.handle.stat }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let attributes = try await other.stat
             try await other.close()
@@ -36,7 +36,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await fixture.handle.set(Self.permissions([.ownerRead, .ownerWrite])) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await other.set(Self.permissions([.ownerRead]))
             try await other.close()
@@ -60,10 +60,26 @@ struct AbandonedCallTests {
             }
             #expect(silent.map(Fixture.isTimeout) == true)
 
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let metadata = try await client.stat(path: fixture.smallFiles[0])
             #expect(metadata?.attributes.fileSize == UInt64(Self.smallSize))
+        }
+    }
+
+    /// An SFTP status is the server's answer too: after it, closing the stalled file's handle gets its full budget
+    /// instead of the 1 ms of a peer that stopped responding. `withAbandonableConnection` checks both.
+    @Test("a stat of a missing path after a timed-out stat records the peer as responding")
+    func missingStatAfterTimedOutStat() async throws {
+        try await withAbandonableConnection("abandoned-stat-missing", by: .timeout, smallFiles: 0) { fixture in
+            let client = fixture.wedged.client
+
+            try await fixture.stall()
+            try await fixture.abandon { _ = try await client.stat(path: fixture.wedged.remotePath) }
+            #expect(client.withSessionIO { client.peerStoppedResponding })
+            fixture.resume()
+
+            #expect(try await client.stat(path: fixture.directory + "/missing") == nil)
         }
     }
 
@@ -74,7 +90,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await client.contentsOfDirectory(path: fixture.directory) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             let other = try await client.openFile(.read, path: fixture.smallFiles[0], permissions: [])
             let data = try await other.read(upTo: 2 * Self.smallSize)
@@ -90,7 +106,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await client.deleteFile(path: fixture.smallFiles[0]) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await client.deleteFile(path: fixture.smallFiles[1])
             #expect(try await client.stat(path: fixture.smallFiles[1]) == nil)
@@ -106,7 +122,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { try await client.rename(from: fixture.smallFiles[0], to: firstTarget) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             try await client.rename(from: fixture.smallFiles[1], to: secondTarget)
             #expect(try await client.stat(path: secondTarget) != nil)
@@ -127,7 +143,7 @@ struct AbandonedCallTests {
 
             try await fixture.stall()
             try await fixture.abandon { _ = try await client.followLink(path: links[0]) }
-            fixture.wedged.proxy.resume()
+            fixture.resume()
 
             #expect(try await client.followLink(path: links[1]) == fixture.smallFiles[1])
         }
@@ -169,6 +185,17 @@ private extension AbandonedCallTests {
 
             if case let .success(data) = await read.result {
                 try #require((data?.count ?? 0) < wedged.payload.count, "the read finished before the server stalled")
+            }
+        }
+
+        /// Lets the server's answers through again.
+        ///
+        /// Everything that piled up behind the stall has to arrive before the next answer does, and on a loaded machine
+        /// that can take longer than the 2 s that makes the calls of a timeout test give up, so those get more room.
+        func resume() {
+            wedged.proxy.resume()
+            if abandonment == .timeout {
+                wedged.client.timeout = 15
             }
         }
 
@@ -244,6 +271,12 @@ private extension AbandonedCallTests {
                     directory: directory,
                     smallFiles: smallFiles
                 ))
+
+                // The body ends with a call the server answered. The close below only gets the 1 ms of a peer that
+                // stopped responding while that is not recorded, and then fails whenever the reply takes longer.
+                let stopped = wedged.client.withSessionIO { wedged.client.peerStoppedResponding }
+                #expect(!stopped, "the client still treats the peer as unresponsive after a call it answered")
+
                 try await handle.close()
             }
             result = .success(())

@@ -101,7 +101,8 @@ private extension SFTPClientProtocol {
 
         switch testDirection {
         case .upload:
-            let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).multitune")
+            let source = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(Foundation.UUID().uuidString).multitune")
             try randomTransferPayload(count: Int(clamping: testFileSize)).write(to: source)
             defer {
                 try? FileManager.default.removeItem(at: source)
@@ -132,7 +133,7 @@ private extension SFTPClientProtocol {
                 logger: logger
             ) { workers in
                 let destination = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("\(UUID().uuidString).multitune")
+                    .appendingPathComponent("\(Foundation.UUID().uuidString).multitune")
                 // A failed or cancelled multiDownload removes the destination itself.
                 try await multiDownload(from: remotePath, to: destination, workers: workers) { _, _, _, _ in
                     !Task.isCancelled
