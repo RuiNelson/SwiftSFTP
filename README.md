@@ -233,7 +233,7 @@ For EXIF metadata, enable the `EXIFKit` trait and use `.product(name: "SwiftSFTP
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.23.0", traits: ["EXIFKit"])
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.24.0", traits: ["EXIFKit"])
 ]
 ```
 
@@ -247,7 +247,7 @@ MD5-encrypted PEM keys, and the 3DES, Blowfish, RC4 and CAST ciphers.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.23.0", traits: ["LegacyAlgorithms"])
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.24.0", traits: ["LegacyAlgorithms"])
 ]
 ```
 
