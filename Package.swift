@@ -339,7 +339,6 @@ let swiftSFTPTarget = Target.target(
         "libssh2",
         "OpenSSLCrypto",
         .product(name: "PathWorks", package: "PathWorks"),
-        .product(name: "Logging", package: "swift-log"),
     ],
     resources: [.copy("PrivacyInfo.xcprivacy")],
     linkerSettings: [.linkedLibrary("ws2_32", .when(platforms: windowsPlatforms))]
@@ -384,12 +383,12 @@ let swiftSFTPEXIFKitTestsTarget = Target.testTarget(
 let package = Package(
     name: "SwiftSFTP",
     platforms: [
-        .macOS(.v11),
-        .iOS(.v14),
+        .macOS(.v12),
+        .iOS(.v15),
         .visionOS(.v1),
-        .watchOS(.v7),
-        .tvOS(.v14),
-        .macCatalyst(.v14),
+        .watchOS(.v9),
+        .tvOS(.v15),
+        .macCatalyst(.v15),
         .custom("android", versionString: "28"),
     ],
     products: [
@@ -402,8 +401,8 @@ let package = Package(
         ),
         .library(
             name: "SwiftSFTPStatic",
-            // Consumers sharing static dependencies (for example swift-log with
-            // Citadel) need one final link step to avoid duplicate library code.
+            // Consumers sharing static dependencies (for example PathWorks) need one
+            // final link step to avoid duplicate library code.
             type: .static,
             targets: ["SwiftSFTP"]
         ),
@@ -437,7 +436,6 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/RuiNelson/PathWorks.git", .upToNextMajor(from: "2.0.1")),
         .package(url: "https://github.com/RuiNelson/EXIFKit.git", .upToNextMajor(from: "0.4.0")),
-        .package(url: "https://github.com/apple/swift-log.git", .upToNextMajor(from: "1.0.0")),
     ],
     targets: [
         opensslTarget,

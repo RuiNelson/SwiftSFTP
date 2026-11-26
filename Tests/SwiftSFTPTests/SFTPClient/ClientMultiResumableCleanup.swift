@@ -115,8 +115,9 @@ struct SFTPClientResumableCleanup {
     // MARK: Local sweep
 
     @Test("local sweep deletes only stale temporary files")
-    func localSweepDeletesOnlyStaleTemporaries() throws {
+    func localSweepDeletesOnlyStaleTemporaries() async throws {
         let client = try makeClient()
+        defer { try? await client.close() }
         let directory = try makeLocalDirectory()
         defer {
             try? FileManager.default.removeItem(at: directory)
@@ -146,8 +147,9 @@ struct SFTPClientResumableCleanup {
 
     #if canImport(Darwin)
         @Test("local sweep skips a temporary file it cannot delete and returns the rest sorted by path")
-        func localSweepSkipsUndeletableTemporary() throws {
+        func localSweepSkipsUndeletableTemporary() async throws {
             let client = try makeClient()
+            defer { try? await client.close() }
             let directory = try makeLocalDirectory()
             let stuck = directory.appendingPathComponent("payload.bin".resumableTemporaryFileName)
             let swept = ["a.bin", "b.bin", "c.bin"]
@@ -172,8 +174,9 @@ struct SFTPClientResumableCleanup {
     #endif
 
     @Test("local sweep of a directory without temporary files returns nothing")
-    func localSweepWithoutMatchesReturnsNothing() throws {
+    func localSweepWithoutMatchesReturnsNothing() async throws {
         let client = try makeClient()
+        defer { try? await client.close() }
         let directory = try makeLocalDirectory()
         defer {
             try? FileManager.default.removeItem(at: directory)
@@ -188,8 +191,9 @@ struct SFTPClientResumableCleanup {
     }
 
     @Test("a negative age sweeps every temporary file rather than reaching into the future")
-    func localSweepClampsNegativeAge() throws {
+    func localSweepClampsNegativeAge() async throws {
         let client = try makeClient()
+        defer { try? await client.close() }
         let directory = try makeLocalDirectory()
         defer {
             try? FileManager.default.removeItem(at: directory)
@@ -202,8 +206,9 @@ struct SFTPClientResumableCleanup {
     }
 
     @Test("local sweep of a missing directory throws instead of reporting a clean sweep")
-    func localSweepThrowsForMissingDirectory() throws {
+    func localSweepThrowsForMissingDirectory() async throws {
         let client = try makeClient()
+        defer { try? await client.close() }
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 
         let thrown = #expect(throws: CocoaError.self) {
@@ -214,8 +219,9 @@ struct SFTPClientResumableCleanup {
     }
 
     @Test("local sweep rejects a URL that is not a file URL")
-    func localSweepRejectsNonFileURL() throws {
+    func localSweepRejectsNonFileURL() async throws {
         let client = try makeClient()
+        defer { try? await client.close() }
 
         #expect(throws: FileTransferErrors.self) {
             _ = try client.cleanupResumableDownloads(in: URL(string: "https://example.com/")!, olderThan: 0)

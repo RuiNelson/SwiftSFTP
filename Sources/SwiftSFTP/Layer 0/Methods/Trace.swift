@@ -1,18 +1,5 @@
 import Foundation
 import libssh2
-import Logging
-
-private let _traceLogger = Logger(label: "com.ruinelson.SwiftSFTP.libssh2.trace")
-
-private let _traceLoggerHandler: LibSSH2TraceHandler = { _, _, data, length in
-    guard
-        let data else {
-        return
-    }
-
-    let message = String(decoding: data.data(count: length), as: UTF8.self)
-    _traceLogger.trace("\(message)")
-}
 
 /// Receives libssh2 trace output for a session.
 ///
@@ -58,19 +45,4 @@ public func TraceSetHandler(
     try session.checkReturnValue(
         libssh2.libssh2_trace_sethandler(session.rawValue, context, handler)
     )
-}
-
-/// Enables tracing and sends trace output to a swift-log logger.
-///
-/// Trace bytes are decoded as UTF-8 and logged at `trace` level with the label
-/// `com.ruinelson.SwiftSFTP.libssh2.trace`. Invalid UTF-8 bytes are replaced
-/// using Swift's standard decoding behavior.
-///
-/// - Parameters:
-///   - session: The session to configure tracing on.
-///   - options: The trace categories to enable.
-/// - Throws: ``LibSSH2Error`` if libssh2 reports a negative return value.
-public func TraceSetToLogger(session: LibSSH2Session, options: LibSSH2TraceOptions) throws {
-    try TraceSetHandler(session: session, handler: _traceLoggerHandler)
-    try Trace(session: session, options: options)
 }

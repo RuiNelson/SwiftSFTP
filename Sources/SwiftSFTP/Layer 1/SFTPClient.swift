@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 
 public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     // MARK: Identity
@@ -37,10 +36,8 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     let operationsTimeOut: TimeInterval?
     let hostKeyAcceptance: HostKeyAcceptance
     let compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])
-    /// Shared with child handles (files, shell agent) for close/deinit diagnostics.
-    let logger: Logger?
-    /// Inherited by ``SFTPFile`` and ``SSHShellAgent`` so they trap if destroyed without ``close()``.
-    let trapOnDeInitWithoutClose: Bool
+    /// Receives the client's ``ProgrammingError``s. Inherited by ``SFTPFile`` and ``SSHShellAgent``.
+    let programmingErrorHandler: ProgrammingErrorHandler
     let authentication: UserAuthentication
     /// The most recent timeout configured by `login(timeOut:)`. Protected by `internalStateQueue`.
     nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
@@ -78,8 +75,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             clientToServer: [CompressionAlgorithm],
             serverToClient: [CompressionAlgorithm]
         ) = ([], []),
-        logger: Logger? = nil,
-        trapOnDeInitWithoutClose: Bool = false
+        programmingErrorHandler: @escaping ProgrammingErrorHandler = failFastProgrammingErrorHandler
     ) throws(SFTPClientInvalidConfig) {
         // initial validation
         guard openSocketIn.hostnameCheckup != .invalid else {
@@ -135,8 +131,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
         self.tcpLocation = openSocketIn
         self.operationsTimeOut = normalizedOperationsTimeOut
         self.hostKeyAcceptance = hostKeyAcceptance
-        self.logger = logger
-        self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
+        self.programmingErrorHandler = programmingErrorHandler
         self.authentication = authentication
         self.compressionPreference = (
             clientToServer: CompressionAlgorithm.sanitizePreferencesArray(compressionPreference.clientToServer),
@@ -202,9 +197,8 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             _closed
         }
 
-        if trapOnDeInitWithoutClose, !closed {
-            logger?.error("`SFTPClient` was destroyed without calling `close()` before.")
-            raiseTrap()
+        if !closed {
+            programmingErrorHandler(.sftpClientWasDeinitedWithoutClosingFirst)
         }
     }
 }

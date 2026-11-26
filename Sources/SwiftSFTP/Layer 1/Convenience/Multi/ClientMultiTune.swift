@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 import PathWorks
 
 /// The direction of a transfer used for tuning.
@@ -34,8 +33,8 @@ public extension SFTPClientProtocol {
     ///   - testFilePath: Remote path transferred by every round.
     ///   - testFileSize: Size of the generated upload payload. Ignored for downloads.
     ///   - bestOf: How many complete searches to run. Values below one run one search.
-    ///   - logger: Optional logger that receives one `info` line per round with its worker count, duration, and
-    /// throughput, plus the result of each search and the final pick.
+    ///   - onRound: Called after every timed round with its search, worker count, size, and duration, in the order the
+    /// rounds run.
     /// - Returns: The worker count that achieved the highest throughput.
     /// - Throws: ``FileTransferErrors`` when the download test file is missing or not a regular file or when a round is
     /// cancelled, `CancellationError` when cancellation lands between rounds, otherwise forwards transfer, SFTP, and
@@ -49,7 +48,7 @@ public extension SFTPClientProtocol {
         // directories created might be not
         testFileSize: UInt64 = 10 * 1024 * 1024,
         bestOf: Int = 1,
-        logger: Logger? = nil
+        onRound: ((MultiTuneRound) -> Void)? = nil
     ) async throws -> Int {
         var best = (workers: 0, speed: Double.zero)
 
@@ -61,25 +60,16 @@ public extension SFTPClientProtocol {
                 workersStep: workersStep,
                 workersMax: workersMax,
                 testFilePath: testFilePath,
-                testFileSize: testFileSize,
-                logger: logger
-            )
-            logger?.info(
-                """
-                multiTune: search \(attempt) of \(max(bestOf, 1)) picked \(result.workers) worker(s) \
-                at \((result.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s
-                """
-            )
+                testFileSize: testFileSize
+            ) { workers, bytes, duration in
+                onRound?(MultiTuneRound(search: attempt, workers: workers, bytes: bytes, duration: duration))
+            }
 
             if result.speed > best.speed {
                 best = result
             }
         }
 
-        logger?
-            .info(
-                "multiTune: best \(best.workers) worker(s) at \((best.speed / (1024 * 1024)).twoDecimalPlacesString) MiB/s"
-            )
         return best.workers
     }
 }
@@ -93,7 +83,7 @@ private extension SFTPClientProtocol {
         workersMax: UInt,
         testFilePath: String,
         testFileSize: UInt64,
-        logger: Logger?
+        onRound: (_ workers: Int, _ bytes: UInt64, _ duration: TimeInterval) -> Void
     ) async throws -> (workers: Int, speed: Double) {
         try Task.checkCancellation()
         let remotePath = testFilePath.sanitizePath
@@ -108,7 +98,7 @@ private extension SFTPClientProtocol {
                 try? FileManager.default.removeItem(at: source)
             }
 
-            return try await tuneWorkerCount(bytes: testFileSize, schedule: schedule, logger: logger) { workers in
+            return try await tuneWorkerCount(bytes: testFileSize, schedule: schedule, onRound: onRound) { workers in
                 try await multiUpload(from: source, to: remotePath, workers: workers) { _, _, _, _ in
                     !Task.isCancelled
                 }
@@ -130,7 +120,7 @@ private extension SFTPClientProtocol {
             return try await tuneWorkerCount(
                 bytes: sourceStat.attributes.fileSize,
                 schedule: schedule,
-                logger: logger
+                onRound: onRound
             ) { workers in
                 let destination = FileManager.default.temporaryDirectory
                     .appendingPathComponent("\(Foundation.UUID().uuidString).multitune")
@@ -169,7 +159,7 @@ struct TuneSchedule {
 func tuneWorkerCount(
     bytes: UInt64,
     schedule: TuneSchedule,
-    logger: Logger? = nil,
+    onRound: (_ workers: Int, _ bytes: UInt64, _ duration: TimeInterval) -> Void = { _, _, _ in },
     now: () -> Date = Date.init,
     round: (Int) async throws -> Void
 ) async throws -> (workers: Int, speed: Double) {
@@ -184,15 +174,9 @@ func tuneWorkerCount(
         try await round(workers)
         let elapsed = now().timeIntervalSince(started)
         let throughput = Double(bytes) / max(elapsed, .leastNormalMagnitude)
-        logger?.info(
-            """
-            multiTune: \(workers) worker(s) transferred \(bytes) bytes in \(elapsed.twoDecimalPlacesString)s \
-            at \((throughput / (1024 * 1024)).twoDecimalPlacesString) MiB/s
-            """
-        )
+        onRound(workers, bytes, elapsed)
 
         guard throughput > bestThroughput else {
-            logger?.info("multiTune: \(workers) worker(s) did not improve, keeping \(bestWorkers)")
             break
         }
 
@@ -202,13 +186,6 @@ func tuneWorkerCount(
     }
 
     return (bestWorkers, bestThroughput)
-}
-
-extension Double {
-    /// Trims a measurement to two decimals for log output.
-    var twoDecimalPlacesString: String {
-        String(format: "%.2f", self)
-    }
 }
 
 /// Builds an incompressible payload so a compressing transport cannot flatter the measurement.

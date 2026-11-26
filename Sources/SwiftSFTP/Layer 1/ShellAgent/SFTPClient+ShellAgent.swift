@@ -6,7 +6,7 @@ public extension SFTPClient {
     /// When `shellType` is `nil`, the remote host is probed with one-shot `exec` helpers (`uname`, then Windows
     /// PowerShell / `cmd` heuristics). The client must already be logged in. The returned agent reuses one channel
     /// until
-    /// ``SSHShellAgent/close()``; it inherits this client's `trapOnDeInitWithoutClose` and logger.
+    /// ``SSHShellAgent/close()``; it inherits this client's `programmingErrorHandler`.
     ///
     /// - Parameter shellType: Explicit shell family, or `nil` to detect automatically.
     /// - Returns: A shell agent bound to this client with an open channel.

@@ -61,11 +61,12 @@ struct SFTPClientHostkeyAndAuth {
     }
 
     @Test("infinite operations timeout is accepted as no timeout")
-    func infiniteTimeoutAccepted() throws {
+    func infiniteTimeoutAccepted() async throws {
         let client = try makeClient(
             auth: UserAuthentication(name: "x", auth: .password("x")),
             timeout: .infinity
         )
+        defer { try? await client.close() }
         #expect(!client.closed)
         #expect(client.timeout == .infinity)
     }
@@ -107,11 +108,12 @@ struct SFTPClientHostkeyAndAuth {
     }
 
     @Test("nil timeout is accepted")
-    func nilTimeoutAccepted() throws {
+    func nilTimeoutAccepted() async throws {
         let client = try makeClient(
             auth: UserAuthentication(name: "x", auth: .password("x")),
             timeout: nil
         )
+        defer { try? await client.close() }
         #expect(!client.closed)
         #expect(client.timeout == .infinity)
     }
@@ -280,6 +282,7 @@ struct SFTPClientHostkeyAndAuth {
             let badClient = try makeClient(
                 auth: UserAuthentication(name: TS.testUser, auth: .password("wrong-password"))
             )
+            defer { try? await badClient.close() }
             await #expect(throws: (any Error).self) {
                 try await badClient.login(timeOut: 10.0)
             }
@@ -606,6 +609,7 @@ struct SFTPClientHostkeyAndAuth {
             auth: UserAuthentication(name: "x", auth: .password("x")),
             timeout: nil
         )
+        defer { try? await client.close() }
 
         for interval in [0, -1, .infinity, .nan] {
             await #expect(throws: SFTPClientInvalidConfig.self) {
@@ -654,15 +658,17 @@ struct SFTPClientHostkeyAndAuth {
     }
 
     @Test("client id is unique")
-    func clientIDIsUnique() throws {
+    func clientIDIsUnique() async throws {
         let c1 = try makeClient(
             auth: UserAuthentication(name: "x", auth: .password("x")),
             timeout: nil
         )
+        defer { try? await c1.close() }
         let c2 = try makeClient(
             auth: UserAuthentication(name: "x", auth: .password("x")),
             timeout: nil
         )
+        defer { try? await c2.close() }
         #expect(c1.id != c2.id)
     }
 }

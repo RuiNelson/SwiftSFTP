@@ -54,7 +54,9 @@ let client = try SFTPClient(
         name: "alice",
         auth: .privateKeys(.init(URL(filePath: "/Users/alice/.ssh/id_ed25519")))
     ),
-    trapOnDeInitWithoutClose: true  // triggers SIGTRAP in debug if the client is deallocated without close()
+    programmingErrorHandler: { error in  // optional; the default stops a debug build
+        myLogger.error("\(error.localizedDescription)")
+    }
 )
 
 // Step 2: connect (network I/O)
@@ -80,8 +82,28 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
 | `compressionPreference` | `(clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])` | `([], [])` | Ordered preferences for each direction; an empty array means `[.none]` |
-| `logger` | `Logger?` | `nil` | swift-log logger for close/deinit warnings |
-| `trapOnDeInitWithoutClose` | `Bool` | `true` | `SIGTRAP` if deinit without `close()` (`SFTPClient.init` defaults to `false`) |
+| `programmingErrorHandler` | `ProgrammingErrorHandler` | `failFastProgrammingErrorHandler` | Receives misuse of the library, see [Programming errors](#programming-errors) |
+
+### Programming errors
+
+SwiftSFTP throws for conditions a correct program has to expect, such as a missing remote file or a dropped connection.
+Misuse of the library itself, a bug in the calling code, is a `ProgrammingError` instead, and it is not thrown: the
+client passes it to its `programmingErrorHandler`, which the file handles and shell agents opened from it, and its
+forks, share. Today these are:
+
+| Case | When |
+|------|------|
+| `.sftpClientWasDeinitedWithoutClosingFirst` | An `SFTPClient` was deinitialized before `close()` |
+| `.sftpFileWasDeinitedWithoutClosingFirst` | An `SFTPFile` was deinitialized before `close()` while its client was open |
+| `.sshShellAgentWasDeinitedWithoutClosingFirst` | An `SSHShellAgent` was deinitialized before `close()` while its client was open |
+
+Closing the client releases the file handles and shell agents opened from it, so destroying them afterwards is not an
+error.
+
+The default handler, `failFastProgrammingErrorHandler`, calls `fatalError` in debug builds and prints the error in
+release builds. Pass your own handler to route the errors to your logger, an assertion, or a crash reporter. The
+handler is `@Sendable` and can run on any thread, including inside a `deinit`. SwiftSFTP does not depend on a logging
+library and logs nothing itself.
 
 ### SSH compression
 
@@ -131,7 +153,7 @@ defer { try? await worker.close() }
 ```
 
 The fork inherits the server location, operation timeout, most recently configured login timeout, host-key acceptance
-policy, authentication, compression preferences in both directions, logger, and deinitialization behavior. It has an
+policy, authentication, compression preferences in both directions, and programming error handler. It has an
 independent SSH session, socket, SFTP subsystem, identity, and keepalive state. Pass `false` to create the configured
 client without connecting it.
 
@@ -724,7 +746,9 @@ let workers = try await client.multiTune(
     testFilePath: "/home/alice/tune-probe.bin",
     testFileSize: 10 * 1024 * 1024,
     bestOf: 3,
-    logger: logger
+    onRound: { round in
+        print("\(round.workers) worker(s): \(round.bytesPerSecond / 1_048_576) MiB/s")
+    }
 )
 
 try await client.multiUpload(from: localFile, to: remotePath, workers: workers) { _, _, _, _ in true }
@@ -736,8 +760,8 @@ again. For `.download`, `testFilePath` must already be a remote regular file, `t
 round downloads to a local temporary file that is removed afterwards.
 
 Because a single timed transfer is sensitive to whatever else the link is carrying, `bestOf` repeats the whole search
-and keeps the worker count from the fastest search. The optional `logger` reports each round's duration and
-throughput, each search's pick, and the final result at `info` level. The search is cooperatively cancellable between
+and keeps the worker count from the fastest search. The optional `onRound` callback receives every timed round as a
+`MultiTuneRound`: its search, worker count, size, duration, and throughput. The search is cooperatively cancellable between
 searches, between rounds, and inside each transfer.
 
 Tuning costs `bestOf` × (rounds) full transfers of the test file, so run it once per network and cache the result

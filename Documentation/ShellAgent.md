@@ -41,9 +41,9 @@ timeout so long silent remote work (large copies, archives, downloads) is not cu
 If a command fails mid-stream in a way that may desynchronize the channel, the agent closes itself and further
 operations throw `AlreadyClosed`.
 
-Call `close()` when you are done (same lifecycle as an open `SFTPFile`). The agent inherits the client's
-`trapOnDeInitWithoutClose` setting: if that flag is `true` and the agent is destroyed without `close()`, the process
-raises `SIGTRAP` in debug. Closing the agent after the parent client is already closed is safe (no trap).
+Call `close()` when you are done (same lifecycle as an open `SFTPFile`). An agent destroyed without
+`close()` reports `ProgrammingError.sshShellAgentWasDeinitedWithoutClosingFirst` to the client's
+`programmingErrorHandler`. Closing the agent after the parent client is already closed is safe and reports nothing.
 
 ---
 

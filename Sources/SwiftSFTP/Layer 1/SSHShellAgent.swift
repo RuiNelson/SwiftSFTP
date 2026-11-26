@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 import PathWorks
 
 /// Runs remote shell commands over a **persistent** SSH session channel on the parent client.
@@ -8,16 +7,16 @@ import PathWorks
 /// operations. One channel is opened at creation (interactive shell, or a long-lived PowerShell stdin session on
 /// Windows) and reused until ``close()``.
 ///
-/// Call ``close()`` when finished. When created from a client with `trapOnDeInitWithoutClose: true`, destroying the
-/// agent without `close()` raises `SIGTRAP` (same policy as ``SFTPFile``).
+/// Call ``close()`` when finished. Destroying the agent while its parent client is open and without `close()` reports
+/// ``ProgrammingError/sshShellAgentWasDeinitedWithoutClosingFirst`` to the parent client's `programmingErrorHandler`
+/// (same policy as ``SFTPFile``). Closing the parent client releases the agent as well.
 public final class SSHShellAgent: Sendable {
     /// Detected or caller-supplied remote shell family.
     public let shellType: ShellType
 
     private let client: SFTPClient
     private nonisolated(unsafe) var channel: LibSSH2Channel
-    private let trapOnDeInitWithoutClose: Bool
-    private let logger: Logger?
+    private let programmingErrorHandler: ProgrammingErrorHandler
 
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SSHShellAgent.InternalState")
     private nonisolated(unsafe) var _closed: Bool = false
@@ -49,20 +48,18 @@ public final class SSHShellAgent: Sendable {
         client: SFTPClient,
         shellType: ShellType,
         channel: LibSSH2Channel,
-        logger: Logger?,
-        trapOnDeInitWithoutClose: Bool
+        programmingErrorHandler: @escaping ProgrammingErrorHandler
     ) {
         self.client = client
         self.shellType = shellType
         self.channel = channel
-        self.logger = logger
-        self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
+        self.programmingErrorHandler = programmingErrorHandler
     }
 
     deinit {
-        if trapOnDeInitWithoutClose, !closed {
-            logger?.error("`SSHShellAgent` was destroyed without calling `close()` before.")
-            raiseTrap()
+        // A parent closed first already released the channel with the session, which is a correct shutdown.
+        if !closed, !client.closed {
+            programmingErrorHandler(.sshShellAgentWasDeinitedWithoutClosingFirst)
         }
     }
 }
@@ -77,18 +74,17 @@ public extension SSHShellAgent {
 
     /// Closes the persistent shell channel.
     ///
-    /// Calling `close()` more than once is allowed; later calls log a warning and return. If the parent client is
+    /// Calling `close()` more than once is allowed; later calls return without doing anything. If the parent client is
     /// already closed, the agent is marked closed without touching the channel (the session teardown owns those
-    /// resources), so `trapOnDeInitWithoutClose` does not fire after a parent-first shutdown.
+    /// resources), so no ``ProgrammingError`` is reported after a parent-first shutdown.
     func close() async throws {
         client.withSessionIO {
             internalStateQueue.sync {
                 guard !_closed else {
-                    logger?.warning("Trying to close shell agent that was already closed")
                     return
                 }
 
-                // Mark closed first so trap mode is satisfied even when the parent session is already gone.
+                // Mark closed first so the deinit check is satisfied even when the parent session is already gone.
                 _closed = true
 
                 if client.closed {
@@ -717,8 +713,7 @@ extension SSHShellAgent {
                 client: client,
                 shellType: shellType,
                 channel: channel,
-                logger: client.logger,
-                trapOnDeInitWithoutClose: client.trapOnDeInitWithoutClose
+                programmingErrorHandler: client.programmingErrorHandler
             )
         }
     }

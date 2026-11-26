@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 
 /// Where a write started in the file, how many of its bytes libssh2 was handed, and how many the server acknowledged.
 /// Written under the parent's session I/O lock while the write runs, and read once it has returned.
@@ -25,8 +24,7 @@ public final class SFTPFile: SFTPFileProtocol {
     private let openFiles: OpenFileRegistry?
     /// The file's registration in ``openFiles``.
     private let registration: UInt64?
-    private let trapOnDeInitWithoutClose: Bool
-    private let logger: Logger?
+    private let programmingErrorHandler: ProgrammingErrorHandler
 
     // MARK: State
 
@@ -61,8 +59,7 @@ public final class SFTPFile: SFTPFileProtocol {
         flags: OpenFlags,
         cache: CacheAttachment?,
         registration: UInt64?,
-        logger: Logger?,
-        trapOnDeInitWithoutClose: Bool
+        programmingErrorHandler: @escaping ProgrammingErrorHandler
     ) {
         self.parent = parent
         self.handle = handle
@@ -70,8 +67,7 @@ public final class SFTPFile: SFTPFileProtocol {
         self.cache = cache?.cache
         openFiles = cache?.openFiles
         self.registration = cache == nil ? nil : registration
-        self.logger = logger
-        self.trapOnDeInitWithoutClose = trapOnDeInitWithoutClose
+        self.programmingErrorHandler = programmingErrorHandler
     }
 
     deinit {
@@ -79,9 +75,9 @@ public final class SFTPFile: SFTPFileProtocol {
             openFiles?.unregister(registration)
         }
 
-        if trapOnDeInitWithoutClose, !closed {
-            logger?.error("`SFTPFile` was destroyed without calling `close()` before.")
-            raiseTrap()
+        // A parent closed first already released the handle with the session, which is a correct shutdown.
+        if !closed, !parent.closed {
+            programmingErrorHandler(.sftpFileWasDeinitedWithoutClosingFirst)
         }
     }
 }
@@ -768,7 +764,6 @@ public extension SFTPFile {
                 return !_closed
             }
             guard wasOpen else {
-                logger?.warning("Trying to close file handle that was already closed")
                 outcome.alreadyClosed = true
                 return outcome
             }
@@ -869,7 +864,6 @@ private extension SFTPFile {
             if Self.isTimeout(error) {
                 parent.notePeerResponded(false)
             }
-            logger?.debug("Could not stat the file before closing it: \(error)")
             return nil
         }
     }

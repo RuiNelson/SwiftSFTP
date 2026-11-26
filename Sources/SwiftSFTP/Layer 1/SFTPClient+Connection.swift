@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 
 // MARK: SFTPClientProtocol + Static
 
@@ -63,8 +62,8 @@ public extension SFTPClient {
     ///   - authentication: Username and authentication material.
     ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
     /// sent to the server; `serverToClient` applies to data received from it.
-    ///   - logger: Optional logger used for close/deinit diagnostics.
-    ///   - trapOnDeInitWithoutClose: When `true`, trap if the returned client is deallocated before ``close()``.
+    ///   - programmingErrorHandler: Receives the ``ProgrammingError``s of the client and of the file handles and shell
+    /// agents opened from it.
     /// - Returns: A connected and authenticated SFTP client.
     /// - Throws: ``SFTPClientInvalidConfig`` for invalid configuration, or libssh2/socket/authentication errors from
     /// login.
@@ -78,8 +77,7 @@ public extension SFTPClient {
             [],
             []
         ),
-        logger: Logger? = nil,
-        trapOnDeInitWithoutClose: Bool = true
+        programmingErrorHandler: @escaping ProgrammingErrorHandler = failFastProgrammingErrorHandler
     ) async throws -> Self {
         let instance = try Self(
             openSocketIn: openSocketIn,
@@ -87,8 +85,7 @@ public extension SFTPClient {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            logger: logger,
-            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+            programmingErrorHandler: programmingErrorHandler
         )
 
         do {
@@ -124,7 +121,6 @@ public extension SFTPClient {
             return false
         }
         guard !alreadyLoggedIn else {
-            logger?.warning("Trying to login to SFTPClient that was already logged in")
             return
         }
 
@@ -158,7 +154,6 @@ public extension SFTPClient {
     func close() async throws {
         let resources: TeardownResources? = internalStateQueue.sync {
             guard _closed == false else {
-                logger?.warning("Trying to close SFTPClient that was already closed")
                 return nil
             }
 
@@ -227,8 +222,7 @@ public extension SFTPClient {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            logger: logger,
-            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+            programmingErrorHandler: programmingErrorHandler
         )
 
         instance.internalStateQueue.sync {

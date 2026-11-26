@@ -97,7 +97,6 @@ extension SFTPClient {
             }
             catch {
                 // The call finished with an error of its own, which belongs to nobody now.
-                logger?.debug("Finished an abandoned SFTP \(kind) call that failed with \(error)")
             }
 
             _abandonedCalls[kind] = nil
@@ -146,7 +145,6 @@ extension SFTPClient {
             if Self.isTimeoutOrCancellation(error) {
                 noteAbandonedHandle(handle)
             }
-            logger?.debug("Could not close the handle of an abandoned open: \(error)")
         }
     }
 }

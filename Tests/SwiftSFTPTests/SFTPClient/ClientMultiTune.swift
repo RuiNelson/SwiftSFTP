@@ -115,7 +115,11 @@ struct SFTPClientMultiTuning {
                     workersMax: 3,
                     testFilePath: remotePath,
                     testFileSize: 1024 * 1024,
-                    logger: .init(label: "Multitune")
+                    onRound: { round in
+                        print(
+                            "multiTune: \(round.workers) worker(s), \(round.bytes) bytes in \(round.duration)s"
+                        )
+                    }
                 )
 
                 #expect((1 ... 3).contains(workers))

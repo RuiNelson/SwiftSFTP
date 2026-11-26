@@ -435,7 +435,7 @@ func withStalledConnection(
                 operationsTimeOut: operationsTimeOut,
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                logger: nil
+                programmingErrorHandler: recordProgrammingError
             )
             if let gracePeriod {
                 client.teardownGracePeriod = gracePeriod

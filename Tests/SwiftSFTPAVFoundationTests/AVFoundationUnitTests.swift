@@ -102,7 +102,10 @@
     private func makeUnconnectedClient() throws -> SFTPClient {
         try SFTPClient(
             openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-            authentication: UserAuthentication(name: "unused", auth: .password("unused"))
+            authentication: UserAuthentication(name: "unused", auth: .password("unused")),
+            programmingErrorHandler: { error in
+                Issue.record(error, "Programming error: \(error.localizedDescription)")
+            }
         )
     }
 #endif

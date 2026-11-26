@@ -92,7 +92,6 @@ extension SFTPClient {
         if let deadline {
             politely = sessionIOLock.lock(before: deadline)
             if !politely {
-                logger?.debug("Session busy at close; dropping the socket to unblock it")
                 if let socket = resources.socket {
                     try? ShutdownSocket(socket)
                 }
@@ -109,7 +108,6 @@ extension SFTPClient {
 
         if politely, let deadline {
             if peerStoppedResponding {
-                logger?.debug("Peer already stopped responding; skipping the goodbye")
                 politely = false
             }
             else if Self.remainingGrace(until: deadline) == nil {
@@ -170,8 +168,6 @@ extension SFTPClient {
             catch { firstError = firstError ?? error }
         }
 
-        logger?.trace("SFTPClient closed successfully")
-
         if let firstError {
             throw firstError
         }
@@ -200,7 +196,6 @@ private extension SFTPClient {
             }
             catch {
                 // Expected: the socket is gone. The failure path is what frees the handle.
-                logger?.trace("Reclaimed an abandoned file handle after \(error)")
             }
         }
 
@@ -216,7 +211,6 @@ private extension SFTPClient {
     func attemptGracefully(before deadline: Date?, _ label: String, _ step: () throws -> Void) -> Bool {
         if let deadline {
             guard let remaining = Self.remainingGrace(until: deadline) else {
-                logger?.debug("Skipping \(label): teardown grace period already spent")
                 return false
             }
 
@@ -228,7 +222,6 @@ private extension SFTPClient {
             return true
         }
         catch {
-            logger?.debug("Giving up on \(label) during close: \(error)")
             return false
         }
     }

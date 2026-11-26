@@ -209,12 +209,8 @@ private extension SFTPClient {
 
         let handle = try openHandle(path: sanitizedPath, flags: .read, mode: [], openType: .directory)
         defer {
-            do {
-                try closeHandle(handle)
-            }
-            catch {
-                logger?.error("Failed to close directory handle for \(sanitizedPath): \(String(describing: error))")
-            }
+            // A directory handle that fails to close leaves nothing for the caller to act on.
+            try? closeHandle(handle)
         }
 
         var openedDirectories = openedDirectories

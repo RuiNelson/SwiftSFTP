@@ -258,8 +258,7 @@ public extension SFTPClient {
             flags: flags,
             cache: attachment,
             registration: registration,
-            logger: logger,
-            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+            programmingErrorHandler: programmingErrorHandler
         )
     }
 }

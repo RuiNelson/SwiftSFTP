@@ -61,7 +61,8 @@ struct SFTPReadOnlyRegressionTests {
             openSocketIn: .init(hostname: host, port: port),
             operationsTimeOut: 5,
             hostKeyAcceptance: .shortHandAcceptedKeys([key]),
-            authentication: .init(name: user, auth: .password(password))
+            authentication: .init(name: user, auth: .password(password)),
+            programmingErrorHandler: recordProgrammingError
         )
         do {
             try await client.login(timeOut: 5)

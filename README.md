@@ -434,7 +434,6 @@ SwiftSFTP depends on the following libraries. Their licenses apply when you use 
 | **libssh2** | SSH/SFTP protocol (vendored C sources) | [BSD-3-Clause](Vendor/libssh2/COPYING) | [Vendor/libssh2/COPYING](Vendor/libssh2/COPYING) |
 | **OpenSSL** | Cryptography (pinned source snapshot, compiled by SwiftPM) | [Apache License 2.0](https://github.com/RuiNelson/SwiftSFTP-OpenSSL/blob/main/Sources/OpenSSLCrypto/LICENSE.txt) | [SwiftSFTP-OpenSSL](https://github.com/RuiNelson/SwiftSFTP-OpenSSL) |
 | **PathWorks** | Path utilities (SwiftPM dependency) | [MIT](https://github.com/RuiNelson/PathWorks/blob/main/LICENSE) | [PathWorks](https://github.com/RuiNelson/PathWorks) |
-| **swift-log** | Logging (SwiftPM dependency) | [Apache License 2.0](https://github.com/apple/swift-log/blob/main/LICENSE.txt) | [apple/swift-log](https://github.com/apple/swift-log) |
 
 ### Use in commercial closed-source software
 
@@ -448,7 +447,7 @@ In practice, that means you may:
 
 You remain responsible for meeting each license’s **attribution and notice** requirements. Typical obligations when you distribute a binary that includes this software:
 
-- **Apache 2.0** (SwiftSFTP, OpenSSL, swift-log): include a copy of the license; retain copyright and attribution notices; if you modify the licensed work, state that you changed it; if a `NOTICE` file is present, include its attribution notices as required by the license
+- **Apache 2.0** (SwiftSFTP, OpenSSL): include a copy of the license; retain copyright and attribution notices; if you modify the licensed work, state that you changed it; if a `NOTICE` file is present, include its attribution notices as required by the license
 - **BSD-3-Clause** (libssh2): retain the copyright notice, conditions, and disclaimer in source redistributions; reproduce them in documentation and/or other materials provided with binary redistributions; do not use the copyright holders’ names to endorse your product without permission
 - **MIT** (PathWorks): include the copyright notice and permission notice in all copies or substantial portions of the software
 

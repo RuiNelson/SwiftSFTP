@@ -94,7 +94,6 @@ private extension SFTPClient {
                         throw error
                     }
                     // The packet went out; the failure is the write's own, which belongs to nobody now.
-                    logger?.debug("Finished sending an interrupted SFTP write that failed with \(error)")
                     break
                 }
 

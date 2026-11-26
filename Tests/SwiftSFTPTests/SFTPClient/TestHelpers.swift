@@ -4,6 +4,12 @@ import Testing
 
 // MARK: - Shared SFTPClient Test Helpers
 
+/// Records a ``ProgrammingError`` as a test issue instead of stopping the test process, as the default handler does in
+/// debug builds.
+let recordProgrammingError: ProgrammingErrorHandler = { error in
+    Issue.record(error, "Programming error: \(error.localizedDescription)")
+}
+
 extension TS {
     static let testUser = "bulbasaur"
     static let testHome = "/home/bulbasaur"
@@ -26,7 +32,7 @@ func makeClient(
         operationsTimeOut: timeout,
         hostKeyAcceptance: hostKeyAcceptance,
         authentication: auth,
-        logger: nil
+        programmingErrorHandler: recordProgrammingError
     )
 }
 

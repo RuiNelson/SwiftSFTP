@@ -1,6 +1,5 @@
 @testable import SwiftSFTP
 import Foundation
-import Logging
 
 /// Failures to inject into a transfer, shared by a client, every fork of it, and every file handle they open.
 ///
@@ -44,8 +43,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
-        logger: Logger?,
-        trapOnDeInitWithoutClose: Bool
+        programmingErrorHandler: @escaping ProgrammingErrorHandler
     ) throws(SFTPClientInvalidConfig) {
         base = try SFTPClient(
             openSocketIn: openSocketIn,
@@ -53,8 +51,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            logger: logger,
-            trapOnDeInitWithoutClose: trapOnDeInitWithoutClose
+            programmingErrorHandler: programmingErrorHandler
         )
         faults = InjectedFaults()
     }

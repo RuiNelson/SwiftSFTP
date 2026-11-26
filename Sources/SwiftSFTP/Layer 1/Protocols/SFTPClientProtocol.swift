@@ -1,5 +1,4 @@
 import Foundation
-import Logging
 
 /// A connected SFTP client interface.
 ///
@@ -32,9 +31,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - authentication: Username and authentication material.
     ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
     /// sent to the server; `serverToClient` applies to data received from it.
-    ///   - logger: Optional logger used for close/deinit diagnostics.
-    ///   - trapOnDeInitWithoutClose: When `true`, the concrete client traps if it is deallocated before ``close()``;
-    /// file handles opened from the client inherit the same behavior.
+    ///   - programmingErrorHandler: Receives the ``ProgrammingError``s of the client, such as deinitialization before
+    /// ``close()``. File handles and shell agents opened from the client report to the same handler.
     /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created.
     init(
         openSocketIn: TCPLocation,
@@ -42,8 +40,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
-        logger: Logger?,
-        trapOnDeInitWithoutClose: Bool
+        programmingErrorHandler: @escaping ProgrammingErrorHandler
     ) throws(SFTPClientInvalidConfig)
 
     /// Connects only long enough to fetch the server host key, then disconnects.
@@ -78,8 +75,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
 
     /// Closes the SFTP subsystem, disconnects and frees the SSH session, and closes the socket.
     ///
-    /// Calling `close()` more than once is allowed by the concrete implementation; later calls log a warning and
-    /// return.
+    /// Calling `close()` more than once is allowed by the concrete implementation; later calls return without doing
+    /// anything.
     ///
     /// The polite SSH/SFTP goodbye needs the peer to answer, so the concrete implementation gives it a short grace
     /// period and then drops the socket regardless. That keeps `close()` bounded on a connection that has stopped
@@ -108,8 +105,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, logger, and deinitialization
-    /// behavior.
+    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and programming error handler.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
