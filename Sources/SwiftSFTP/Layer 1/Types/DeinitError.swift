@@ -38,6 +38,8 @@ public typealias DeinitErrorHandler = @Sendable (DeinitError) -> Void
 /// The default ``DeinitErrorHandler``: prints the failure in a debug build and ignores it in a release build.
 public func debugPrintDeinitErrorHandler(_ error: DeinitError) {
     #if DEBUG
-        print("SwiftSFTP: \(error.localizedDescription)")
+        DispatchQueue.main.async {
+            print("SwiftSFTP: \(error.localizedDescription)")
+        }
     #endif
 }
