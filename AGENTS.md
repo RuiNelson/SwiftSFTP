@@ -145,7 +145,6 @@ swift test --scratch-path /private/tmp/SwiftSFTP-NG-test --traits EXIFKit
 
 ## Git Hygiene
 
-- Always run the format script `./format.sh` before committing
 - The worktree may contain user changes. Do not revert changes you did not make.
 - Use Conventional Commits for commit messages.
 
