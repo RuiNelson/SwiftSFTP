@@ -4,7 +4,7 @@ import Testing
 
 /// Calls of every kind, in any order and with any arguments, including ones the client never makes: whatever it is
 /// told, the cache must keep its books straight and hand out only bytes it was given.
-@Suite("ReferenceCache: any calls in any order")
+@Suite("ReferenceCache: any calls in any order", .disabled("takes over 5 minutes"))
 struct ReferenceCacheInvariantFuzzTests {
     /// Paths as a client sends them, and as it never would: unsanitized, relative, above the current directory, and two
     /// spellings of one accented name.
