@@ -20,6 +20,7 @@ final class StallingProxy: @unchecked Sendable {
     private var _relayedToServer = 0
     private var _stallAfterBytes: Int
     private var _uploadsStalled = false
+    private var _clientConnectionsEnded = 0
 
     /// Starts listening on an ephemeral loopback port.
     ///
@@ -101,6 +102,13 @@ final class StallingProxy: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return _relayedToServer
+    }
+
+    /// How many client connections the client ended, by closing or shutting down its socket.
+    var clientConnectionsEnded: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _clientConnectionsEnded
     }
 
     /// Whether the server-to-client direction has spent its byte budget and gone silent.
@@ -355,6 +363,12 @@ private extension StallingProxy {
 
             let received = buffer.withUnsafeMutableBytes { Self.receive(from: source, into: $0) }
             guard received > 0 else {
+                // The client-to-server direction reads from the client: an end of stream there is the client's doing.
+                if !stalling, running {
+                    lock.lock()
+                    _clientConnectionsEnded += 1
+                    lock.unlock()
+                }
                 return
             }
 
@@ -434,8 +448,7 @@ func withStalledConnection(
                 openSocketIn: TCPLocation(hostname: "127.0.0.1", port: proxy.port),
                 operationsTimeOut: operationsTimeOut,
                 hostKeyAcceptance: .acceptAny,
-                authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                programmingErrorHandler: recordProgrammingError
+                authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password))
             )
             if let gracePeriod {
                 client.teardownGracePeriod = gracePeriod

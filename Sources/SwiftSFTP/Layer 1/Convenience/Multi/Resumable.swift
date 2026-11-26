@@ -27,8 +27,8 @@ public extension SFTPClientProtocol {
     /// are treated as zero, which deletes every temporary file in the directory.
     /// - Returns: The full paths of the files that were deleted, sorted, or an empty array when nothing matched.
     /// - Throws: ``FileTransferErrors/remoteDirectoryNotFound(path:)`` when `remotePath` is missing or is not a
-    /// directory; otherwise ``AlreadyClosed``, ``NotLoggedIn``, or the libssh2/SFTP error that stopped the listing. A
-    /// missing directory throws rather than sweeping nothing so that a mistyped path cannot masquerade as a clean one;
+    /// directory; otherwise the libssh2/SFTP error that stopped the listing. A missing directory throws rather than
+    /// sweeping nothing so that a mistyped path cannot masquerade as a clean one;
     /// `try?` collapses the two again for callers who do not care.
     func cleanupResumableUploads(in remotePath: String, olderThan age: TimeInterval) async throws -> [String] {
         let directory = remotePath.sanitizePath
@@ -69,13 +69,11 @@ public extension SFTPClientProtocol {
     /// - Returns: The URLs of the files that were deleted, sorted by path, or an empty array when nothing matched. Each
     /// one is `localURL` plus a file name, so the results stay in the caller's frame of reference rather than in
     /// whatever form `FileManager` resolved the directory to.
-    /// - Throws: ``FileTransferErrors/notAFileURL`` when `localURL` is not a file URL, or the `CocoaError` that
+    /// - Throws: The `CocoaError` that
     /// `FileManager` raises when the directory is missing or unreadable — `fileReadNoSuchFile` for a missing one.
     /// Individual deletions that fail are skipped, exactly as in the remote sweep.
     func cleanupResumableDownloads(in localURL: URL, olderThan age: TimeInterval) throws -> [URL] {
-        guard localURL.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
+        precondition(localURL.isFileURL, "localURL must be a file URL")
 
         let cutoff = Date.resumableCleanupCutoff(age: age)
         // Listing names rather than URLs keeps every URL below anchored on `localURL`; the URL-returning overload hands
@@ -314,7 +312,7 @@ extension SFTPClientProtocol {
         doNotResume: Bool = false,
         continuation: @escaping TransferProgress
     ) async throws {
-        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
+        validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
 
         let (sourcePath, source) = try await resolveMultiTransferSource(remotePath: remotePath)
 

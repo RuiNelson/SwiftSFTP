@@ -53,6 +53,8 @@ struct Cookbook {
         let firstBytes = try await myFileHandle.read(upTo: 1024)
         myFileHandle.offset = 2048
         // ...
+
+        // Optional: a released handle closes itself. Close it when the outcome matters, such as before a rename.
         try await myFileHandle.close()
 
         // - Upload a file
@@ -72,7 +74,7 @@ struct Cookbook {
         // - Deletes a file or directory with everything in it (less radical methods available)
         try await myClient.delete(path: "myfolder")
 
-        // - Close
+        // - Close (optional: a released client closes itself, without waiting for the server)
         try await myClient.close()
         
         #expect(firstBytes?.count == 1024)

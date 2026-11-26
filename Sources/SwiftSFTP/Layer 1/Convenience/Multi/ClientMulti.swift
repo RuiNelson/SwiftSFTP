@@ -285,7 +285,7 @@ public extension SFTPClientProtocol {
             )
         }
 
-        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
+        validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
 
         let (sourcePath, sourceStat) = try await resolveMultiTransferSource(remotePath: remotePath)
 
@@ -465,17 +465,10 @@ func provisionMultiTransferWorkers<Worker: Sendable>(
     return workers
 }
 
-/// Rejects the two arguments every multi-worker transfer needs before it does anything else.
-///
-/// - Throws: ``FileTransferErrors/notAFileURL`` or ``FileTransferErrors/invalidBufferSize``.
-func validateMultiTransferInputs(localURL: URL, bufferSize: Int) throws {
-    guard localURL.isFileURL else {
-        throw FileTransferErrors.notAFileURL
-    }
-
-    guard bufferSize > 0 else {
-        throw FileTransferErrors.invalidBufferSize
-    }
+/// Stops the process unless the two arguments every multi-worker transfer needs can mean anything.
+func validateMultiTransferInputs(localURL: URL, bufferSize: Int) {
+    precondition(localURL.isFileURL, "localURL must be a file URL")
+    precondition(bufferSize > 0, "bufferSize must be greater than zero")
 }
 
 extension SFTPClientProtocol {
@@ -485,14 +478,13 @@ extension SFTPClientProtocol {
     /// fails, which is why both public upload methods document that they leave the chain behind.
     ///
     /// - Returns: The local file's path and the sanitized destination path.
-    /// - Throws: ``FileTransferErrors/notAFileURL``, ``FileTransferErrors/invalidBufferSize``, or
-    /// ``FileTransferErrors/localFileNotFound``; otherwise whatever creating the directory raised.
+    /// - Throws: ``FileTransferErrors/localFileNotFound``; otherwise whatever creating the directory raised.
     func prepareMultiTransferUpload(
         localURL: URL,
         remotePath: String,
         bufferSize: Int
     ) async throws -> (localPath: String, destinationPath: String) {
-        try validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
+        validateMultiTransferInputs(localURL: localURL, bufferSize: bufferSize)
 
         let localPath = localURL.path
         guard FileManager.default.fileExists(atPath: localPath) else {

@@ -8,7 +8,7 @@ extension SFTPClientProtocol {
     /// - Parameter directory: Remote directory whose contents should be measured.
     /// - Returns: The total size in bytes.
     /// - Throws: ``FileTransferErrors/remoteDirectoryNotFound(path:)`` when the path is missing or is not a directory;
-    /// otherwise ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// otherwise libssh2/SFTP errors.
     public func directorySize(_ directory: String) async throws -> Int64 {
         guard try await statDirectory(path: directory, followLink: false) != nil else {
             throw FileTransferErrors.remoteDirectoryNotFound(path: directory)

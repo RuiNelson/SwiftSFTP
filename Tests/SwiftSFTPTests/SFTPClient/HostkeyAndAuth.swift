@@ -40,25 +40,57 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("rejects negative timeout")
-    func rejectsNegativeTimeout() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                auth: UserAuthentication(name: "x", auth: .password("x")),
-                timeout: -1
-            )
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("a negative, zero, or NaN operations timeout stops the process")
+        func rejectsInvalidOperationsTimeout() async {
+            await #expect(processExitsWith: .failure) {
+                _ = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost"),
+                    operationsTimeOut: -1,
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+            }
+            await #expect(processExitsWith: .failure) {
+                _ = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost"),
+                    operationsTimeOut: 0,
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+            }
+            await #expect(processExitsWith: .failure) {
+                _ = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost"),
+                    operationsTimeOut: .nan,
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+            }
         }
-    }
 
-    @Test("rejects zero timeout")
-    func rejectsZeroTimeout() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                auth: UserAuthentication(name: "x", auth: .password("x")),
-                timeout: 0
-            )
+        @Test("a non-positive login timeout or timeout setting stops the process")
+        func rejectsInvalidTimeouts() async {
+            await #expect(processExitsWith: .failure) {
+                let client = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+                try? await client?.login(timeOut: 0)
+            }
+            await #expect(processExitsWith: .failure) {
+                let client = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+                client?.timeout = -1
+            }
+            await #expect(processExitsWith: .failure) {
+                let client = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+                client?.teardownGracePeriod = .nan
+            }
         }
-    }
+    #endif
 
     @Test("infinite operations timeout is accepted as no timeout")
     func infiniteTimeoutAccepted() async throws {
@@ -148,16 +180,18 @@ struct SFTPClientHostkeyAndAuth {
         #expect(parts.count == 3)
     }
 
-    @Test("getServerHostKey rejects invalid timeout")
-    func getServerHostKeyInvalidTimeout() async {
-        await #expect(throws: SFTPClientInvalidConfig.self) {
-            try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: -1,
-                shortHandForm: true
-            )
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("getServerHostKey with a negative timeout stops the process")
+        func getServerHostKeyInvalidTimeout() async {
+            await #expect(processExitsWith: .failure) {
+                _ = try? await SFTPClient.getServerHostKey(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    timeOut: -1,
+                    shortHandForm: true
+                )
+            }
         }
-    }
+    #endif
 
     // MARK: - Host Key Acceptance Modes
 
@@ -445,8 +479,9 @@ struct SFTPClientHostkeyAndAuth {
 
         #expect(fork.id != client.id)
         #expect(fork.timeout == 7.0)
-        await #expect(throws: NotLoggedIn.self) {
-            _ = try await fork.currentWorkingDirectory
+        // The fork reports to the handler it inherited.
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await fork.currentWorkingDirectory
         }
 
         try await fork.close()
@@ -505,73 +540,87 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("fork throws AlreadyClosed after close")
-    func forkThrowsAlreadyClosed() async throws {
+    @Test("logging in twice is ignored in a release build and leaves the connection usable")
+    func loginTwiceIsIgnored() async throws {
+        try await withClient { client in
+            try await MisuseScope.$assertsOnMisuse.withValue(false) {
+                try await client.login(timeOut: 10)
+            }
+            let workingDirectory = try await client.currentWorkingDirectory
+            #expect(workingDirectory == TS.testHome)
+        }
+    }
+
+    @Test("fork after close is reported and throws")
+    func forkAfterCloseIsReported() async throws {
         let client = try makeClient()
         try await client.close()
 
-        await #expect(throws: AlreadyClosed.self) {
-            _ = try await client.fork(loggedIn: false)
+        await expectMisuse(.clientUsedAfterClosing) {
+            try await client.fork(loggedIn: false)
         }
     }
 
-    @Test("operations throw AlreadyClosed after close")
-    func operationsThrowAlreadyClosed() async throws {
+    @Test("operations after close are reported and throw")
+    func operationsAfterCloseAreReported() async throws {
         try await withClient { client in
             try await client.close()
 
-            await #expect(throws: AlreadyClosed.self) {
-                _ = try await client.currentWorkingDirectory
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.currentWorkingDirectory
             }
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.clientUsedAfterClosing) {
                 try await client.contentsOfDirectory(path: ".", recursive: false)
             }
-            await #expect(throws: AlreadyClosed.self) {
-                _ = try await client.stat(path: ".", followLink: false)
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.stat(path: ".", followLink: false)
             }
-            await #expect(throws: AlreadyClosed.self) {
-                try await client.createDirectory(path: uniqueRemotePath(), makePath: true, mode: .serverDefault)
-            }
-            await #expect(throws: AlreadyClosed.self) {
-                try await client.deleteFile(path: uniqueRemotePath())
-            }
-            await #expect(throws: AlreadyClosed.self) {
-                try await client.rename(from: "a", to: "b")
-            }
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.clientUsedAfterClosing) {
                 try await client.followLink(path: ".")
             }
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.clientUsedAfterClosing) {
                 try await client.openFile(.read, path: ".")
+            }
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.createDirectory(path: uniqueRemotePath(), makePath: true, mode: .serverDefault)
+            }
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.deleteFile(path: uniqueRemotePath())
+            }
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.rename(from: "a", to: "b")
+            }
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await client.login(timeOut: 10)
             }
         }
     }
 
-    @Test("operations throw NotLoggedIn before login")
-    func operationsThrowNotLoggedInBeforeLogin() async throws {
-        try await withClient { _ in
-            let client = try makeClient(
-                auth: UserAuthentication(name: "x", auth: .password("x")),
-                timeout: nil
-            )
-            #expect(!client.closed)
+    @Test("operations before login are reported and throw")
+    func operationsBeforeLoginAreReported() async throws {
+        let client = try makeClient(
+            auth: UserAuthentication(name: "x", auth: .password("x")),
+            timeout: nil
+        )
+        defer { try? await client.close() }
 
-            await #expect(throws: NotLoggedIn.self) {
-                _ = try await client.currentWorkingDirectory
-            }
-            await #expect(throws: NotLoggedIn.self) {
-                try await client.contentsOfDirectory(path: ".", recursive: false)
-            }
-            await #expect(throws: NotLoggedIn.self) {
-                _ = try await client.stat(path: ".", followLink: false)
-            }
-            await #expect(throws: NotLoggedIn.self) {
-                try await client.createDirectory(path: uniqueRemotePath(), makePath: true, mode: .serverDefault)
-            }
-            await #expect(throws: NotLoggedIn.self) {
-                try await client.deleteFile(path: uniqueRemotePath())
-            }
-            try await client.close()
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.currentWorkingDirectory
+        }
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.contentsOfDirectory(path: ".", recursive: false)
+        }
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.stat(path: ".", followLink: false)
+        }
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.banner
+        }
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.createDirectory(path: uniqueRemotePath(), makePath: true, mode: .serverDefault)
+        }
+        await expectMisuse(.clientUsedBeforeLogin) {
+            try await client.deleteFile(path: uniqueRemotePath())
         }
     }
 
@@ -603,20 +652,21 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("keepalive rejects invalid intervals")
-    func keepAliveRejectsInvalidIntervals() async throws {
-        let client = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: nil
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test(
+            "a keepalive interval that is not positive and finite stops the process",
+            arguments: [0, -1, .infinity, .nan]
         )
-        defer { try? await client.close() }
-
-        for interval in [0, -1, .infinity, .nan] {
-            await #expect(throws: SFTPClientInvalidConfig.self) {
-                try await client.setKeepAlive(every: interval)
+        func keepAliveRejectsInvalidIntervals(interval: TimeInterval) async {
+            await #expect(processExitsWith: .failure) { [interval] in
+                let client = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+                try? await client?.setKeepAlive(every: interval)
             }
         }
-    }
+    #endif
 
     @Test("keepalive loop reports a later send failure once")
     func keepAliveLoopReportsLaterFailureOnce() async {

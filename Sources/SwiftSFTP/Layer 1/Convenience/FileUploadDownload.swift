@@ -97,13 +97,8 @@ public extension SFTPFileProtocol {
         bufferSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws -> UInt64 {
-        guard file.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
-
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
+        precondition(file.isFileURL, "file must be a file URL")
+        precondition(bufferSize > 0, "bufferSize must be greater than zero")
 
         let localPath = file.path
         guard FileManager.default.fileExists(atPath: localPath) else {
@@ -192,13 +187,8 @@ public extension SFTPFileProtocol {
         bufferSize: Int = 512 * 1024,
         continuation: @escaping TransferProgress
     ) async throws -> UInt64 {
-        guard file.isFileURL else {
-            throw FileTransferErrors.notAFileURL
-        }
-
-        guard bufferSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
+        precondition(file.isFileURL, "file must be a file URL")
+        precondition(bufferSize > 0, "bufferSize must be greater than zero")
 
         let localPath = file.path
         var isDirectory = ObjCBool(false)
@@ -338,9 +328,7 @@ public extension SFTPFileProtocol {
         chunkSize: Int,
         continuation: @escaping TransferProgress
     ) async throws {
-        guard chunkSize > 0 else {
-            throw FileTransferErrors.invalidBufferSize
-        }
+        precondition(chunkSize > 0, "chunkSize must be greater than zero")
 
         guard upTo.map({ $0 > 0 }) ?? true else {
             return

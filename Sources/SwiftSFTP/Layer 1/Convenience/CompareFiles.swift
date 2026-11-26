@@ -38,7 +38,7 @@ public extension SFTPClientProtocol {
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
     /// path is missing or not a regular file. Below a `minimumCoverage` of `1.0`, `true` only vouches for the blocks
     /// compared.
-    /// - Throws: libssh2/SFTP errors, ``AlreadyClosed``, or `CancellationError`.
+    /// - Throws: libssh2/SFTP errors, or `CancellationError`.
     func compareFiles(
         _ fileA: String,
         _ fileB: String,
@@ -123,7 +123,7 @@ public extension SFTPClientProtocol {
     /// - Returns: `true` when every compared block matches. `false` when the sizes differ, a block differs, or either
     /// path is missing or not a regular file. Below a `minimumCoverage` of `1.0`, `true` only vouches for the blocks
     /// compared.
-    /// - Throws: Local file errors, libssh2/SFTP errors, ``AlreadyClosed``, or `CancellationError`.
+    /// - Throws: Local file errors, libssh2/SFTP errors, or `CancellationError`.
     func compareFiles(
         local: URL,
         remote: String,

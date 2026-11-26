@@ -43,7 +43,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
-        programmingErrorHandler: @escaping ProgrammingErrorHandler
+        deinitErrorHandler: @escaping DeinitErrorHandler
     ) throws(SFTPClientInvalidConfig) {
         base = try SFTPClient(
             openSocketIn: openSocketIn,
@@ -51,7 +51,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            programmingErrorHandler: programmingErrorHandler
+            deinitErrorHandler: deinitErrorHandler
         )
         faults = InjectedFaults()
     }

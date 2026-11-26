@@ -237,17 +237,6 @@ struct ShellAgentIntegrationTests {
         }
     }
 
-    @Test("concat rejects an empty source list")
-    func concatEmptySources() async throws {
-        try await withClient { client in
-            try await withShellAgent(client) { agent in
-                await #expect(throws: ShellAgentError.invalidArgument("concat requires at least one source file")) {
-                    try await agent.concat(files: [], to: "/tmp/out.bin")
-                }
-            }
-        }
-    }
-
     // MARK: - Create zeros / random
 
     @Test("createZeros writes a zero-filled file of the requested length")
@@ -297,17 +286,6 @@ struct ShellAgentIntegrationTests {
         }
     }
 
-    @Test("createZeros rejects a negative length")
-    func createZerosNegativeLength() async throws {
-        try await withClient { client in
-            try await withShellAgent(client) { agent in
-                await #expect(throws: ShellAgentError.invalidArgument("createZeros length must be non-negative")) {
-                    try await agent.createZeros(file: "/tmp/z.bin", length: -1)
-                }
-            }
-        }
-    }
-
     // MARK: - Tar
 
     @Test("tar creates a gzip archive that extracts to the original payload")
@@ -350,17 +328,6 @@ struct ShellAgentIntegrationTests {
                 #expect(restored == payload)
 
                 try await client.delete(path: dir)
-            }
-        }
-    }
-
-    @Test("tar rejects an empty input list")
-    func tarEmptyInput() async throws {
-        try await withClient { client in
-            try await withShellAgent(client) { agent in
-                await #expect(throws: ShellAgentError.invalidArgument("tar requires at least one input path")) {
-                    try await agent.tar(input: [], output: "/tmp/out.tar", compression: .none)
-                }
             }
         }
     }
@@ -438,25 +405,6 @@ struct ShellAgentIntegrationTests {
         }
     }
 
-    @Test("zip rejects invalid arguments")
-    func zipInvalidArguments() async throws {
-        try await withClient { client in
-            try await withShellAgent(client) { agent in
-                await #expect(throws: ShellAgentError.invalidArgument("zip requires at least one input path")) {
-                    try await agent.zip(input: [], output: "/tmp/x.zip", compressionLevel: 6, tool: .infoZip)
-                }
-                await #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
-                    try await agent.zip(
-                        input: ["/tmp/a"],
-                        output: "/tmp/x.zip",
-                        compressionLevel: 99,
-                        tool: .infoZip
-                    )
-                }
-            }
-        }
-    }
-
     @Test("unzip rejects empty paths")
     func unzipEmptyPaths() async throws {
         try await withClient { client in
@@ -518,20 +466,6 @@ struct ShellAgentIntegrationTests {
                 #expect(match != nil)
 
                 try await client.delete(path: dir)
-            }
-        }
-    }
-
-    @Test("sevenZip rejects invalid arguments")
-    func sevenZipInvalidArguments() async throws {
-        try await withClient { client in
-            try await withShellAgent(client) { agent in
-                await #expect(throws: ShellAgentError.invalidArgument("sevenZip requires at least one input path")) {
-                    try await agent.sevenZip(input: [], output: "/tmp/x.7z", compressionLevel: 5)
-                }
-                await #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
-                    try await agent.sevenZip(input: ["/tmp/a"], output: "/tmp/x.7z", compressionLevel: -1)
-                }
             }
         }
     }
@@ -822,7 +756,7 @@ struct ShellAgentIntegrationTests {
 
     // MARK: - Lifecycle
 
-    @Test("shellAgent throws after the client is closed")
+    @Test("shellAgent after the client is closed is reported and throws")
     func shellAgentAfterClose() async throws {
         let client: SFTPClient
         do {
@@ -835,12 +769,12 @@ struct ShellAgentIntegrationTests {
 
         try await client.close()
 
-        await #expect(throws: AlreadyClosed.self) {
-            _ = try await client.shellAgent()
+        await expectMisuse(.clientUsedAfterClosing) {
+            try await client.shellAgent()
         }
     }
 
-    @Test("operations throw after the client is closed")
+    @Test("operations after the client is closed are reported and throw")
     func operationsAfterClose() async throws {
         let client: SFTPClient
         do {
@@ -852,29 +786,29 @@ struct ShellAgentIntegrationTests {
         }
 
         let agent = try await client.shellAgent()
-        // Parent close invalidates the agent; do not call agent.close() afterward.
+        // The client's close releases the agent; destroying it afterwards reports nothing.
         try await client.close()
 
-        do {
+        await expectMisuse(.clientUsedAfterClosing) {
             try await agent.copy(from: "/tmp/a", to: "/tmp/b")
-            Issue.record("Expected AlreadyClosed from copy")
         }
-        catch is AlreadyClosed {
-            // expected
+        await expectMisuse(.clientUsedAfterClosing) {
+            try await agent.calculateHash(file: "/tmp/a", algorithm: .sha256)
         }
-        catch {
-            Issue.record("Unexpected error from copy: \(error)")
-        }
+    }
 
-        do {
-            _ = try await agent.calculateHash(file: "/tmp/a", algorithm: .sha256)
-            Issue.record("Expected AlreadyClosed from calculateHash")
-        }
-        catch is AlreadyClosed {
-            // expected
-        }
-        catch {
-            Issue.record("Unexpected error from calculateHash: \(error)")
+    @Test("operations after the agent is closed are reported")
+    func operationsAfterAgentClose() async throws {
+        try await withClient { client in
+            let agent = try await client.shellAgent()
+            try await agent.close()
+
+            await expectMisuse(.shellAgentUsedAfterClosing) {
+                try await agent.copy(from: "/tmp/a", to: "/tmp/b")
+            }
+            await expectMisuse(.shellAgentUsedAfterClosing) {
+                try await agent.calculateHash(file: "/tmp/a", algorithm: .sha256)
+            }
         }
     }
 

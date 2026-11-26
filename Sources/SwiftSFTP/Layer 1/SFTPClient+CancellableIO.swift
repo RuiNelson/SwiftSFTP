@@ -116,11 +116,16 @@ extension SFTPClient {
         try Task.checkCancellation()
 
         let token = SessionIOCancellationToken()
+        // Task-local values do not cross into the queue: carry this one over.
+        let assertsOnMisuse = MisuseScope.assertsOnMisuse
 
         let result = await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Result<R, any Error>, Never>) in
                 sessionIOQueue.async {
-                    continuation.resume(returning: Result { try self.runSliced(token: token, operation) })
+                    let result = MisuseScope.$assertsOnMisuse.withValue(assertsOnMisuse) {
+                        Result { try self.runSliced(token: token, operation) }
+                    }
+                    continuation.resume(returning: result)
                 }
             }
         } onCancel: {
@@ -143,9 +148,14 @@ extension SFTPClient {
     func withUninterruptibleSessionIO<R: Sendable>(
         _ operation: @escaping @Sendable () throws -> R
     ) async throws -> R {
+        // Task-local values do not cross into the queue: carry this one over.
+        let assertsOnMisuse = MisuseScope.assertsOnMisuse
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<R, any Error>, Never>) in
             sessionIOQueue.async {
-                continuation.resume(returning: Result { try self.withSessionIO(operation) })
+                let result = MisuseScope.$assertsOnMisuse.withValue(assertsOnMisuse) {
+                    Result { try self.withSessionIO(operation) }
+                }
+                continuation.resume(returning: result)
             }
         }
 
@@ -165,10 +175,9 @@ private extension SFTPClient {
         try withSessionIO {
             try token.check()
 
-            // The session is freed by `close()` under this same lock, so check before touching it for the timeout.
-            guard !closed else {
-                throw AlreadyClosed()
-            }
+            // The session is freed by `close()` under this same lock, so check before touching it for the timeout. An
+            // operation that waited for the lock while another task closed the client lands here too.
+            try checkClosed()
 
             let configuredMilliseconds = SessionGetTimeout(session: session)
             let slice = Self.cancellationPollIntervalMilliseconds

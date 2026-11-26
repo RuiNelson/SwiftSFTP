@@ -12,7 +12,10 @@ public enum ShellAgentError: Error, Equatable, Sendable {
     /// Command output could not be parsed into the expected result (for example a hash digest).
     case unexpectedOutput(String)
 
-    /// A required argument was empty or otherwise unusable (for example an empty source list for
-    /// ``SSHShellAgentProtocol/concat(files:to:)``).
+    /// A required argument was empty or otherwise unusable (for example an empty archive or destination path).
     case invalidArgument(String)
+
+    /// An earlier command failed part way, and the agent closed its channel because the stream may be out of step. Open
+    /// a new agent with ``SFTPClient/shellAgent(shellType:)`` to go on.
+    case channelClosedAfterFailure
 }

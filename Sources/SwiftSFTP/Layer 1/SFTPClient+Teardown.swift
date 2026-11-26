@@ -11,10 +11,8 @@ public extension SFTPClient {
         }
         set {
             // `+infinity` opts out of the cap: the goodbye then runs under `operationsTimeOut` alone, as it did before
-            // the cap existed. Non-positive values and NaN are ignored.
-            guard newValue > 0 else {
-                return
-            }
+            // the cap existed.
+            newValue.requireValidTimeout("teardownGracePeriod")
 
             internalStateQueue.sync {
                 _teardownGracePeriod = newValue
@@ -64,7 +62,7 @@ extension SFTPClient {
     }
 }
 
-/// Everything ``SFTPClient/close()`` takes from the client before handing it to the teardown.
+/// Everything ``SFTPClient/close()``, or a release without it, takes from the client before handing it to the teardown.
 struct TeardownResources {
     let sftp: LibSSH2SFTP?
     let knownHosts: LibSSH2KnownHosts?
@@ -75,13 +73,44 @@ struct TeardownResources {
 }
 
 extension SFTPClient {
+    /// Marks the client closed and takes what the teardown releases, or returns `nil` when it was closed already.
+    func takeTeardownResources() -> TeardownResources? {
+        internalStateQueue.sync {
+            guard _closed == false else {
+                return nil
+            }
+
+            _closed = true
+            _keepAliveGeneration &+= 1
+
+            let resources = TeardownResources(
+                sftp: _sftp,
+                knownHosts: _knownHosts,
+                socket: _socket,
+                keepAliveTask: _keepAliveTask,
+                abandonedHandles: _abandonedHandles
+            )
+
+            _sftp = nil
+            _knownHosts = nil
+            _socket = nil
+            _keepAliveTask = nil
+            _abandonedHandles = []
+            _cache = nil
+
+            return resources
+        }
+    }
+
     /// Releases every libssh2 and socket resource, giving the polite goodbye a bounded slice of time first.
     ///
     /// Correctness comes from dropping the socket, not from the goodbye: once the descriptor is shut down the server
     /// tears down its side of the channel and any file handles opened on it. Failures of the graceful phase are
     /// therefore logged rather than thrown — a successful `close()` means everything was released, which is now always
     /// true by the time this returns.
-    func teardown(_ resources: TeardownResources) throws {
+    ///
+    /// - Parameter politely: `false` skips the goodbye and drops the socket at once, so nothing waits for the network.
+    func teardown(_ resources: TeardownResources, politely askedToBePolite: Bool) throws {
         // `nil` means the cap is switched off, so every wait below falls back to `operationsTimeOut`.
         let deadline = teardownDeadline
 
@@ -105,6 +134,10 @@ extension SFTPClient {
 
         // Nothing may finish an abandoned call any more, and the handles they hold are reclaimed below.
         dropAbandonedCalls()
+
+        if !askedToBePolite {
+            politely = false
+        }
 
         if politely, let deadline {
             if peerStoppedResponding {

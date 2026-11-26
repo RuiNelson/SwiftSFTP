@@ -56,8 +56,7 @@ struct CompressionTests {
         let client = try SFTPClient(
             openSocketIn: TCPLocation(hostname: "localhost"),
             authentication: UserAuthentication(name: "test", auth: .password("test")),
-            compressionPreference: (clientToServer: [clientToServer], serverToClient: [serverToClient]),
-            programmingErrorHandler: recordProgrammingError
+            compressionPreference: (clientToServer: [clientToServer], serverToClient: [serverToClient])
         )
         let protocolClient: any SFTPClientProtocol = client
         #expect(protocolClient.compression.clientToServer == .none)

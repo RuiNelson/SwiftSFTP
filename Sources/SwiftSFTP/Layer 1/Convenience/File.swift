@@ -7,7 +7,7 @@ extension SFTPFileProtocol {
     /// the file position is past the end.
     ///
     /// - Returns: Up to 32 KiB of data, or `nil` at EOF.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func read() async throws -> Data? {
         try await read(upTo: 32 * 1024)
     }
@@ -18,7 +18,7 @@ extension SFTPFileProtocol {
     /// position is already at or past EOF, returns `nil`.
     ///
     /// - Returns: All remaining data, or `nil` if there is nothing left to read.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func readAll() async throws -> Data? {
         var buffer = Data()
         // A read keeps up to four times its size in flight, so 2 MiB reaches the 8 MiB most libssh2 allows.
@@ -36,7 +36,7 @@ extension SFTPFileProtocol {
     /// byte.
     ///
     /// - Parameter newSize: Desired file size in bytes.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func truncate(toSize newSize: UInt64) async throws {
         if offset > newSize {
             offset = newSize

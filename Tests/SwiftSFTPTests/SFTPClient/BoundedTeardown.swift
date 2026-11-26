@@ -101,7 +101,7 @@ struct BoundedTeardownTests {
         }
     }
 
-    @Test("invalid grace periods are ignored and a fork inherits the current one")
+    @Test("the grace period can be changed or switched off, and a fork inherits the current one")
     func gracePeriodValidation() async throws {
         try await withClient { client in
             #expect(client.teardownGracePeriod == 1)
@@ -109,11 +109,7 @@ struct BoundedTeardownTests {
             client.teardownGracePeriod = 4
             #expect(client.teardownGracePeriod == 4)
 
-            for rejected in [0, -1, TimeInterval.nan, -TimeInterval.infinity] {
-                client.teardownGracePeriod = rejected
-                #expect(client.teardownGracePeriod == 4)
-            }
-
+            // Zero, negative, and NaN values stop the process: see `rejectsInvalidTimeouts`.
             // `+infinity` is a supported value: it switches the cap off.
             client.teardownGracePeriod = .infinity
             #expect(client.teardownGracePeriod == .infinity)

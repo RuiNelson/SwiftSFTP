@@ -530,35 +530,17 @@ struct SFTPClientMultiTransferFailures {
 
     // MARK: - Before the transfer starts
 
-    @Test("transfer inputs reject a URL that is not a file URL and a buffer size below one")
-    func inputValidation() {
-        let remote = URL(string: "https://example.com/payload.bin")!
-        let local = URL(fileURLWithPath: "/private/tmp/payload.bin")
-
-        let notAFileURL = #expect(throws: FileTransferErrors.self) {
-            try validateMultiTransferInputs(localURL: remote, bufferSize: 1)
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("a URL that is not a file URL, or a buffer size below one, stops the process")
+        func inputValidation() async {
+            await #expect(processExitsWith: .failure) {
+                validateMultiTransferInputs(localURL: URL(string: "https://example.com/payload.bin")!, bufferSize: 1)
+            }
+            await #expect(processExitsWith: .failure) {
+                validateMultiTransferInputs(localURL: URL(fileURLWithPath: "/private/tmp/payload.bin"), bufferSize: 0)
+            }
         }
-        #expect(notAFileURL.map {
-            if case .notAFileURL = $0 {
-                true
-            }
-            else {
-                false
-            }
-        } == true)
-
-        let invalidBufferSize = #expect(throws: FileTransferErrors.self) {
-            try validateMultiTransferInputs(localURL: local, bufferSize: 0)
-        }
-        #expect(invalidBufferSize.map {
-            if case .invalidBufferSize = $0 {
-                true
-            }
-            else {
-                false
-            }
-        } == true)
-    }
+    #endif
 
     @Test("an upload of a missing local file throws localFileNotFound and creates nothing")
     func uploadMissingSource() async throws {

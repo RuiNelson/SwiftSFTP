@@ -16,7 +16,6 @@ import PathWorks
 /// client.attachCache(cache)
 /// // …
 /// client.detachCache()
-/// await cache.close()
 /// try await control.close()
 /// ```
 ///
@@ -50,8 +49,15 @@ import PathWorks
 ///
 /// Checks against the server, relative path resolution, and symbolic link resolution need a connection of the cache's
 /// own, given to ``init(storage:controlConnection:configuration:)``. The caller opens that connection, typically by
-/// forking the client the cache is for, and closes it after closing the cache: neither ``close()`` nor closing the
-/// clients the cache is attached to closes it.
+/// forking the client the cache is for, and closes it once the cache is detached from every client: closing the clients
+/// the cache is attached to does not close it. Checks still running when it closes fail, as checks the server could not
+/// answer do.
+///
+/// ## Lifetime
+///
+/// The cache has no `close()`. Releasing it releases the shell agent of ``TrustPolicy/hashOnServer(_:)``, if one was
+/// opened, which then closes itself, and leaves the bytes it stored in its ``CacheStorage``, which evicts them as it
+/// evicts any others. Call ``removeAll()`` first to drop them at once.
 public actor ReferenceCache: SFTPBlockLevelReadCache {
     // MARK: Limits
 
@@ -132,10 +138,8 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     var shellAgentTask: Task<SSHShellAgent, any Error>?
 
     /// Whether the shell agent could not be opened, or its `stat` made no sense to the cache:
-    /// ``TrustPolicy/statOnServer`` then stats over SFTP only. Cleared when the cache closes.
+    /// ``TrustPolicy/statOnServer`` then stats over SFTP only.
     var shellStatUnavailable = false
-
-    var isClosed = false
 
     #if canImport(Darwin)
         let memoryPressureObserver: MemoryPressureObserver
@@ -166,9 +170,9 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// before attaching any cache to that client: a fork made while a cache is attached starts with that cache, and the
     /// control connection must not use one. Use `control` for nothing else afterwards.
     ///
-    /// `control` stays the caller's: the cache never closes it. Close it after ``close()``, once the cache is done with
-    /// it, or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's
-    /// working directory too.
+    /// `control` stays the caller's: the cache never closes it. Close it once the cache is detached from every client,
+    /// or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's working
+    /// directory too.
     ///
     /// - Parameters:
     ///   - storage: Where the bytes of cached files are kept. A new ``InMemoryCacheStorage`` by default.
@@ -222,28 +226,6 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
                 }
             }
         #endif
-    }
-
-    /// Drops everything cached, its files' bytes in the storage included, and closes the shell agent of
-    /// ``TrustPolicy/hashOnServer(_:)``, if one was opened.
-    ///
-    /// Call this when done with the cache, after detaching it from every client; then close the control connection, if
-    /// the cache has one, which this does not close. A cache still attached goes on storing and answering, but every
-    /// check and path resolution that needs the control connection fails from then on. Closing more than once does
-    /// nothing.
-    public func close() async {
-        guard !isClosed else {
-            return
-        }
-
-        isClosed = true
-        removeAll()
-
-        if let agent = try? await shellAgentTask?.value {
-            try? await agent.close()
-        }
-        shellAgentTask = nil
-        shellStatUnavailable = false
     }
 
     // MARK: SFTPBlockLevelReadCache: Blocks
@@ -798,9 +780,13 @@ extension ReferenceCache {
         listings.removeAll()
     }
 
-    /// Drops everything cached. What the cache knows of paths that may no longer lead to the files opened through them
-    /// stays: those files are still open.
-    func removeAll() {
+    /// Drops everything cached, its files' bytes in the storage included. Reads already on their way when it does are
+    /// not kept when they arrive.
+    ///
+    /// The cache goes on working: what the clients read next is cached again. What it knows of paths that may no longer
+    /// lead to the files opened through them stays, since those files are still open. Releasing a cache does not do
+    /// this: its bytes stay in the storage until the storage evicts them.
+    public func removeAll() {
         for entry in files.values {
             storage.remove(entry.id)
         }
@@ -1254,12 +1240,15 @@ extension ReferenceCache {
     }
 
     /// The real path on the server of the file at block key `key`: `nil` when the server cannot resolve it, or once the
-    /// cache is closed, since the caller may close `control` then.
+    /// caller closed `control`.
     func serverRealPath(ofKey key: String, control: SFTPClient) async -> String? {
-        guard !isClosed else {
+        guard !control.closed else {
             return nil
         }
-        return try? await control.realPath(path: CachePath.serverPath(ofKey: key))
+        // A close of `control` that lands meanwhile is no misuse: see `check(key:token:)`.
+        return await MisuseScope.$assertsOnMisuse.withValue(false) {
+            try? await control.realPath(path: CachePath.serverPath(ofKey: key))
+        }
     }
 
     /// The real path of `path`, which may no longer exist, from the real path of its directory.

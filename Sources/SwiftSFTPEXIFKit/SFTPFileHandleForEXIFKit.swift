@@ -28,9 +28,10 @@
     ///
     /// ### Errors
     ///
-    /// SFTP failures surface unchanged, for example `AlreadyClosed` once the SFTP handle or its client is closed. Reads
-    /// past the end throw EXIFKit's `FileAccessError.invalidRange(offset:count:size:)`, and a file that ends before the
-    /// size it reported throws `FileAccessError.shortRead(expected:actual:)`.
+    /// SFTP failures surface unchanged, for example the `MisuseError` a read throws in a release build once the SFTP
+    /// handle or its client is closed. Reads past the end throw EXIFKit's
+    /// `FileAccessError.invalidRange(offset:count:size:)`, and a file that ends before the size it reported throws
+    /// `FileAccessError.shortRead(expected:actual:)`.
     final class SFTPFileHandleForEXIFKit: AbstractFileHandle, Sendable {
         /// The SFTP file handle that this handle reads and writes. It stays yours to close.
         let file: any SFTPFileProtocol

@@ -6,9 +6,15 @@ import Foundation
 /// configuration only; call ``login(timeOut:)`` before performing remote filesystem operations.
 ///
 /// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in remote
-/// names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation. Operations
-/// throw ``AlreadyClosed`` after ``close()`` and throw ``NotLoggedIn`` when an operation needs an SFTP subsystem that
-/// has not been initialized.
+/// names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation.
+///
+/// Using the client after ``close()``, or for a remote operation before ``login(timeOut:)``, is a
+/// ``MisuseError``: a debug build stops there with an assertion failure, and a release build throws it. Values no
+/// correct program passes, such as a non-positive timeout or buffer size, stop the process with a precondition failure
+/// in every build.
+///
+/// Calling ``close()`` is optional: a client released without it closes itself, skipping the polite goodbye. Call it
+/// when the moment of disconnection matters, or to unblock a call stuck on an unresponsive peer.
 public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     // MARK: Initialization
 
@@ -25,14 +31,15 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for no
-    /// blocking timeout (libssh2 default).
+    ///   - operationsTimeOut: Positive timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for
+    /// no blocking timeout (libssh2 default). Zero, negative, and NaN values stop the process.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
     ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
     /// sent to the server; `serverToClient` applies to data received from it.
-    ///   - programmingErrorHandler: Receives the ``ProgrammingError``s of the client, such as deinitialization before
-    /// ``close()``. File handles and shell agents opened from the client report to the same handler.
+    ///   - deinitErrorHandler: Receives the failures of closing the client, and the file handles and shell agents
+    /// opened from it, when they are released without `close()`. The default prints them in a debug build and ignores
+    /// them in a release build.
     /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created.
     init(
         openSocketIn: TCPLocation,
@@ -40,7 +47,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
-        programmingErrorHandler: @escaping ProgrammingErrorHandler
+        deinitErrorHandler: @escaping DeinitErrorHandler
     ) throws(SFTPClientInvalidConfig)
 
     /// Connects only long enough to fetch the server host key, then disconnects.
@@ -50,12 +57,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - timeOut: Positive finite timeout for this one-shot connection.
+    ///   - timeOut: Positive timeout for this one-shot connection, or `.infinity` for none. Any other value stops the
+    /// process.
     ///   - shortHandForm: When `true`, return `{algorithm} {base64}`. When `false`, prefix the known-hosts host field,
     /// returning `{host} {algorithm} {base64}` where the host uses the OpenSSH known-hosts port form.
     /// - Returns: The server host key in shorthand or known-hosts line form.
-    /// - Throws: ``SFTPClientInvalidConfig`` for an invalid timeout, or libssh2/socket errors from connection and key
-    /// exchange.
+    /// - Throws: libssh2/socket errors from connection and key exchange.
     static func getServerHostKey(
         openSocketIn: TCPLocation,
         timeOut: TimeInterval,
@@ -69,8 +76,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// The concrete implementation applies `timeOut` while connecting and initializing SFTP, then restores
     /// `operationsTimeOut` from initialization for later operations.
     ///
-    /// - Parameter timeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
-    /// - Throws: libssh2/socket/authentication errors, or ``AlreadyClosed`` if the client has been closed.
+    /// Calling it again while logged in stops a debug build with an assertion failure; a release build ignores it and
+    /// leaves the connection as it was. Calling it after ``close()`` is a ``MisuseError/clientUsedAfterClosing``.
+    ///
+    /// - Parameter timeOut: Positive timeout for login, handshake, authentication, and SFTP initialization, or
+    /// `.infinity` for none. Any other value stops the process.
+    /// - Throws: libssh2/socket/authentication errors.
     func login(timeOut: TimeInterval) async throws
 
     /// Closes the SFTP subsystem, disconnects and frees the SSH session, and closes the socket.
@@ -84,7 +95,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// knowing:
     ///
     /// - `close()` works even while another task is still blocked inside libssh2 on this session. It shuts the socket
-    /// down, which unblocks that call with an error rather than waiting for it.
+    /// down, which unblocks that call with an error rather than waiting for it. Any operation that task starts
+    /// afterwards is a ``MisuseError/clientUsedAfterClosing``: cancel the task before closing to stop it cleanly.
     /// - Once the socket is gone, the server tears down its side of the channel, including file handles opened on it.
     /// Closing handles individually first is tidier, but it is not what makes the cleanup correct.
     ///
@@ -105,33 +117,34 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and programming error handler.
+    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and deinit error handler.
     ///
     /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
     /// configured but disconnected client.
     /// - Returns: A new, independent client.
-    /// - Throws: ``AlreadyClosed`` when the receiver is closed, configuration errors while creating the fork, or
-    /// connection and authentication errors when `loggedIn` is `true`.
+    /// - Throws: ``MisuseError/clientUsedAfterClosing`` when the receiver is closed, configuration errors while
+    /// creating the fork, or connection and authentication errors when `loggedIn` is `true`.
     func fork(loggedIn: Bool) async throws -> Self
 
     // MARK: Session
 
     /// The SSH server banner received during handshake.
     ///
-    /// - Throws: ``AlreadyClosed`` when closed, ``NotLoggedIn`` when no banner is available, or libssh2 errors.
+    /// - Throws: libssh2 errors.
     var banner: String { get async throws }
 
     /// Approximate round-trip latency for a lightweight SFTP operation.
     ///
     /// The concrete implementation measures the elapsed time needed to resolve ``currentWorkingDirectory``.
     ///
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     var latency: TimeInterval { get async throws }
     
-    /// Gets/Sets the session's timeout interval
+    /// The session's timeout for blocking calls, in seconds; `.infinity` when there is none.
     ///
-    /// Non-positive numbers will be ignored, set to infinity to disable timeout. Silent no-op if the session was
-    /// previously closed
+    /// Set a positive value, or `.infinity` to disable the timeout. Zero, negative, and NaN values stop the process.
+    /// Reading or setting it after ``close()`` is a misuse: a debug build stops with an assertion failure, and a
+    /// release build reads zero or ignores the new value.
     var timeout: TimeInterval { get set }
 
     /// Seconds the polite SSH/SFTP goodbye may take before ``close()`` drops the connection outright. Defaults to one
@@ -145,7 +158,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// Raise it for links slow enough that a legitimate goodbye needs longer, or set it to `.infinity` to switch the
     /// cap off entirely and let the goodbye run under `operationsTimeOut` alone, as it did before the cap existed.
-    /// Non-positive values and NaN are ignored. A client created by ``fork(loggedIn:)`` inherits the current value.
+    /// Zero, negative, and NaN values stop the process. A client created by ``fork(loggedIn:)`` inherits the current
+    /// value.
     ///
     /// > Warning: With `.infinity`, ``close()`` no longer drops the socket to get past a call that is still blocked
     /// inside libssh2; it waits for it. Combined with an `operationsTimeOut` of `nil` that means `close()` can block
@@ -200,11 +214,11 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Closing, disabling, or reconfiguring keepalive does not invoke the callback.
     ///
     /// - Parameters:
-    ///   - interval: Interval in seconds between keepalive attempts, or `nil` to disable keepalives.
+    ///   - interval: Interval in seconds between keepalive attempts, or `nil` to disable keepalives. A value that is
+    /// not positive and finite stops the process.
     ///   - requestsReply: Whether each keepalive should request a reply from the server.
     ///   - onFailure: Optional asynchronous callback for a failure after the method has returned.
-    /// - Throws: ``SFTPClientInvalidConfig/invalidKeepAliveInterval`` for an unsupported interval,
-    /// ``AlreadyClosed`` when closed, ``NotLoggedIn`` before login, or the initial ``LibSSH2Error``.
+    /// - Throws: The initial ``LibSSH2Error``.
     func setKeepAlive(
         every interval: TimeInterval?,
         requestsReply: Bool,
@@ -217,7 +231,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The concrete implementation uses the SFTP `realpath` operation for `"."`.
     ///
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     var currentWorkingDirectory: String { get async throws }
 
     /// Lists the entries of a remote directory, in the order the server returns them.
@@ -233,7 +247,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - path: Remote directory path to open.
     ///   - recursive: Whether to include descendants of subdirectories.
     /// - Returns: Metadata for entries under `path`. The directory itself is not included.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func contentsOfDirectory(path: String, recursive: Bool) async throws -> [FileMetadata]
 
     /// Returns metadata for a regular file, or `nil` if the path is missing or is not a regular file.
@@ -241,7 +255,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - path: Remote file path to inspect. The path is sanitized before use.
     ///   - followLink: When `true`, follow symbolic links; when `false`, inspect the link itself.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors other than a missing path.
+    /// - Throws: libssh2/SFTP errors other than a missing path.
     func statFile(path: String, followLink: Bool) async throws -> FileMetadata?
 
     /// Returns metadata for a directory, or `nil` if the path is missing or is not a directory.
@@ -249,7 +263,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - path: Remote directory path to inspect. The path is sanitized before use.
     ///   - followLink: When `true`, follow symbolic links; when `false`, inspect the link itself.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors other than a missing path.
+    /// - Throws: libssh2/SFTP errors other than a missing path.
     func statDirectory(path: String, followLink: Bool) async throws -> FileMetadata?
 
     /// Returns metadata for any remote filesystem object, or `nil` if the path is missing.
@@ -257,7 +271,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - path: Remote path to inspect. The path is sanitized before use.
     ///   - followLink: When `true`, follow symbolic links; when `false`, inspect the link itself.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors other than a missing path.
+    /// - Throws: libssh2/SFTP errors other than a missing path.
     func stat(path: String, followLink: Bool) async throws -> FileMetadata?
 
     /// Returns `statvfs`-style filesystem information for the filesystem containing `path`.
@@ -266,7 +280,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// unsupported-operation SFTP error.
     ///
     /// - Parameter path: Remote path on the filesystem to inspect. The path is sanitized before use.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func filesystemStat(path: String) async throws -> FilesystemStat
 
     // MARK: File and directory operations
@@ -282,7 +296,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - path: Remote directory path to create. The path is sanitized before use.
     ///   - makePath: Whether to create missing parent directories.
     ///   - mode: POSIX mode to request for created directories.
-    /// - Throws: ``AlreadyClosed``, ``FileTransferErrors``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: ``FileTransferErrors`` or libssh2/SFTP errors.
     func createDirectory(path: String, makePath: Bool, mode: POSIXPermissions) async throws
 
     /// Sets attributes on an existing remote filesystem object.
@@ -292,7 +306,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - path: Remote path to modify. The path is sanitized before use.
     ///   - attributes: Attributes to write. Only fields selected by `attributes.flags` are sent.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func setAttributes(path: String, attributes: FileAttributes) async throws
 
     /// Updates selected attributes on an existing remote filesystem object, applying only the non-nil parameters.
@@ -305,7 +319,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - owner: New owning user and group IDs.
     ///   - date: New last-modification and last-access timestamps.
     ///   - permissions: New POSIX permission bits.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func setAttributes(
         path: String,
         size: Int64?,
@@ -319,8 +333,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - from: Existing remote path. The path is sanitized before use.
     ///   - to: Destination remote path. The path is sanitized before use.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors, including unsupported-operation when the
-    /// server lacks the POSIX rename extension.
+    /// - Throws: libssh2/SFTP errors, including unsupported-operation when the server lacks the POSIX rename extension.
     func rename(from: String, to: String) async throws
 
     /// Renames or moves a remote filesystem object using the standard SFTP rename operation.
@@ -329,7 +342,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - from: Existing remote path. The path is sanitized before use.
     ///   - to: Destination remote path. The path is sanitized before use.
     ///   - options: Rename behavior flags such as overwrite, atomic, or native.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func renameNonPosix(from: String, to: String, options: RenameOptions) async throws
 
     /// Deletes a remote regular file or symlink.
@@ -337,13 +350,13 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// Use ``deleteDirectory(path:)`` for empty directories or ``delete(path:)`` for recursive directory deletion.
     ///
     /// - Parameter path: Remote file path. The path is sanitized before use.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func deleteFile(path: String) async throws
 
     /// Deletes an empty remote directory.
     ///
     /// - Parameter path: Remote directory path. The path is sanitized before use.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func deleteDirectory(path: String) async throws
 
     /// Deletes a remote file, symlink, or directory tree.
@@ -352,7 +365,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// directory itself. Symlinks are inspected without following and deleted as links.
     ///
     /// - Parameter path: Remote path to delete. The path is sanitized before use.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func delete(path: String) async throws
 
     // MARK: Symlinks
@@ -361,7 +374,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// - Parameter path: Remote symlink path. The path is sanitized before use.
     /// - Returns: The target path stored in the symlink.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func followLink(path: String) async throws -> String
 
     /// Creates a remote symbolic link.
@@ -371,26 +384,27 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Parameters:
     ///   - path: Remote symlink path to create.
     ///   - destination: Symlink target path.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func createSymLink(path: String, destination: String) async throws
 
     // MARK: Files
 
     /// Opens a remote file and returns a handle object.
     ///
-    /// The returned file handle must be closed independently with ``SFTPFileProtocol/close()``. The concrete
-    /// implementation validates the remote path before opening: directory paths are rejected, and non-create opens
-    /// require an existing regular file. Existing regular files may still be opened with `.create`; use `.exclusive` or
-    /// higher-level helpers such as ``SFTPClientProtocol/upload(from:to:bufferSize:permissions:continuation:)`` when
-    /// replacement should be rejected. `permissions` is passed to libssh2 when creating files; otherwise it is ignored
-    /// by the server.
+    /// Close the returned handle with ``SFTPFileProtocol/close()`` when the outcome matters, such as before renaming a
+    /// file just written; a handle released without it closes itself in the background. The concrete implementation
+    /// validates the remote path before opening: directory paths are rejected, and non-create opens require an existing
+    /// regular file. Existing regular files may still be opened with `.create`; use `.exclusive` or higher-level
+    /// helpers such as ``SFTPClientProtocol/upload(from:to:bufferSize:permissions:continuation:)`` when replacement
+    /// should be rejected. `permissions` is passed to libssh2 when creating files; otherwise it is ignored by the
+    /// server.
     ///
     /// - Parameters:
     ///   - flags: SFTP open flags such as read, write, create, truncate, append, or exclusive.
     ///   - path: Remote file path. The path is sanitized before use.
     ///   - permissions: POSIX mode to request when creating a file.
     /// - Returns: An open SFTP file handle.
-    /// - Throws: ``AlreadyClosed``, ``FileTransferErrors``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: ``FileTransferErrors`` or libssh2/SFTP errors.
     func openFile(
         _ flags: OpenFlags,
         path: String,
@@ -409,7 +423,7 @@ public extension SFTPClientProtocol {
     ///   - path: Remote directory path to open.
     ///   - recursive: Whether to include descendants of subdirectories.
     /// - Returns: Metadata for entries under `path`. The directory itself is not included.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     @available(*, deprecated, message: "Use contentsOfDirectory(path:recursive:), which keeps every entry")
     func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
         try await Set(contentsOfDirectory(path: path, recursive: recursive))

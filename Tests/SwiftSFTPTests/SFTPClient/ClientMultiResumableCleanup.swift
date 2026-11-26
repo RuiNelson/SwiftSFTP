@@ -218,15 +218,18 @@ struct SFTPClientResumableCleanup {
         #expect(thrown?.code == .fileReadNoSuchFile)
     }
 
-    @Test("local sweep rejects a URL that is not a file URL")
-    func localSweepRejectsNonFileURL() async throws {
-        let client = try makeClient()
-        defer { try? await client.close() }
-
-        #expect(throws: FileTransferErrors.self) {
-            _ = try client.cleanupResumableDownloads(in: URL(string: "https://example.com/")!, olderThan: 0)
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("local sweep of a URL that is not a file URL stops the process")
+        func localSweepRejectsNonFileURL() async {
+            await #expect(processExitsWith: .failure) {
+                let client = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                )
+                _ = try? client?.cleanupResumableDownloads(in: URL(string: "https://example.com/")!, olderThan: 0)
+            }
         }
-    }
+    #endif
 
     /// Creates an empty directory under the system temporary directory.
     private func makeLocalDirectory() throws -> URL {

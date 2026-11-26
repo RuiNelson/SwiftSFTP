@@ -252,14 +252,13 @@ public extension SFTPClient {
         if let registration {
             attachment?.openFiles.finishOpen(registration)
         }
-        return SFTPFile(
+        return SFTPFile(core: SFTPFileCore(
             parent: self,
             handle: handle,
             flags: flags,
             cache: attachment,
-            registration: registration,
-            programmingErrorHandler: programmingErrorHandler
-        )
+            registration: registration
+        ))
     }
 }
 

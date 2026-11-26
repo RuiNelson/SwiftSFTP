@@ -463,8 +463,8 @@ struct ReferenceCacheBudgetTests {
         #expect(await cache.invariantViolations() == [])
     }
 
-    @Test("closing drops everything, refuses what was in flight, can be repeated, and leaves a working cache")
-    func close() async throws {
+    @Test("removing everything drops it, refuses what was in flight, can be repeated, and leaves a working cache")
+    func removeAll() async throws {
         let cache = CacheFuzz.makeCache(metadata: .answer(for: 60, includingMissing: true))
         await CacheFuzz.cacheFile(cache, path: "/f", contents: CacheFuzz.bytes(40))
         await CacheFuzz.stat(cache, CacheFuzz.file("/f", size: 100), path: "/f")
@@ -472,8 +472,8 @@ struct ReferenceCacheBudgetTests {
         let inFlight = CacheRequestID()
         _ = await cache.retrieveBlock(path: "/f", offset: 50, upTo: 10, request: inFlight)
 
-        await cache.close()
-        await cache.close()
+        await cache.removeAll()
+        await cache.removeAll()
         #expect(await cache.files.isEmpty)
         #expect(await cache.stats.isEmpty)
         #expect(await cache.storedByteCount == 0)
@@ -494,8 +494,8 @@ struct ReferenceCacheBudgetTests {
 @Suite("ReferenceCache: more stores out of order")
 struct ReferenceCacheLateStoreTests {
     @Test(
-        "bytes read before a write, an append, or a close are refused when they arrive after it",
-        arguments: ["write", "append", "close"]
+        "bytes read before a write, an append, or a removal of everything are refused when they arrive after it",
+        arguments: ["write", "append", "removeAll"]
     )
     func storeAfterChange(change: String) async throws {
         let cache = CacheFuzz.makeCache()
@@ -513,7 +513,7 @@ struct ReferenceCacheLateStoreTests {
             await cache.didAppend(path: path, byteCount: 5)
 
         default:
-            await cache.close()
+            await cache.removeAll()
             await CacheFuzz.stat(cache, CacheFuzz.file(path, size: 100), path: path)
         }
 

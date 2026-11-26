@@ -11,7 +11,7 @@
             }
 
             let code: Int32 = switch error {
-            case is AlreadyClosed, is NotLoggedIn:
+            case is MisuseError:
                 ENOTCONN
             case FileTransferErrors.remoteFileNotFound, FileTransferErrors.remoteDirectoryNotFound:
                 ENOENT

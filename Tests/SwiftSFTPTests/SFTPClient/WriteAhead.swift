@@ -27,12 +27,17 @@ struct WriteAheadTests {
 
     @Test("each call hands libssh2 whole requests that fit the channel window")
     func freshWriteLength() {
-        let request = SFTPFile.writeRequestSize
-        let overhead = SFTPFile.writeRequestOverhead
+        let request = SFTPFileCore.writeRequestSize
+        let overhead = SFTPFileCore.writeRequestOverhead
         let writeAhead = 2 * 1024 * 1024
 
         func fresh(remaining: Int = 10_000_000, pending: Int, window: Int = 2 * 1024 * 1024) -> Int {
-            SFTPFile.freshWriteLength(remaining: remaining, pending: pending, writeAhead: writeAhead, window: window)
+            SFTPFileCore.freshWriteLength(
+                remaining: remaining,
+                pending: pending,
+                writeAhead: writeAhead,
+                window: window
+            )
         }
 
         // Plenty of room: four requests a call at most.

@@ -9,7 +9,7 @@ public extension SFTPClient {
                 try checkClosed()
 
                 guard let banner = SessionBannerGet(session: session) else {
-                    throw NotLoggedIn()
+                    try misuse(.clientUsedBeforeLogin)
                 }
 
                 return banner
@@ -31,6 +31,9 @@ public extension SFTPClient {
         get {
             withSessionIO {
                 guard !closed else {
+                    if MisuseScope.assertsOnMisuse {
+                        assertionFailure("SwiftSFTP misuse: \(MisuseError.clientUsedAfterClosing.localizedDescription)")
+                    }
                     return .zero
                 }
 
@@ -45,17 +48,13 @@ public extension SFTPClient {
             }
         }
         set {
+            newValue.requireValidTimeout()
+
             withSessionIO {
                 guard !closed else {
-                    return
-                }
-
-                guard newValue != .infinity else {
-                    SessionSetTimeout(session: session, timeoutMilliseconds: 0)
-                    return
-                }
-
-                guard newValue.isFinite, newValue > 0 else {
+                    if MisuseScope.assertsOnMisuse {
+                        assertionFailure("SwiftSFTP misuse: \(MisuseError.clientUsedAfterClosing.localizedDescription)")
+                    }
                     return
                 }
 

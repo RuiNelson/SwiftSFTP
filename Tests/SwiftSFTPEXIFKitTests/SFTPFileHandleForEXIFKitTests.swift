@@ -144,10 +144,10 @@
             let loaded = try await metadata.loadingThumbnail()
 
             try await file.close()
-            await #expect(throws: AlreadyClosed.self) {
+            await #expect(throws: MisuseError.fileUsedAfterClosing) {
                 try await metadata.readThumbnail()
             }
-            await #expect(throws: AlreadyClosed.self) {
+            await #expect(throws: MisuseError.fileUsedAfterClosing) {
                 try await EXIFKit.write(metadata, from: MemorySFTPFile(data: jpeg), to: MemorySFTPFile(data: Data()))
             }
 
@@ -267,7 +267,7 @@
         func closedFile() async throws {
             let file = MemorySFTPFile(data: Data(count: 10))
             try await file.close()
-            await #expect(throws: AlreadyClosed.self) {
+            await #expect(throws: MisuseError.fileUsedAfterClosing) {
                 try await file.handle.read(at: 0, count: 1)
             }
         }
@@ -482,7 +482,8 @@
 
         private func checkOpen() throws {
             if closed {
-                throw AlreadyClosed()
+                // A real file also reports this to its client's handler.
+                throw MisuseError.fileUsedAfterClosing
             }
         }
     }

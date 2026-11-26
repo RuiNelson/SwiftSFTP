@@ -39,11 +39,11 @@ Unix-like hosts run commands under a persistent `/bin/sh -s` channel (not bash).
 While a framed shell command is waiting for completion, the agent temporarily disables the session's ordinary blocking
 timeout so long silent remote work (large copies, archives, downloads) is not cut short by a short `operationsTimeOut`.
 If a command fails mid-stream in a way that may desynchronize the channel, the agent closes itself and further
-operations throw `AlreadyClosed`.
+operations throw `ShellAgentError.channelClosedAfterFailure`; open a new agent to go on.
 
-Call `close()` when you are done (same lifecycle as an open `SFTPFile`). An agent destroyed without
-`close()` reports `ProgrammingError.sshShellAgentWasDeinitedWithoutClosingFirst` to the client's
-`programmingErrorHandler`. Closing the agent after the parent client is already closed is safe and reports nothing.
+Call `close()` to close the channel now, or release the agent and it closes itself in the background (same lifecycle
+as an open `SFTPFile`). Using it after its own `close()` or its client's is a misuse: a debug build stops, and a release
+build throws `MisuseError`. Closing the agent after the parent client is already closed is safe and does nothing.
 
 ---
 

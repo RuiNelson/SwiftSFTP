@@ -44,6 +44,20 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 - Keep libssh2 errors in `Layer 0/Types/LibSSH2Error.swift`; define Layer 1 domain errors as enums under `Layer 1/` (for example in `StructsAndEnums/`), not in `LibSSH2Error`.
 - Prefer protocols (`SFTPClientProtocol`, `SFTPFileProtocol`) for testability; keep concrete types aligned with protocol contracts.
 - Do not add a second high-level client API unless explicitly requested.
+- Classify every failure before choosing how to report it:
+  - **Runtime conditions** a correct program has to expect (network, server, protocol, authentication, filesystem
+    state, user input such as an empty path) are thrown.
+  - **Misuse of the library** (use after `close()`, use before `login`) goes through `misuse(_:)`: an assertion failure
+    in debug builds, a thrown `MisuseError` in release builds. Never return quietly instead: a step that silently did
+    nothing turns into a false success in the conveniences built on it. A misuse that changes nothing, such as logging
+    in twice, is an `assertionFailure` and is otherwise ignored.
+  - **Releasing without `close()`** is supported, not a misuse: deinitializers close what they own (the client without
+    the polite goodbye, files and shell agents in the background) and pass failures to `deinitErrorHandler`.
+  - **Impossible values** no correct program passes (non-positive timeouts or sizes, out-of-range levels, non-file
+    URLs) are `precondition`s, in every build.
+  - Library-internal invariants are `precondition`s too.
+- Library code that uses a connection on its own behalf, where the caller may legitimately close it meanwhile (the
+  cache's control connection), runs under `MisuseScope.$assertsOnMisuse.withValue(false)`.
 
 ## CryptographicUtils (`Sources/SwiftSFTP/CryptographicUtils`)
 

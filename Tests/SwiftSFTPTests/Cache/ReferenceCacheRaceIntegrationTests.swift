@@ -56,7 +56,6 @@ func withCachedClients(
         gated.openAll()
         client.detachCache()
         try? await truth.close()
-        await cache.close()
         try? await control?.close()
         try result.get()
     }

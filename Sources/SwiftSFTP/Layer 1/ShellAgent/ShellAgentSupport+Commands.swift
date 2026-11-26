@@ -69,9 +69,7 @@ extension ShellAgentSupport {
         files: [String],
         to: String
     ) throws -> String {
-        guard !files.isEmpty else {
-            throw ShellAgentError.invalidArgument("concat requires at least one source file")
-        }
+        precondition(!files.isEmpty, "concat requires at least one source file")
 
         let sourcesNative = files.map { pathForRemoteShell($0, shellType: shellType) }
         let toNative = pathForRemoteShell(to, shellType: shellType)
@@ -104,9 +102,7 @@ extension ShellAgentSupport {
         file: String,
         length: Int64
     ) throws -> String {
-        guard length >= 0 else {
-            throw ShellAgentError.invalidArgument("createZeros length must be non-negative")
-        }
+        precondition(length >= 0, "createZeros length must be non-negative")
 
         let pathNative = pathForRemoteShell(file, shellType: shellType)
         let ensureParent = ensureParentPrefix(of: file, shellType: shellType)
@@ -135,9 +131,7 @@ extension ShellAgentSupport {
         file: String,
         length: Int64
     ) throws -> String {
-        guard length >= 0 else {
-            throw ShellAgentError.invalidArgument("createRandomData length must be non-negative")
-        }
+        precondition(length >= 0, "createRandomData length must be non-negative")
 
         let pathNative = pathForRemoteShell(file, shellType: shellType)
 
@@ -171,9 +165,7 @@ extension ShellAgentSupport {
         output: String,
         compression: TarCompression
     ) throws -> String {
-        guard !input.isEmpty else {
-            throw ShellAgentError.invalidArgument("tar requires at least one input path")
-        }
+        precondition(!input.isEmpty, "tar requires at least one input path")
 
         let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
         let outputNative = pathForRemoteShell(output, shellType: shellType)
@@ -210,12 +202,8 @@ extension ShellAgentSupport {
         compressionLevel: Int,
         tool: ZipTool
     ) throws -> String {
-        guard !input.isEmpty else {
-            throw ShellAgentError.invalidArgument("zip requires at least one input path")
-        }
-        guard (0 ... 9).contains(compressionLevel) else {
-            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
-        }
+        precondition(!input.isEmpty, "zip requires at least one input path")
+        precondition((0 ... 9).contains(compressionLevel), "compressionLevel must be in 0...9")
 
         let sourcesNative = input.map { pathForRemoteShell($0, shellType: shellType) }
 
@@ -246,7 +234,7 @@ extension ShellAgentSupport {
 
         case .poke:
             // Resolved at runtime by ``SSHShellAgent/zip(input:output:compressionLevel:tool:)`` after probing.
-            throw ShellAgentError.invalidArgument("zip tool .poke must be resolved before building a command")
+            preconditionFailure("zip tool .poke must be resolved before building a command")
         }
     }
 
@@ -292,7 +280,7 @@ extension ShellAgentSupport {
             }
 
         case .poke:
-            throw ShellAgentError.invalidArgument("cannot probe zip tool .poke")
+            preconditionFailure("cannot probe zip tool .poke")
         }
     }
 
@@ -462,12 +450,8 @@ extension ShellAgentSupport {
         output: String,
         compressionLevel: Int
     ) throws -> String {
-        guard !input.isEmpty else {
-            throw ShellAgentError.invalidArgument("sevenZip requires at least one input path")
-        }
-        guard (0 ... 9).contains(compressionLevel) else {
-            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
-        }
+        precondition(!input.isEmpty, "sevenZip requires at least one input path")
+        precondition((0 ... 9).contains(compressionLevel), "compressionLevel must be in 0...9")
         // Only allow known 7-Zip binary names (resolved by probe, never from caller input).
         guard sevenZipBinaryPreferenceOrder.contains(binary) else {
             throw ShellAgentError.invalidArgument("unsupported 7-Zip binary name: \(binary)")
@@ -558,7 +542,7 @@ extension ShellAgentSupport {
             )
 
         case .poke:
-            throw ShellAgentError.invalidArgument("unzip tool .poke must be resolved before building a command")
+            preconditionFailure("unzip tool .poke must be resolved before building a command")
         }
     }
 
@@ -590,7 +574,7 @@ extension ShellAgentSupport {
             }
 
         case .poke:
-            throw ShellAgentError.invalidArgument("cannot probe unzip tool .poke")
+            preconditionFailure("cannot probe unzip tool .poke")
         }
     }
 

@@ -130,7 +130,7 @@ public extension SFTPClient {
     ///
     /// - Parameter path: Remote path, absolute or relative to the working directory.
     /// - Returns: The canonical absolute path.
-    /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, or libssh2/SFTP errors, such as when the path cannot be resolved.
+    /// - Throws: libssh2/SFTP errors, such as when the path cannot be resolved.
     func realPath(path: String) async throws -> String {
         try await withSessionIOReportingChanges {
             try checkClosed()

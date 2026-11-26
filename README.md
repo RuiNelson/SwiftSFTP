@@ -2,11 +2,11 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-[![macOS](https://img.shields.io/badge/macOS-11+-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![iOS](https://img.shields.io/badge/iOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![macOS](https://img.shields.io/badge/macOS-12+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![iOS](https://img.shields.io/badge/iOS-15+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![visionOS](https://img.shields.io/badge/visionOS-1+-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![watchOS](https://img.shields.io/badge/watchOS-7+-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![tvOS](https://img.shields.io/badge/tvOS-14+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![watchOS](https://img.shields.io/badge/watchOS-9+-lightgrey?logo=apple&logoColor=white)](Package.swift)
+[![tvOS](https://img.shields.io/badge/tvOS-15+-lightgrey?logo=apple&logoColor=white)](Package.swift)
 [![Linux](https://img.shields.io/badge/Linux-supported-lightgrey?logo=linux&logoColor=white)](Scripts/LinuxBuild/build.sh)
 [![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](Scripts/AndroidBuild/build.sh)
 [![Windows](https://img.shields.io/badge/Windows-supported-lightgrey?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuNHYxMS40SDB6TTEyLjYgMEgyNHYxMS40SDEyLjZ6TTAgMTIuNmgxMS40VjI0SDB6TTEyLjYgMTIuNkgyNFYyNEgxMi42eiIvPjwvc3ZnPg%3D%3D)](.github/workflows/ci.yml)
@@ -74,6 +74,8 @@ if let largestFile = contents.bySize.last {
     // Seek
     myFileHandle.offset = 2048
     // ...
+
+    // Optional: a released handle closes itself. Close it when the outcome matters, such as before a rename.
     try await myFileHandle.close()
 }
 
@@ -94,17 +96,24 @@ try await myClient.upload(from: localFile, to: "/home/bulbasaur/myfolder/myfile.
 // - Delete a file or directory with everything in it (less radical methods available)
 try await myClient.delete(path: "myfolder")
 
-// - Close the connection
+// - Close the connection (optional: a released client closes itself, without waiting for the server)
 try await myClient.close()
 ```
 
 The example requests zlib compression in both directions, with automatic fallback to `.none` if the server does not
 support it. Check `myClient.compression` after login for the negotiated algorithms.
 
+Closing is optional for clients, files, and shell agents: release one and it closes itself, reporting any failure to the
+client's `deinitErrorHandler`. Using one after `close()` or before `login()` is a bug in the calling code, so debug
+builds stop there with an assertion failure, and release builds throw `MisuseError`. See
+[Closing and releasing](Documentation/UserGuide.md#closing-and-releasing) and
+[Errors, misuse, and impossible values](Documentation/UserGuide.md#errors-misuse-and-impossible-values).
+
 For complete details, see:
 
 - [User's Guide](Documentation/UserGuide.md) — connections, transfers, and filesystem operations:
   - [Connecting to a Server](Documentation/UserGuide.md#connecting-to-a-server)
+  - [Closing and Releasing](Documentation/UserGuide.md#closing-and-releasing)
   - [Authentication](Documentation/UserGuide.md#authentication)
   - [Host Key Verification](Documentation/UserGuide.md#host-key-verification)
   - [Navigating the Remote Filesystem](Documentation/UserGuide.md#navigating-the-remote-filesystem)
@@ -166,7 +175,7 @@ let asset = client.makeAsset(at: "/Videos/holiday.mp4")
 Each client opens the file read-only when AVFoundation loads it. The clients fetch 2 MiB stripes in parallel and read
 8 MiB ahead of playback; pass `stripeSize:` and `readAheadSize:` to change either. Playback and seeking never create a
 local copy. Releasing an asset or its player item cancels its pending reads and closes its file handles. The caller
-still owns and closes the SFTP clients. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
+still owns the SFTP clients: keep them open until playback ends, since closing one under a playing asset is a misuse. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
 for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
 See [Integrations](Documentation/Integrations.md#avfoundation-playback) for read-ahead, lifetime, and error handling
 details.
@@ -209,7 +218,7 @@ Add the following dependency to your `Package.swift` file:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.0.0")
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "4.0.0")
 ]
 ```
 
@@ -233,7 +242,7 @@ For EXIF metadata, enable the `EXIFKit` trait and use `.product(name: "SwiftSFTP
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.24.0", traits: ["EXIFKit"])
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "4.0.0", traits: ["EXIFKit"])
 ]
 ```
 
@@ -247,7 +256,7 @@ MD5-encrypted PEM keys, and the 3DES, Blowfish, RC4 and CAST ciphers.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "3.24.0", traits: ["LegacyAlgorithms"])
+    .package(url: "https://github.com/RuiNelson/SwiftSFTP.git", from: "4.0.0", traits: ["LegacyAlgorithms"])
 ]
 ```
 

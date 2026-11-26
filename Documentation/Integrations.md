@@ -83,8 +83,10 @@ let asset = client.makeAsset(at: "/Videos/extensionless", contentType: .mpeg4Mov
 
 The asset retains its clients and shares their connections with your other operations. Keep every client logged in
 and open until playback and metadata loading finish. Releasing the asset, or the player item holding it, cancels
-pending requests and asynchronously closes the asset's file handles. It does not close the clients: you created the
-forks, so you close them. Closing a client yourself makes subsequent media reads fail.
+pending requests and asynchronously closes the asset's file handles. The asset holds the clients, so each one closes
+itself once you and every asset have released it; call `close()` yourself only after playback. Closing a client under
+a playing asset is a misuse: a debug build stops, and in a release build the media reads that follow fail with
+`ENOTCONN`.
 
 The first failure on any client fails all of AVFoundation's pending requests, as a multi-worker download stops at its
 first failing worker. Later requests try again, so a client that keeps failing fails each of them. Loading failures
@@ -211,7 +213,7 @@ let metadata = try await client.imageMetadata(
 
 Metadata read from a handle keeps that handle, so that `readThumbnail()` can fetch the thumbnail later and an edit can
 copy it. Close the handle only once you no longer need either; a thumbnail read after the handle or its client is
-closed throws `AlreadyClosed`. To close it early, keep `try await metadata.loadingThumbnail()` instead, which holds the
+closed is a misuse: a debug build stops, and a release build throws `MisuseError`. To close it early, keep `try await metadata.loadingThumbnail()` instead, which holds the
 thumbnail in memory and no longer refers to the handle.
 
 An SFTP handle has one read/write position, while EXIFKit reads independent parts of a file concurrently. The adapter
@@ -222,7 +224,7 @@ end of each range. Don't use the handle for anything else while EXIFKit works wi
 ### Errors
 
 SFTP failures surface unchanged: for example, `FileTransferErrors.remoteFileNotFound(path:)` when the path does not
-exist, and `AlreadyClosed` after the handle or client is closed. Ranges past the end throw EXIFKit's
+exist, and the `MisuseError` a read throws in a release build after the handle or client is closed. Ranges past the end throw EXIFKit's
 `FileAccessError.invalidRange(offset:count:size:)`, a file that ends before its reported size throws
 `FileAccessError.shortRead(expected:actual:)`, and a server that omits the file size from its attributes throws
 `SFTPFileHandleForEXIFKitError.sizeUnavailable`. Files EXIFKit cannot parse, and edits a format cannot hold, such as

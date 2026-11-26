@@ -131,8 +131,8 @@ extension SFTPClient {
             attachment.openFiles.noteChanges(atOrUnder: paths, change: change)
         }
 
-        await invalidate(paths + stray, in: attachment)
-        await invalidate(attachment.openFiles.endChange(change), in: attachment)
+        await Self.invalidate(paths + stray, in: attachment)
+        await Self.invalidate(attachment.openFiles.endChange(change), in: attachment)
     }
 
     /// Reports a rename whose call failed, and may have renamed `from` to `to` or not, to the cache in `attachment`.
@@ -150,8 +150,8 @@ extension SFTPClient {
 
         let change = change ?? attachment.openFiles.beginChange()
         let stray = attachment.openFiles.stopReportingAfterFailedRename(from: from, to: to, change: change)
-        await invalidate([from, to] + stray, in: attachment)
-        await invalidate(attachment.openFiles.endChange(change), in: attachment)
+        await Self.invalidate([from, to] + stray, in: attachment)
+        await Self.invalidate(attachment.openFiles.endChange(change), in: attachment)
     }
 
     /// Reports a rename the server confirmed to the cache in `attachment`, and moves the files open at or under `from`
@@ -173,12 +173,12 @@ extension SFTPClient {
         let rename = attachment.openFiles.beginRename(from: from, to: to, change: change)
         await attachment.cache.didRename(from: from, to: to)
 
-        await invalidate(attachment.openFiles.finishRename(rename), in: attachment)
-        await invalidate(attachment.openFiles.endChange(change), in: attachment)
+        await Self.invalidate(attachment.openFiles.finishRename(rename), in: attachment)
+        await Self.invalidate(attachment.openFiles.endChange(change), in: attachment)
     }
 
     /// Invalidates `paths` in the cache of `attachment`, each once.
-    private func invalidate(_ paths: [String], in attachment: CacheAttachment) async {
+    private static func invalidate(_ paths: [String], in attachment: CacheAttachment) async {
         for path in CachePath.unique(paths) {
             await attachment.cache.invalidate(path: path)
         }
@@ -216,6 +216,11 @@ extension SFTPClient {
             return _finishedChanges
         }
 
+        await Self.deliver(reports)
+    }
+
+    /// Hands the cache the changes in `reports`. Needs nothing of the client, so it also runs after the client is gone.
+    static func deliver(_ reports: [CacheChangeReport]) async {
         for report in reports {
             await invalidate(report.paths, in: report.attachment)
             if let change = report.change {

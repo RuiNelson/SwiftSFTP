@@ -6,12 +6,12 @@ public extension SFTPClient {
     /// When `shellType` is `nil`, the remote host is probed with one-shot `exec` helpers (`uname`, then Windows
     /// PowerShell / `cmd` heuristics). The client must already be logged in. The returned agent reuses one channel
     /// until
-    /// ``SSHShellAgent/close()``; it inherits this client's `programmingErrorHandler`.
+    /// ``SSHShellAgent/close()``, or until it is released.
     ///
     /// - Parameter shellType: Explicit shell family, or `nil` to detect automatically.
     /// - Returns: A shell agent bound to this client with an open channel.
-    /// - Throws: ``ShellAgentError/couldNotHeuristicallyDetectShellType``, ``AlreadyClosed``, ``NotLoggedIn``, or
-    /// libssh2 errors from the detection probes or channel open.
+    /// - Throws: ``ShellAgentError/couldNotHeuristicallyDetectShellType`` or libssh2 errors from the detection probes
+    /// or channel open.
     func shellAgent(shellType: ShellType? = nil) async throws -> SSHShellAgent {
         try checkClosed()
         _ = try sftp

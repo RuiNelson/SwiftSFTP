@@ -79,7 +79,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
 
             #expect(attached)
             #expect(!client.hasCacheAttached())
@@ -110,22 +109,21 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
 
             #expect(first == Self.payload)
             #expect(second == changed)
         }
     }
 
-    @Test("closing the cache leaves its control connection open for the caller to close")
-    func closeLeavesControlConnectionOpen() async throws {
+    @Test("releasing the cache leaves its control connection open for the caller to close")
+    func releaseLeavesControlConnectionOpen() async throws {
         try await withClient { client in
             let control = try await client.fork(loggedIn: true)
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(resolvesRelativePaths: true)
             )
-            await cache.close()
+            _ = consume cache
 
             let workingDirectory = try await control.currentWorkingDirectory
             try await control.close()
@@ -170,7 +168,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == Self.payload)
@@ -232,7 +229,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == Self.payload)
@@ -277,7 +273,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == Self.payload)
@@ -316,7 +311,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == small)
@@ -357,7 +351,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == Self.payload)
@@ -393,7 +386,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: destination)
             try await other.close()
-            await cache.close()
 
             #expect(written == [0 ..< UInt64(Self.payload.count)])
             #expect(atSource.isEmpty)
@@ -437,7 +429,6 @@ struct ReferenceCacheIntegrationTests {
             try await other.deleteFile(path: link)
             try await other.delete(path: directory)
             try await other.close()
-            await cache.close()
             try await control.close()
 
             #expect(first == Self.payload)
@@ -480,7 +471,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: path)
             try await other.close()
-            await cache.close()
 
             #expect(read == changed)
         }
@@ -513,7 +503,6 @@ struct ReferenceCacheIntegrationTests {
 
             client.detachCache()
             try await client.delete(path: directory)
-            await cache.close()
 
             #expect(linkStat?.attributes.fileSize == grown)
             #expect(stat?.attributes.fileSize == grown)
@@ -540,7 +529,6 @@ struct ReferenceCacheIntegrationTests {
 
             client.detachCache()
             try await client.delete(path: path)
-            await cache.close()
 
             #expect(kept.first == 0 ..< UInt64(Self.payload.count))
             #expect(read == Self.payload + Self.marker)
@@ -574,7 +562,6 @@ struct ReferenceCacheIntegrationTests {
             client.detachCache()
             try await other.delete(path: destination)
             try await other.close()
-            await cache.close()
 
             #expect(atSource.isEmpty)
             #expect(atDestination == [0 ..< total])
@@ -630,7 +617,6 @@ struct ReferenceCacheIntegrationTests {
             let storageViolations = await cache.memoryStorage.invariantViolations()
 
             client.detachCache()
-            await cache.close()
             try await control.close()
             try await client.delete(path: source)
             try await client.delete(path: destination)

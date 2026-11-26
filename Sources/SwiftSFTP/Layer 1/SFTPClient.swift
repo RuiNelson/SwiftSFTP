@@ -36,8 +36,9 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     let operationsTimeOut: TimeInterval?
     let hostKeyAcceptance: HostKeyAcceptance
     let compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])
-    /// Receives the client's ``ProgrammingError``s. Inherited by ``SFTPFile`` and ``SSHShellAgent``.
-    let programmingErrorHandler: ProgrammingErrorHandler
+    /// Receives the failures of closing on deinitialization: the client's own, and those of the file handles and shell
+    /// agents opened from it.
+    let deinitErrorHandler: DeinitErrorHandler
     let authentication: UserAuthentication
     /// The most recent timeout configured by `login(timeOut:)`. Protected by `internalStateQueue`.
     nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
@@ -75,7 +76,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             clientToServer: [CompressionAlgorithm],
             serverToClient: [CompressionAlgorithm]
         ) = ([], []),
-        programmingErrorHandler: @escaping ProgrammingErrorHandler = failFastProgrammingErrorHandler
+        deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
     ) throws(SFTPClientInvalidConfig) {
         // initial validation
         guard openSocketIn.hostnameCheckup != .invalid else {
@@ -87,17 +88,8 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
         }
 
         // `nil` and `+infinity` both mean no blocking timeout (libssh2 default).
-        // Reject zero, negative, NaN, and `-infinity`.
-        let normalizedOperationsTimeOut: TimeInterval?
-        if let operationsTimeOut {
-            guard operationsTimeOut > 0 else {
-                throw SFTPClientInvalidConfig.invalidTimeOutValue
-            }
-            normalizedOperationsTimeOut = operationsTimeOut.isFinite ? operationsTimeOut : nil
-        }
-        else {
-            normalizedOperationsTimeOut = nil
-        }
+        operationsTimeOut?.requireValidTimeout("operationsTimeOut")
+        let normalizedOperationsTimeOut = operationsTimeOut.flatMap { $0.isFinite ? $0 : nil }
 
         guard authentication.name.isEmpty == false else {
             throw SFTPClientInvalidConfig.invalidUsername
@@ -110,6 +102,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             }
 
         case let .privateKeys(set):
+            precondition(!set.isEmpty, "PrivateKeySet must hold at least one key")
             for keyFile in set.files {
                 guard FileManager.default.fileExists(atPath: keyFile.file.path) else {
                     throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
@@ -131,7 +124,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
         self.tcpLocation = openSocketIn
         self.operationsTimeOut = normalizedOperationsTimeOut
         self.hostKeyAcceptance = hostKeyAcceptance
-        self.programmingErrorHandler = programmingErrorHandler
+        self.deinitErrorHandler = deinitErrorHandler
         self.authentication = authentication
         self.compressionPreference = (
             clientToServer: CompressionAlgorithm.sanitizePreferencesArray(compressionPreference.clientToServer),
@@ -180,9 +173,11 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             )
         }
         catch {
-            // Balance SessionInit and SSHInit from above; deinit does not free them.
+            // Balance SessionInit and SSHInit from above. Every stored property is set by now, so deinit runs when this
+            // throws: marking the client closed keeps it from freeing them again.
             try? SessionFree(session: session)
             SSHExit()
+            _closed = true
             throw error
         }
 
@@ -192,13 +187,35 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
         SessionSetBlocking(session: session, blocking: true)
     }
 
+    /// Closes a client released without ``close()``.
+    ///
+    /// This skips the polite goodbye ``close()`` gives the server: dropping the socket is what releases the connection,
+    /// and with the socket down first nothing here waits for the network, so releasing a client never blocks. The file
+    /// handles and shell agents opened from it hold it, so they are closed by then.
     deinit {
-        let closed = internalStateQueue.sync {
-            _closed
+        guard let resources = takeTeardownResources() else {
+            return
         }
 
-        if !closed {
-            programmingErrorHandler(.sftpClientWasDeinitedWithoutClosingFirst)
+        resources.keepAliveTask?.cancel()
+
+        do {
+            try teardown(resources, politely: false)
+        }
+        catch {
+            deinitErrorHandler(DeinitError(source: .sftpClient, underlyingError: error))
+        }
+
+        // The teardown dropped the calls still abandoned, which the server may yet apply: the cache hears of them after
+        // this client is gone.
+        let reports = finishedChangesLock.withLock {
+            defer { _finishedChanges = [] }
+            return _finishedChanges
+        }
+        if !reports.isEmpty {
+            Task.detached {
+                await Self.deliver(reports)
+            }
         }
     }
 }

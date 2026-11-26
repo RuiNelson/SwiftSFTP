@@ -191,7 +191,7 @@
         ///   - format: The image format, or `nil` to detect it from the file's contents.
         ///   - options: Limits and block size for the read; see ``EXIFKit/read(file:format:options:)``.
         /// - Returns: The image's metadata.
-        /// - Throws: ``AlreadyClosed``, ``NotLoggedIn``, ``FileTransferErrors``, other SFTP errors, EXIFKit's
+        /// - Throws: ``FileTransferErrors``, other SFTP errors, EXIFKit's
         /// `FileAccessError` and parsing errors, or ``SFTPFileHandleForEXIFKitError/sizeUnavailable``.
         func imageMetadata(
             path: String,

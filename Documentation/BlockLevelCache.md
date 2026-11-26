@@ -62,14 +62,15 @@ Clients forked from a client with a cache attached share that cache, so the conn
 from each other's reads. A cache belongs to one server: for another server, create another `ReferenceCache`. Caches
 for different servers can share one `InMemoryCacheStorage`, and with it one budget.
 
-When you are done, detach the cache and close it:
+When you are done, detach the cache and let it go:
 
 ```swift
 client.detachCache()
-await cache.close()
 ```
 
-Closing the client detaches the cache but does not close it, since other clients may still use it.
+Closing the client detaches the cache as well. A cache has no `close()`: releasing it leaves the bytes it stored in its
+storage, which evicts them as it evicts any others. Call `await cache.removeAll()` to drop them at once; the cache goes
+on working afterwards.
 
 ### A configured cache with a control connection
 
@@ -106,12 +107,11 @@ Line by line:
   client never do.
 - `resolvesRelativePaths: true` lets a relative path and an absolute path to the same file share what is cached.
 
-The control connection stays yours: neither closing the client nor `cache.close()` closes it. When done, detach the
-cache, close it, then close the connection; close the connection too if the initializer throws:
+The control connection stays yours: closing the client does not close it. When done, detach the cache, then close the
+connection; close the connection too if the initializer throws:
 
 ```swift
 client.detachCache()
-await cache.close()
 try await control.close()
 ```
 

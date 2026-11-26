@@ -2,9 +2,11 @@ import Foundation
 
 /// An open SFTP file handle.
 ///
-/// File handles are owned separately from their parent client and must be closed with ``close()``. Operations throw
-/// ``AlreadyClosed`` after close. The concrete implementation uses libssh2's handle-based read, write, seek, fstat,
-/// fsetstat, fsync, and fstatvfs APIs.
+/// File handles are owned separately from their parent client. ``close()`` waits for the server to confirm and throws
+/// when it does not; a handle released without it closes itself in the background, and a failure then goes to the
+/// client's `deinitErrorHandler`. Using a handle after its ``close()``, or after its client's, is a ``MisuseError``.
+/// The concrete implementation uses libssh2's handle-based read, write, seek, fstat, fsetstat, fsync, and fstatvfs
+/// APIs.
 public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     // MARK: Position and I/O
 
@@ -26,9 +28,9 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// waiting out `operationsTimeOut`. Bytes already read are returned as a short read, because they have already
     /// advanced the remote file position; `CancellationError` is thrown only when nothing was read.
     ///
-    /// - Parameter upTo: Maximum number of bytes to read. Must be greater than zero.
+    /// - Parameter upTo: Maximum number of bytes to read. A value below one stops the process.
     /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
-    /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
+    /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     func read(upTo: Int) async throws -> Data?
 
     /// Reads up to `upTo` bytes from the current file position without reading ahead past `readAheadLimit`.
@@ -41,11 +43,11 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// The default implementation ignores the limit and calls ``read(upTo:)``.
     ///
     /// - Parameters:
-    ///   - upTo: Maximum number of bytes to read. Must be greater than zero.
+    ///   - upTo: Maximum number of bytes to read. A value below one stops the process.
     ///   - readAheadLimit: File offset where reading ahead stops, usually the end of the range being read, or `nil` for
     /// no limit.
     /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
-    /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
+    /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data?
 
     /// Writes data at the current file position.
@@ -67,15 +69,14 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///
     /// - Parameter data: Bytes to write.
     /// - Returns: Number of bytes accepted by libssh2.
-    /// - Throws: `CancellationError`, ``AlreadyClosed``, or libssh2/SFTP errors.
+    /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     @discardableResult func write(_ data: Data) async throws -> Int
 
     /// Requests that the server synchronize the remote file to stable storage.
     ///
     /// This is backed by the OpenSSH `fsync@openssh.com` SFTP extension.
     ///
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors, including unsupported-operation on servers without the
-    /// extension.
+    /// - Throws: libssh2/SFTP errors, including unsupported-operation on servers without the extension.
     func fsync() async throws
 
     // MARK: Lifecycle
@@ -104,13 +105,12 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// teardown budget is unaffected. Measured on a stalled-download fixture over 60 cycles, `leaks --atExit` reports
     /// no leaked allocations; before this, each abandoned handle cost about 5.7 KB for the lifetime of the process.
     ///
-    /// A client that is never closed keeps those allocations, as it keeps every other libssh2 resource it owns.
+    /// A client released without ``SFTPClientProtocol/close()`` reclaims them as it closes itself.
     ///
-    /// Closing a handle whose client is already closed marks the handle closed (the session teardown already released
-    /// it) and throws ``AlreadyClosed``.
+    /// Closing a handle whose client is already closed marks the handle closed and does nothing else: the session
+    /// teardown already released it.
     ///
-    /// - Throws: ``AlreadyClosed`` when the client was closed first; otherwise libssh2/SFTP errors encountered while
-    /// closing.
+    /// - Throws: libssh2/SFTP errors encountered while closing.
     func close() async throws
 
     /// Whether the file handle has been closed.
@@ -123,7 +123,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// Only fields selected by `attributes.flags` are sent to the server.
     ///
     /// - Parameter attributes: Attributes to write with handle-based `fsetstat`.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func set(_ attributes: FileAttributes) async throws
 
     /// Updates selected attributes on the open file handle, applying only the non-nil parameters.
@@ -136,7 +136,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///   - owner: New owning user and group IDs.
     ///   - date: New last-modification and last-access timestamps.
     ///   - permissions: New POSIX permission bits.
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     func set(
         size: Int64?,
         owner: (uid: Int, gid: Int)?,
@@ -148,15 +148,14 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///
     /// This is backed by handle-based `fstat`.
     ///
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors.
+    /// - Throws: libssh2/SFTP errors.
     var stat: FileAttributes { get async throws }
 
     /// `statvfs`-style filesystem information for the filesystem containing this open file.
     ///
     /// This is backed by the SFTP `fstatvfs@openssh.com` extension.
     ///
-    /// - Throws: ``AlreadyClosed`` or libssh2/SFTP errors, including unsupported-operation on servers without the
-    /// extension.
+    /// - Throws: libssh2/SFTP errors, including unsupported-operation on servers without the extension.
     var statFilesystem: FilesystemStat { get async throws }
 }
 

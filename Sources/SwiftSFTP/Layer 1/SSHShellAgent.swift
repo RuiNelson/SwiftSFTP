@@ -7,19 +7,19 @@ import PathWorks
 /// operations. One channel is opened at creation (interactive shell, or a long-lived PowerShell stdin session on
 /// Windows) and reused until ``close()``.
 ///
-/// Call ``close()`` when finished. Destroying the agent while its parent client is open and without `close()` reports
-/// ``ProgrammingError/sshShellAgentWasDeinitedWithoutClosingFirst`` to the parent client's `programmingErrorHandler`
-/// (same policy as ``SFTPFile``). Closing the parent client releases the agent as well.
+/// Call ``close()`` when you want the channel closed now; an agent released without it closes itself in the background,
+/// as an ``SFTPFile`` does. Closing the parent client releases the agent as well.
 public final class SSHShellAgent: Sendable {
     /// Detected or caller-supplied remote shell family.
     public let shellType: ShellType
 
     private let client: SFTPClient
     private nonisolated(unsafe) var channel: LibSSH2Channel
-    private let programmingErrorHandler: ProgrammingErrorHandler
 
     private let internalStateQueue = DispatchQueue(label: "com.ruinelson.SwiftSFTP.SSHShellAgent.InternalState")
     private nonisolated(unsafe) var _closed: Bool = false
+    /// Whether the agent closed itself after a command failed part way. Protected by `internalStateQueue`.
+    private nonisolated(unsafe) var _closedAfterChannelFailure: Bool = false
 
     /// Handshake marker printed once after the channel starts (not command-scoped).
     static let markerReady = "__SWIFTSFTP_READY__"
@@ -47,19 +47,26 @@ public final class SSHShellAgent: Sendable {
     init(
         client: SFTPClient,
         shellType: ShellType,
-        channel: LibSSH2Channel,
-        programmingErrorHandler: @escaping ProgrammingErrorHandler
+        channel: LibSSH2Channel
     ) {
         self.client = client
         self.shellType = shellType
         self.channel = channel
-        self.programmingErrorHandler = programmingErrorHandler
     }
 
+    /// Closes an agent released without ``close()``, on the client's session I/O queue: closing the channel waits for
+    /// the server. The work holds the client until it is done. A client closed first already released the channel.
     deinit {
-        // A parent closed first already released the channel with the session, which is a correct shutdown.
-        if !closed, !client.closed {
-            programmingErrorHandler(.sshShellAgentWasDeinitedWithoutClosingFirst)
+        guard !closed, !client.closed else {
+            return
+        }
+
+        let client = client
+        let channel = UncheckedSendableBox(channel)
+        client.sessionIOQueue.async {
+            client.withSessionIO {
+                Self.release(channel.value, on: client)
+            }
         }
     }
 }
@@ -75,8 +82,7 @@ public extension SSHShellAgent {
     /// Closes the persistent shell channel.
     ///
     /// Calling `close()` more than once is allowed; later calls return without doing anything. If the parent client is
-    /// already closed, the agent is marked closed without touching the channel (the session teardown owns those
-    /// resources), so no ``ProgrammingError`` is reported after a parent-first shutdown.
+    /// already closed, the agent is marked closed without touching the channel: the session teardown released it.
     func close() async throws {
         client.withSessionIO {
             internalStateQueue.sync {
@@ -84,25 +90,29 @@ public extension SSHShellAgent {
                     return
                 }
 
-                // Mark closed first so the deinit check is satisfied even when the parent session is already gone.
                 _closed = true
-
-                if client.closed {
-                    return
-                }
-
-                // Nothing goes out behind a packet an interrupted write left half sent. When that packet cannot go out
-                // either, the client's teardown frees the channel with the session.
-                guard (try? client.finishInterruptedSend(slice: nil)) != nil else {
-                    return
-                }
-
-                try? ChannelSendEOF(channel: channel)
-                try? ChannelClose(channel: channel)
-                try? ChannelWaitClosed(channel: channel)
-                try? ChannelFree(channel: channel)
+                Self.release(channel, on: client)
             }
         }
+    }
+
+    /// Closes and frees `channel`, unless `client` is closed and released it already. Callers must hold the session I/O
+    /// lock.
+    private static func release(_ channel: LibSSH2Channel, on client: SFTPClient) {
+        if client.closed {
+            return
+        }
+
+        // Nothing goes out behind a packet an interrupted write left half sent. When that packet cannot go out either,
+        // the client's teardown frees the channel with the session.
+        guard (try? client.finishInterruptedSend(slice: nil)) != nil else {
+            return
+        }
+
+        try? ChannelSendEOF(channel: channel)
+        try? ChannelClose(channel: channel)
+        try? ChannelWaitClosed(channel: channel)
+        try? ChannelFree(channel: channel)
     }
 
     /// Marks the agent unusable after a mid-command channel failure so further ops do not run on a desynced stream.
@@ -112,6 +122,7 @@ public extension SSHShellAgent {
                 return
             }
             _closed = true
+            _closedAfterChannelFailure = true
             if client.closed {
                 return
             }
@@ -227,12 +238,8 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         tool: ZipTool = .poke
     ) async throws {
         // Validate caller arguments before probing the host so missing zip tooling does not mask invalid input.
-        guard !input.isEmpty else {
-            throw ShellAgentError.invalidArgument("zip requires at least one input path")
-        }
-        guard (0 ... 9).contains(compressionLevel) else {
-            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
-        }
+        precondition(!input.isEmpty, "zip requires at least one input path")
+        precondition((0 ... 9).contains(compressionLevel), "compressionLevel must be in 0...9")
         let resolvedTool = try resolveZipTool(tool)
         let command = try ShellAgentSupport.zipCommand(
             shellType: shellType,
@@ -248,12 +255,8 @@ extension SSHShellAgent: SSHShellAgentProtocol {
 
     public func sevenZip(input: [String], output: String, compressionLevel: Int) async throws {
         // Validate caller arguments before probing the host so missing 7-Zip does not mask invalid input.
-        guard !input.isEmpty else {
-            throw ShellAgentError.invalidArgument("sevenZip requires at least one input path")
-        }
-        guard (0 ... 9).contains(compressionLevel) else {
-            throw ShellAgentError.invalidArgument("compressionLevel must be in 0...9")
-        }
+        precondition(!input.isEmpty, "sevenZip requires at least one input path")
+        precondition((0 ... 9).contains(compressionLevel), "compressionLevel must be in 0...9")
         let binary = try resolveSevenZipBinary()
         let command = try ShellAgentSupport.sevenZipCommand(
             shellType: shellType,
@@ -608,9 +611,18 @@ extension SSHShellAgent: SSHShellAgentProtocol {
 // MARK: - Persistent channel I/O
 
 extension SSHShellAgent {
-    func checkClosed() throws(AlreadyClosed) {
-        if closed || client.closed {
-            throw AlreadyClosed()
+    /// Once the caller closed the agent or its client, its use is a ``MisuseError``. An agent that closed itself after
+    /// a failed command throws ``ShellAgentError/channelClosedAfterFailure`` instead: that is a runtime failure, not a
+    /// misuse.
+    func checkClosed() throws {
+        try client.checkClosed()
+
+        let (closed, afterFailure) = internalStateQueue.sync { (_closed, _closedAfterChannelFailure) }
+        if afterFailure {
+            throw ShellAgentError.channelClosedAfterFailure
+        }
+        if closed {
+            try misuse(.shellAgentUsedAfterClosing)
         }
     }
 
@@ -712,8 +724,7 @@ extension SSHShellAgent {
             return SSHShellAgent(
                 client: client,
                 shellType: shellType,
-                channel: channel,
-                programmingErrorHandler: client.programmingErrorHandler
+                channel: channel
             )
         }
     }

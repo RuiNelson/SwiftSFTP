@@ -371,8 +371,12 @@ public func SessionSetTimeout(session: LibSSH2Session, timeoutMilliseconds: Int)
     libssh2.libssh2_session_set_timeout(session.rawValue, CLong(timeoutMilliseconds))
 }
 
+/// Sets the timeout, in seconds, used by blocking libssh2 calls.
+///
+/// `+infinity`, and any value that is not positive, disable the timeout. A positive value shorter than one millisecond
+/// waits one millisecond rather than disabling it.
 public func SessionSetTimeout(session: LibSSH2Session, timeOut: TimeInterval) {
-    let milliseconds = timeOut.milliseconds
+    let milliseconds = timeOut > 0 && timeOut.isFinite ? max(1, timeOut.milliseconds) : 0
     libssh2.libssh2_session_set_timeout(session.rawValue, CLong(clamping: milliseconds))
 }
 

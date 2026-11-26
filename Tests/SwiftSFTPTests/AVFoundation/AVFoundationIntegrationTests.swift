@@ -103,15 +103,6 @@
         }
 
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
-        @Test("closing the client before loading reports ENOTCONN")
-        func closedClient() async throws {
-            let client = try await makeLoggedInClient()
-            let asset = client.makeAsset(at: uniqueRemotePath("closed") + ".mp4")
-            try await client.close()
-            await expectLoadingFailure(asset, code: ENOTCONN)
-        }
-
-        @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("files without read permission report EACCES")
         func unreadableFile() async throws {
             try await withUploadedMovie { clients, path in

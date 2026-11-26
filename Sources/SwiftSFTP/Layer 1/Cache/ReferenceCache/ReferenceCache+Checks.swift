@@ -53,9 +53,14 @@ extension ReferenceCache {
 
         nextCheckToken += 1
         let token = nextCheckToken
-        // The task runs on the actor, so it cannot start before it is registered.
+        // The task runs on the actor, so it cannot start before it is registered. The caller may close the control
+        // connection while it runs, as the documented shutdown does right after detaching the cache: that is no misuse,
+        // so nothing goes to the connection's handler, and the check fails as one the server could not answer does. The
+        // shell agent's task, made inside, inherits the scope.
         let task = Task {
-            await check(key: key, token: token)
+            await MisuseScope.$assertsOnMisuse.withValue(false) {
+                await check(key: key, token: token)
+            }
         }
         checks[key] = RunningCheck(token: token, task: task)
         return task
@@ -75,7 +80,7 @@ extension ReferenceCache {
         guard let snapshot = files[key].map({ CheckSnapshot(id: $0.id, contentEpoch: $0.contentEpoch) }) else {
             return
         }
-        guard let control, !isClosed else {
+        guard let control, !control.closed else {
             failCheck(key, snapshot, ran: false)
             return
         }

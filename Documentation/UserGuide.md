@@ -54,7 +54,7 @@ let client = try SFTPClient(
         name: "alice",
         auth: .privateKeys(.init(URL(filePath: "/Users/alice/.ssh/id_ed25519")))
     ),
-    programmingErrorHandler: { error in  // optional; the default stops a debug build
+    deinitErrorHandler: { error in  // optional; the default prints in a debug build only
         myLogger.error("\(error.localizedDescription)")
     }
 )
@@ -78,32 +78,68 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 |-----------|------|---------|-------|
 | `openSocketIn` | `TCPLocation` | — | Server address |
 | `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout for each blocking libssh2 call; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
-| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; must be positive and finite (`.infinity` is rejected) |
+| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; positive, or `.infinity` for none |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
 | `compressionPreference` | `(clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])` | `([], [])` | Ordered preferences for each direction; an empty array means `[.none]` |
-| `programmingErrorHandler` | `ProgrammingErrorHandler` | `failFastProgrammingErrorHandler` | Receives misuse of the library, see [Programming errors](#programming-errors) |
+| `deinitErrorHandler` | `DeinitErrorHandler` | `debugPrintDeinitErrorHandler` | Receives the failures of objects closing themselves after being released, see [Closing and releasing](#closing-and-releasing) |
 
-### Programming errors
+### Closing and releasing
 
-SwiftSFTP throws for conditions a correct program has to expect, such as a missing remote file or a dropped connection.
-Misuse of the library itself, a bug in the calling code, is a `ProgrammingError` instead, and it is not thrown: the
-client passes it to its `programmingErrorHandler`, which the file handles and shell agents opened from it, and its
-forks, share. Today these are:
+`close()` is optional on a client, a file, and a shell agent. Call it when the outcome matters: it waits for the server,
+and throws when releasing something failed. Release the object without it and it closes itself:
 
-| Case | When |
+- A **client** drops its socket and frees everything at once, without the polite goodbye `close()` gives the server.
+  Nothing waits for the network, so releasing a client never blocks.
+- A **file** sends its `SSH_FXP_CLOSE` from a task of its own, which holds the client until the server answers.
+- A **shell agent** closes its channel on the client's session queue.
+
+A failure there has nobody to be thrown to, so it goes to the `deinitErrorHandler` given to the client, which its files,
+shell agents, and forks share. The default, `debugPrintDeinitErrorHandler`, prints it in a debug build and ignores it in a
+release build. Pass your own to log it. The handler can be called from any thread.
+
+Close a file before anything that depends on it being closed: before renaming a file just written (Windows servers
+refuse to rename an open file), before reading it from another connection, or when a write error the server reports only
+at close must not go unnoticed.
+
+### Errors, misuse, and impossible values
+
+SwiftSFTP tells three kinds of failure apart:
+
+- **Runtime errors** are thrown. A correct program has to expect them: a dropped connection, a rejected password, a
+  missing remote file, an empty path typed by a user.
+- **Misuse** of the library, a bug in the calling code, stops a debug build with an assertion failure where it happens.
+  A release build throws a `MisuseError` instead, so that neither a made-up value nor a step that never ran reaches the
+  caller as a success.
+- **Impossible values** stop the process with a precondition failure in every build: no correct program passes them,
+  and there is nothing sensible to do with one. See [Preconditions](#preconditions).
+
+| Misuse | Debug | Release |
+|------|------|------|
+| Using a client, or a file or shell agent opened from it, after the client's `close()` — including an operation that was waiting for the connection when another task closed it | Assertion failure | Throws `MisuseError.clientUsedAfterClosing` |
+| A remote operation before `login()` succeeded | Assertion failure | Throws `MisuseError.clientUsedBeforeLogin` |
+| Using a file after its `close()` | Assertion failure | Throws `MisuseError.fileUsedAfterClosing` |
+| Using a shell agent after its `close()` | Assertion failure | Throws `MisuseError.shellAgentUsedAfterClosing` |
+| `login()` on a client already logged in | Assertion failure | Ignored |
+
+An operation already running when another task closes the client fails with the socket error the close caused, a
+runtime error. Closing more than once is not a misuse, and neither is closing or releasing a file or shell agent after
+its client closed: the client's `close()` released them. A shell agent whose command failed part way closes itself; its
+later operations throw `ShellAgentError.channelClosedAfterFailure`, a runtime error. SwiftSFTP does not depend on a
+logging library and logs nothing itself.
+
+### Preconditions
+
+These values stop the process in every build:
+
+| Where | Value |
 |------|------|
-| `.sftpClientWasDeinitedWithoutClosingFirst` | An `SFTPClient` was deinitialized before `close()` |
-| `.sftpFileWasDeinitedWithoutClosingFirst` | An `SFTPFile` was deinitialized before `close()` while its client was open |
-| `.sshShellAgentWasDeinitedWithoutClosingFirst` | An `SSHShellAgent` was deinitialized before `close()` while its client was open |
-
-Closing the client releases the file handles and shell agents opened from it, so destroying them afterwards is not an
-error.
-
-The default handler, `failFastProgrammingErrorHandler`, calls `fatalError` in debug builds and prints the error in
-release builds. Pass your own handler to route the errors to your logger, an assertion, or a crash reporter. The
-handler is `@Sendable` and can run on any thread, including inside a `deinit`. SwiftSFTP does not depend on a logging
-library and logs nothing itself.
+| `operationsTimeOut`, `login(timeOut:)`, `loginTimeOut`, `getServerHostKey(timeOut:)`, `timeout`, `teardownGracePeriod` | Zero, negative, or NaN. `.infinity` means no timeout |
+| `setKeepAlive(every:)` | Zero, negative, NaN, or infinite (`nil` disables keepalives) |
+| Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL |
+| `UserAuthentication` | An empty `PrivateKeySet` |
+| Shell agent | An empty input list (`tar`, `zip`, `sevenZip`, `concat`), a `compressionLevel` outside `0...9`, a negative length (`createZeros`, `createRandomData`) |
+| `ReferenceCache` and `InMemoryCacheStorage` configuration, `compareFiles` | Negative sizes and intervals, and the other out-of-range values their documentation names |
 
 ### SSH compression
 
@@ -133,14 +169,15 @@ Timeout rules differ by API:
 
 | API | Valid values | How to disable timeout |
 |-----|--------------|------------------------|
-| `operationsTimeOut` at init / `initAndLogin` | Positive finite, `nil`, or `.infinity` | Pass `nil` or `.infinity` (libssh2 default: no blocking-call timeout). Negative, zero, and NaN throw `.invalidTimeOutValue` |
-| `login(timeOut:)` / `loginTimeOut` | Positive finite only | Not supported — must stay positive and finite |
-| `getServerHostKey(..., timeOut:)` | Positive finite only | Not supported — must stay positive and finite |
-| `client.timeout` after construction | Positive finite, or `.infinity` | Set `client.timeout = .infinity` (maps to libssh2 `0`) |
-| `client.teardownGracePeriod` | Positive finite, or `.infinity` (default `1.0`) | Set `client.teardownGracePeriod = .infinity` — the goodbye then runs under `operationsTimeOut` alone |
+| `operationsTimeOut` at init / `initAndLogin` | Positive, `nil`, or `.infinity` | Pass `nil` or `.infinity` (libssh2 default: no blocking-call timeout) |
+| `login(timeOut:)` / `loginTimeOut` | Positive, or `.infinity` | Pass `.infinity` |
+| `getServerHostKey(..., timeOut:)` | Positive, or `.infinity` | Pass `.infinity` |
+| `client.timeout` after construction | Positive, or `.infinity` | Set `client.timeout = .infinity` (maps to libssh2 `0`) |
+| `client.teardownGracePeriod` | Positive, or `.infinity` (default `1.0`) | Set `client.teardownGracePeriod = .infinity` — the goodbye then runs under `operationsTimeOut` alone |
 
-On the `timeout` property, non-positive values other than `.infinity` are ignored; the setter is a silent no-op if the
-client is already closed. Reading `timeout` returns `.infinity` when libssh2 has no timeout configured.
+Zero, negative, and NaN timeouts stop the process everywhere (see [Preconditions](#preconditions)). Using the `timeout`
+property after `close()` is a misuse: a debug build stops, and a release build reads zero or ignores the new value. Reading
+`timeout` returns `.infinity` when libssh2 has no timeout configured.
 `operationsTimeOut: .infinity` is normalized to the same internal state as `nil`.
 
 ### Forking a client
@@ -153,17 +190,17 @@ defer { try? await worker.close() }
 ```
 
 The fork inherits the server location, operation timeout, most recently configured login timeout, host-key acceptance
-policy, authentication, compression preferences in both directions, and programming error handler. It has an
+policy, authentication, compression preferences in both directions, and deinit error handler. It has an
 independent SSH session, socket, SFTP subsystem, identity, and keepalive state. Pass `false` to create the configured
 client without connecting it.
 
 ### Closing the connection
 
-Always `close()` explicitly, both for the client and for any open file handles:
+Close explicitly when the outcome matters, and let the rest go; see [Closing and releasing](#closing-and-releasing):
 
 ```swift
-try await fileHandle.close()
-try await client.close()
+try await fileHandle.close()  // the server confirmed the file is closed
+try await client.close()      // the polite goodbye, now
 ```
 
 The `closed` property is available on both if you need to check state.
@@ -847,7 +884,7 @@ try? await client.close()          // skips the goodbye, drops the socket
 everything was still freed.
 
 Raise `teardownGracePeriod` for links slow enough that a legitimate goodbye needs longer than a second, or set it to
-`.infinity` to switch the cap off and get the pre-cap behaviour back. Non-positive values and NaN are ignored. A client
+`.infinity` to switch the cap off and get the pre-cap behaviour back. Zero, negative, and NaN values stop the process. A client
 from `fork()` inherits the current value.
 
 ```swift
@@ -972,8 +1009,7 @@ try await client.setKeepAlive(every: 30)
 ```
 
 Positive fractional intervals are rounded up to whole seconds. The minimum effective interval is two seconds. Passing
-zero, a negative value, a non-finite value, or a value too large for libssh2 throws
-`SFTPClientInvalidConfig.invalidKeepAliveInterval`.
+zero, a negative value, a non-finite value, or a value too large for libssh2 stops the process.
 
 To be notified when a later keepalive send fails, provide an asynchronous callback:
 
@@ -1074,12 +1110,11 @@ Thrown synchronously from `SFTPClient.init` (including when called by `initAndLo
 |------|-------|
 | `.invalidHostname` | Hostname is empty or malformed |
 | `.invalidPort` | Port is outside 1–65535 |
-| `.invalidTimeOutValue` | Invalid timeout for the API in use (see [Timeouts](#timeouts)). For `operationsTimeOut`, negative/zero/NaN; for login/`getServerHostKey`, also infinite. Not thrown by the runtime `timeout` property |
 | `.invalidUsername` | Empty username |
 | `.invalidPassword` | Empty password string |
 | `.couldNotCreateSession(Error)` | libssh2 session allocation failed |
 | `.invalidHostKeyFormat(Error)` | Malformed known_hosts file or string |
-| `.invalidPrivateKey(Error)` | Private key file missing at init, or empty `PrivateKeySet` at login |
+| `.invalidPrivateKey(Error)` | Private key file missing at init |
 | `.authenticationFailed(Error)` | Server rejected credentials during `login()` (including all multi-key candidates failed or none matched `server-sig-algs`) |
 
 ### Host key verification errors (`HostKeyVerificationError`)
@@ -1096,10 +1131,8 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | Case | Cause |
 |------|-------|
 | `.transferCancelled` | Progress callback returned `false` |
-| `.notAFileURL` | Local URL is not a `file://` URL |
 | `.localFileNotFound` | Local source file missing |
 | `.localFileAlreadyExists(path:)` | Download destination already exists |
-| `.invalidBufferSize` | `bufferSize` ≤ 0 |
 | `.shortWrite(expected:actual:)` | Server accepted fewer bytes than sent |
 | `.shortRead(expected:actual:)` | Source file ended before a requested transfer range was read |
 | `.remoteFileNotFound(path:)` | Remote source path does not exist |
@@ -1111,12 +1144,10 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `.resumableTruncateUnsupported(path:)` | Every byte arrived, but the server refused to shrink the trailer away, so the rename was skipped. The partial file is preserved with every block marked done, and a later run finishes it without re-transferring anything |
 | `.resumableDestinationNameTooLong(byteCount:maximum:)` | Destination file name is longer than the 4096 bytes a trailer can record; refused before anything is created |
 
-### State errors
+### Using a client before login or after close
 
-| Type | Cause |
-|------|-------|
-| `AlreadyClosed` | Operation called on a closed client or file handle |
-| `NotLoggedIn` | Operation called before `login()` |
+These are misuses: a debug build stops, and a release build throws `MisuseError`. See
+[Errors, misuse, and impossible values](#errors-misuse-and-impossible-values).
 
 ### Shell agent errors (`ShellAgentError`)
 
@@ -1128,7 +1159,8 @@ Thrown by `shellAgent(shellType:)` and by `SSHShellAgent` operations:
 | `.hostDoesNotSupportOperation` | Requested hash algorithm (or equivalent) is unavailable on that shell family |
 | `.commandFailed(exitCode:stdout:stderr:)` | Remote command exited non-zero |
 | `.unexpectedOutput(String)` | Command output could not be parsed (for example a hash line) |
-| `.invalidArgument(String)` | Caller passed an unusable argument (for example an empty `files` list to `concat`) |
+| `.invalidArgument(String)` | An empty archive or destination path, an empty download URL, or an unknown 7-Zip binary name |
+| `.channelClosedAfterFailure` | An earlier command failed part way and the agent closed itself; open a new agent |
 
 ### libssh2 errors (`LibSSH2Error`)
 

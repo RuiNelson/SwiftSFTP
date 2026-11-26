@@ -331,8 +331,8 @@ struct ReferenceCacheBlockStorageTests {
         #expect(await first.cachedRanges(path: "/f") == [0 ..< 40])
         #expect(await second.cachedRanges(path: "/f") == [])
 
-        // Closing drops only the closed cache's bytes.
-        await first.close()
+        // Removing everything drops only that cache's bytes.
+        await first.removeAll()
         #expect(await second.cachedRanges(path: "/g") == [0 ..< 40])
         #expect(await second.invariantViolations() == [])
         #expect(storage.byteCount == 40)

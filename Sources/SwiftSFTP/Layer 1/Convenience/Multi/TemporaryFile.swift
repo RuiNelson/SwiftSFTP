@@ -296,7 +296,7 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
 
     func write(_ data: Data, at offset: UInt64) async throws {
         guard let handle else {
-            throw AlreadyClosed()
+            preconditionFailure("The temporary file was written before being opened, or after being closed")
         }
 
         handle.offset = offset
@@ -305,7 +305,7 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
 
     func finish(payloadSize: UInt64) async throws {
         guard let handle else {
-            throw AlreadyClosed()
+            preconditionFailure("The temporary file was written before being opened, or after being closed")
         }
 
         // No `fsync` here. The design never relies on flushing for correctness — a bit only goes to 1 once the write it
@@ -432,7 +432,7 @@ actor LocalResumableTemporaryFile: ResumableTemporaryFile {
 
     func write(_ data: Data, at offset: UInt64) async throws {
         guard let io else {
-            throw AlreadyClosed()
+            preconditionFailure("The temporary file was written before being opened, or after being closed")
         }
 
         try await io.seek(toOffset: offset)
@@ -441,7 +441,7 @@ actor LocalResumableTemporaryFile: ResumableTemporaryFile {
 
     func finish(payloadSize: UInt64) async throws {
         guard let io else {
-            throw AlreadyClosed()
+            preconditionFailure("The temporary file was written before being opened, or after being closed")
         }
 
         // `synchronize` lives on `FileHandle` rather than on `LocalFileIO`, and flushing through a second descriptor

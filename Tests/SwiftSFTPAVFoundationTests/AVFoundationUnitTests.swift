@@ -77,8 +77,8 @@
         @Test("loading failures carry meaningful POSIX codes")
         func loadingErrors() {
             let cases: [(any Error, Int32)] = [
-                (AlreadyClosed(), ENOTCONN),
-                (NotLoggedIn(), ENOTCONN),
+                (MisuseError.clientUsedAfterClosing, ENOTCONN),
+                (MisuseError.clientUsedBeforeLogin, ENOTCONN),
                 (FileTransferErrors.remoteFileNotFound(path: "missing"), ENOENT),
                 (FileTransferErrors.remotePathIsADirectory(path: "directory"), EISDIR),
                 (LibSSH2Error.sftp(status: .noSuchFile), ENOENT),
@@ -102,10 +102,7 @@
     private func makeUnconnectedClient() throws -> SFTPClient {
         try SFTPClient(
             openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-            authentication: UserAuthentication(name: "unused", auth: .password("unused")),
-            programmingErrorHandler: { error in
-                Issue.record(error, "Programming error: \(error.localizedDescription)")
-            }
+            authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
     }
 #endif

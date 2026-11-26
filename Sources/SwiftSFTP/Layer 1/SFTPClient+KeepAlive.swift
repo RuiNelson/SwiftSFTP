@@ -8,7 +8,7 @@ public extension SFTPClient {
         requestsReply: Bool = false,
         onFailure: (@Sendable (LibSSH2Error) async -> Void)? = nil
     ) async throws {
-        let intervalSeconds = try interval.map(Self.keepAliveIntervalSeconds)
+        let intervalSeconds = interval.map(Self.keepAliveIntervalSeconds)
 
         let previousTask = internalStateQueue.sync {
             _keepAliveGeneration &+= 1
@@ -119,10 +119,11 @@ enum KeepAliveLoop {
 // MARK: Private implementation
 
 private extension SFTPClient {
-    static func keepAliveIntervalSeconds(_ interval: TimeInterval) throws(SFTPClientInvalidConfig) -> UInt {
-        guard interval > 0, interval.isFinite, interval <= TimeInterval(UInt32.max) else {
-            throw .invalidKeepAliveInterval
-        }
+    static func keepAliveIntervalSeconds(_ interval: TimeInterval) -> UInt {
+        precondition(
+            interval > 0 && interval <= TimeInterval(UInt32.max),
+            "The keepalive interval must be positive and finite"
+        )
 
         return UInt(max(2, interval.rounded(.up)))
     }

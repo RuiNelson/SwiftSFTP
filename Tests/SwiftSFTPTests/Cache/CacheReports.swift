@@ -291,7 +291,9 @@ struct CacheReportTests {
         }
     }
 
-    @Test("closing a written file after its client closed invalidates it, since the final stat cannot be made")
+    @Test(
+        "closing a written file after its client closed succeeds and invalidates it, since the final stat cannot be made"
+    )
     func closeAfterClientClosed() async throws {
         let path = uniqueRemotePath("cache-close-after-client")
 
@@ -304,12 +306,13 @@ struct CacheReportTests {
             try await handle.write(Self.payload.prefix(100))
             try await writer.close()
             await cache.reset()
+            // The client's close released the handle: closing it afterwards is not an error.
             let closed = await Result { try await handle.close() }
 
             try await client.delete(path: path)
 
-            if case .success = closed {
-                Issue.record("closing a file of a closed client succeeded")
+            if case let .failure(error) = closed {
+                Issue.record("closing a file of a closed client threw \(error)")
             }
             #expect(handle.closed)
             #expect(await cache.events == [.invalidate(path: path)])

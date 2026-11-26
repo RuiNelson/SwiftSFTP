@@ -262,8 +262,8 @@ struct ReferenceCacheInvariantFuzzTests {
                 calls.append("relieveMemoryPressure(critical: \(critical))")
 
             default:
-                await cache.close()
-                calls.append("close()")
+                await cache.removeAll()
+                calls.append("removeAll()")
             }
 
             let violations = await cache.invariantViolations()

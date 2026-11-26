@@ -4,10 +4,32 @@ import Testing
 
 // MARK: - Shared SFTPClient Test Helpers
 
-/// Records a ``ProgrammingError`` as a test issue instead of stopping the test process, as the default handler does in
-/// debug builds.
-let recordProgrammingError: ProgrammingErrorHandler = { error in
-    Issue.record(error, "Programming error: \(error.localizedDescription)")
+/// Expects `operation` to be a misuse and to throw `error`, as a release build does: a debug build would stop at the
+/// assertion failure instead, so the check runs with the assertion off. See `MisuseTests` for the debug side.
+func expectMisuse(
+    _ error: MisuseError,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ operation: () async throws -> some Any
+) async {
+    await MisuseScope.$assertsOnMisuse.withValue(false) {
+        await #expect(throws: error, sourceLocation: sourceLocation) {
+            _ = try await operation()
+        }
+    }
+}
+
+/// Collects the failures a `deinitErrorHandler` receives, from whichever thread reports them.
+final class DeinitErrorRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _errors: [DeinitError] = []
+
+    var errors: [DeinitError] {
+        lock.withLock { _errors }
+    }
+
+    var handler: DeinitErrorHandler {
+        { [self] error in lock.withLock { _errors.append(error) } }
+    }
 }
 
 extension TS {
@@ -25,14 +47,15 @@ func makeClient(
     hostname: String = TS.hostname,
     port: Int = TS.port,
     hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
-    timeout: TimeInterval? = 15.0
+    timeout: TimeInterval? = 15.0,
+    deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
 ) throws -> SFTPClient {
     try SFTPClient(
         openSocketIn: TCPLocation(hostname: hostname, port: port),
         operationsTimeOut: timeout,
         hostKeyAcceptance: hostKeyAcceptance,
         authentication: auth,
-        programmingErrorHandler: recordProgrammingError
+        deinitErrorHandler: deinitErrorHandler
     )
 }
 
@@ -40,10 +63,16 @@ func makeLoggedInClient(
     user: String = TS.testUser,
     auth: UserAuthentication = UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
     hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
-    loginTimeout: TimeInterval = 15.0
+    loginTimeout: TimeInterval = 15.0,
+    deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
 ) async throws -> SFTPClient {
     try await loginWithRetry(timeOut: loginTimeout) {
-        try makeClient(user: user, auth: auth, hostKeyAcceptance: hostKeyAcceptance)
+        try makeClient(
+            user: user,
+            auth: auth,
+            hostKeyAcceptance: hostKeyAcceptance,
+            deinitErrorHandler: deinitErrorHandler
+        )
     }
 }
 
@@ -176,12 +205,13 @@ func loggedInClientOrSkip(
 func withClient(
     user: String = TS.testUser,
     auth: UserAuthentication? = nil,
+    deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler,
     _ body: (SFTPClient) async throws -> Void
 ) async throws {
     let auth = auth ?? UserAuthentication(name: user, auth: .password(TS.password))
     let client: SFTPClient
     do {
-        client = try await makeLoggedInClient(user: user, auth: auth)
+        client = try await makeLoggedInClient(user: user, auth: auth, deinitErrorHandler: deinitErrorHandler)
     }
     catch {
         Issue.record("Test server unavailable: \(error)")

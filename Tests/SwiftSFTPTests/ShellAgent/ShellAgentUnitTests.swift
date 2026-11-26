@@ -170,7 +170,7 @@ struct ShellAgentUnitTests {
     }
 
     @Test("sevenZip command uses -mx and preferred binary names")
-    func sevenZipCommandShapes() throws {
+    func sevenZipCommandShapes() async throws {
         let cmd = try ShellAgentSupport.sevenZipCommand(
             shellType: .linux,
             binary: "7z",
@@ -183,24 +183,30 @@ struct ShellAgentUnitTests {
         #expect(cmd.contains("'/data/out/x.7z'"))
         #expect(cmd.contains("rm -f "))
 
-        #expect(throws: ShellAgentError.invalidArgument("sevenZip requires at least one input path")) {
-            try ShellAgentSupport.sevenZipCommand(
-                shellType: .linux,
-                binary: "7z",
-                input: [],
-                output: "/x.7z",
-                compressionLevel: 5
-            )
-        }
-        #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
-            try ShellAgentSupport.sevenZipCommand(
-                shellType: .linux,
-                binary: "7z",
-                input: ["/a"],
-                output: "/x.7z",
-                compressionLevel: 11
-            )
-        }
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // sevenZip requires at least one input path
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.sevenZipCommand(
+                    shellType: .linux,
+                    binary: "7z",
+                    input: [],
+                    output: "/x.7z",
+                    compressionLevel: 5
+                )
+            }
+        #endif
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // compressionLevel must be in 0...9
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.sevenZipCommand(
+                    shellType: .linux,
+                    binary: "7z",
+                    input: ["/a"],
+                    output: "/x.7z",
+                    compressionLevel: 11
+                )
+            }
+        #endif
         #expect(throws: ShellAgentError.invalidArgument("unsupported 7-Zip binary name: evil")) {
             try ShellAgentSupport.sevenZipCommand(
                 shellType: .linux,
@@ -326,7 +332,7 @@ struct ShellAgentUnitTests {
     }
 
     @Test("zip command shapes for infoZip, tar, and microsoft")
-    func zipCommandShapes() throws {
+    func zipCommandShapes() async throws {
         let info = try ShellAgentSupport.zipCommand(
             shellType: .darwin,
             input: ["/data/a", "/data/b"],
@@ -380,33 +386,42 @@ struct ShellAgentUnitTests {
                 tool: .microsoft
             )
         }
-        #expect(throws: ShellAgentError.invalidArgument("zip requires at least one input path")) {
-            try ShellAgentSupport.zipCommand(
-                shellType: .linux,
-                input: [],
-                output: "/b.zip",
-                compressionLevel: 6,
-                tool: .infoZip
-            )
-        }
-        #expect(throws: ShellAgentError.invalidArgument("compressionLevel must be in 0...9")) {
-            try ShellAgentSupport.zipCommand(
-                shellType: .linux,
-                input: ["/a"],
-                output: "/b.zip",
-                compressionLevel: 10,
-                tool: .infoZip
-            )
-        }
-        #expect(throws: ShellAgentError.invalidArgument("zip tool .poke must be resolved before building a command")) {
-            try ShellAgentSupport.zipCommand(
-                shellType: .linux,
-                input: ["/a"],
-                output: "/b.zip",
-                compressionLevel: 6,
-                tool: .poke
-            )
-        }
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // zip requires at least one input path
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.zipCommand(
+                    shellType: .linux,
+                    input: [],
+                    output: "/b.zip",
+                    compressionLevel: 6,
+                    tool: .infoZip
+                )
+            }
+        #endif
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // compressionLevel must be in 0...9
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.zipCommand(
+                    shellType: .linux,
+                    input: ["/a"],
+                    output: "/b.zip",
+                    compressionLevel: 10,
+                    tool: .infoZip
+                )
+            }
+        #endif
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // zip tool .poke must be resolved before building a command
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.zipCommand(
+                    shellType: .linux,
+                    input: ["/a"],
+                    output: "/b.zip",
+                    compressionLevel: 6,
+                    tool: .poke
+                )
+            }
+        #endif
 
         #expect(ZipTool.pokePreferenceOrder == [.infoZip, .tar, .microsoft])
 
@@ -423,7 +438,7 @@ struct ShellAgentUnitTests {
     }
 
     @Test("tar command uses shared GNU/bsdtar compression flags")
-    func tarCommandFlags() throws {
+    func tarCommandFlags() async throws {
         let plain = try ShellAgentSupport.tarCommand(
             shellType: .linux,
             input: ["/data/a", "/data/b"],
@@ -466,20 +481,23 @@ struct ShellAgentUnitTests {
         )
         #expect(zstd.contains("--zstd"))
 
-        #expect(throws: ShellAgentError.invalidArgument("tar requires at least one input path")) {
-            try ShellAgentSupport.tarCommand(
-                shellType: .linux,
-                input: [],
-                output: "/tmp/out.tar",
-                compression: .none
-            )
-        }
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // tar requires at least one input path
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.tarCommand(
+                    shellType: .linux,
+                    input: [],
+                    output: "/tmp/out.tar",
+                    compression: .none
+                )
+            }
+        #endif
 
         #expect(TarCompression.allCases.count == 7)
     }
 
     @Test("createZeros and createRandomData command shapes")
-    func createDataCommands() throws {
+    func createDataCommands() async throws {
         let zeros = try ShellAgentSupport.createZerosCommand(
             shellType: .linux,
             file: "/data/out/z.bin",
@@ -495,12 +513,18 @@ struct ShellAgentUnitTests {
         )
         #expect(random.contains("head -c 2048 /dev/urandom > '/tmp/r.bin'"))
 
-        #expect(throws: ShellAgentError.invalidArgument("createZeros length must be non-negative")) {
-            try ShellAgentSupport.createZerosCommand(shellType: .linux, file: "/t", length: -1)
-        }
-        #expect(throws: ShellAgentError.invalidArgument("createRandomData length must be non-negative")) {
-            try ShellAgentSupport.createRandomDataCommand(shellType: .linux, file: "/t", length: -1)
-        }
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // createZeros length must be non-negative
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.createZerosCommand(shellType: .linux, file: "/t", length: -1)
+            }
+        #endif
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // createRandomData length must be non-negative
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.createRandomDataCommand(shellType: .linux, file: "/t", length: -1)
+            }
+        #endif
 
         let winZeros = try ShellAgentSupport.createZerosCommand(
             shellType: .windowsCommandPrompt,
@@ -511,7 +535,7 @@ struct ShellAgentUnitTests {
     }
 
     @Test("unix concat uses cat and creates parents")
-    func unixConcatCommand() throws {
+    func unixConcatCommand() async throws {
         let command = try ShellAgentSupport.concatCommand(
             shellType: .linux,
             files: ["/data/a.bin", "/data/b.bin"],
@@ -520,9 +544,12 @@ struct ShellAgentUnitTests {
         #expect(command.contains("mkdir -p '/data/out'"))
         #expect(command.contains("cat '/data/a.bin' '/data/b.bin' > '/data/out/combined.bin'"))
 
-        #expect(throws: ShellAgentError.invalidArgument("concat requires at least one source file")) {
-            try ShellAgentSupport.concatCommand(shellType: .linux, files: [], to: "/data/out.bin")
-        }
+        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+            // concat requires at least one source file
+            await #expect(processExitsWith: .failure) {
+                _ = try? ShellAgentSupport.concatCommand(shellType: .linux, files: [], to: "/data/out.bin")
+            }
+        #endif
     }
 
     @Test("Windows concat uses binary copy /b or PowerShell streams")

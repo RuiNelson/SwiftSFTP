@@ -384,12 +384,7 @@ extension SFTPClient {
     /// Retryable per-key failures (unverified public key, auth rejected, missing file, bad key material) advance to the
     /// next candidate. Non-retryable session errors abort immediately.
     private func authenticate(with set: PrivateKeySet, username: String) throws {
-        guard !set.isEmpty else {
-            throw SFTPClientInvalidConfig.invalidPrivateKey(
-                LibSSH2Error.invalidArgument("PrivateKeySet is empty")
-            )
-        }
-
+        // `SFTPClient.init` stops the process for an empty set.
         let serverAlgs = SessionServerSignAlgorithms(session: session)
         let planned = PrivateKeyAuthPlanner.plan(
             candidates: PrivateKeyAuthPlanner.candidates(from: set),

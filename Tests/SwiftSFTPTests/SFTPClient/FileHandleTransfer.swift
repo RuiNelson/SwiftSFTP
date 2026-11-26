@@ -117,21 +117,32 @@ struct SFTPClientFileHandleTransfer {
         let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
         try await client.close()
 
-        await #expect(throws: AlreadyClosed.self) {
-            try await handle.close()
-        }
-        // Marked closed, so a trapping handle would not raise SIGTRAP on deinit.
+        // The client's close released the handle, so closing it is not an error and reports nothing.
+        try await handle.close()
         #expect(handle.closed)
     }
 
-    @Test("openFile throws after client closed")
+    @Test("openFile after the client closed is reported and throws")
     func openFileThrowsAfterClientClosed() async throws {
         try await withClient { client in
             try await client.close()
 
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.clientUsedAfterClosing) {
                 try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             }
+        }
+    }
+
+    @Test("a file used after its client closed reports the client")
+    func fileUsedAfterClientClose() async throws {
+        try await withClient { client in
+            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
+            try await client.close()
+
+            await expectMisuse(.clientUsedAfterClosing) {
+                try await handle.read(upTo: 10)
+            }
+            try await handle.close()
         }
     }
 
@@ -160,15 +171,23 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
-    @Test("read zero bytes returns nil")
-    func readZeroBytes() async throws {
-        try await withClient { client in
-            let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
-            let data = try await handle.read(upTo: 0)
-            #expect(data == nil)
-            try await handle.close()
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("a read of zero bytes stops the process")
+        func readZeroBytes() async {
+            await #expect(processExitsWith: .failure) {
+                guard let client = try? await makeLoggedInClient(),
+                      let handle = try? await client.openFile(
+                          .read,
+                          path: "\(TS.fixturesPath)/TINY.bin",
+                          permissions: []
+                      ) else {
+                    // Without the server there is nothing to read: exit cleanly so the expectation fails visibly.
+                    return
+                }
+                _ = try? await handle.read(upTo: 0)
+            }
         }
-    }
+    #endif
 
     @Test("read empty file returns nil")
     func readEmptyFile() async throws {
@@ -466,25 +485,25 @@ struct SFTPClientFileHandleTransfer {
         }
     }
 
-    @Test("file operations throw AlreadyClosed after close")
-    func fileOperationsThrowAlreadyClosed() async throws {
+    @Test("file operations after close are reported and throw")
+    func fileOperationsAfterCloseAreReported() async throws {
         try await withClient { client in
             let handle = try await client.openFile(.read, path: "\(TS.fixturesPath)/TINY.bin", permissions: [])
             try await handle.close()
 
-            await #expect(throws: AlreadyClosed.self) {
-                _ = try await handle.read(upTo: 10)
+            await expectMisuse(.fileUsedAfterClosing) {
+                try await handle.read(upTo: 10)
             }
-            await #expect(throws: AlreadyClosed.self) {
-                _ = try await handle.write(Data("x".utf8))
+            await expectMisuse(.fileUsedAfterClosing) {
+                try await handle.write(Data("x".utf8))
             }
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.fileUsedAfterClosing) {
+                try await handle.stat
+            }
+            await expectMisuse(.fileUsedAfterClosing) {
                 try await handle.fsync()
             }
-            await #expect(throws: AlreadyClosed.self) {
-                _ = try await handle.stat
-            }
-            await #expect(throws: AlreadyClosed.self) {
+            await expectMisuse(.fileUsedAfterClosing) {
                 try await handle.set(FileAttributes())
             }
         }

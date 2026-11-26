@@ -11,7 +11,11 @@ public typealias ShellAgentProgress = (String) -> Void
 ///
 /// Implementations keep a **persistent** session channel (interactive shell or long-lived PowerShell stdin) rather than
 /// using the SFTP subsystem, so work such as server-side copies and on-host hashing stays on the remote machine. Call
-/// ``close()`` when finished; operations throw ``AlreadyClosed`` afterward.
+/// ``close()`` to close the channel now, or release the agent and it closes itself. Using an agent after its
+/// ``close()``,
+/// or after its client's, is a ``MisuseError``. An agent whose command failed part way closes itself, and its later
+/// operations throw
+/// ``ShellAgentError/channelClosedAfterFailure``.
 ///
 /// ## Paths
 ///
@@ -26,10 +30,10 @@ public protocol SSHShellAgentProtocol: Sendable {
 
     /// Closes the persistent shell channel.
     ///
-    /// Calling `close()` more than once is allowed by the concrete implementation; later calls log a warning and
-    /// return.
+    /// Calling `close()` more than once is allowed by the concrete implementation; later calls return without doing
+    /// anything.
     ///
-    /// - Throws: ``AlreadyClosed`` is not thrown for double-close; libssh2 errors may surface while shutting down.
+    /// - Throws: libssh2 errors may surface while shutting down.
     func close() async throws
 
     /// Whether the shell channel has been closed.
@@ -46,7 +50,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - from: Existing remote source path.
     ///   - to: Remote destination path.
     ///   - progress: Optional non-cancellable completion path reporter.
-    /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func copy(from: String, to: String, progress: ShellAgentProgress?) async throws
 
     /// Moves a remote path to another remote path entirely on the server.
@@ -58,7 +62,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - from: Existing remote source path.
     ///   - to: Remote destination path.
     ///   - progress: Optional non-cancellable completion path reporter.
-    /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func move(from: String, to: String, progress: ShellAgentProgress?) async throws
 
     /// Concatenates remote files into a single destination path entirely on the server.
@@ -69,8 +73,8 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// - Parameters:
     ///   - files: One or more existing remote source paths, in the order they should appear in the result.
     ///   - to: Remote destination path (created or overwritten).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `files` is empty; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `files` is empty; otherwise ``ShellAgentError``, libssh2
+    /// errors.
     func concat(files: [String], to: String) async throws
 
     /// Creates (or overwrites) a remote file filled with zero bytes.
@@ -79,7 +83,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - file: Remote destination path.
     ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// libssh2 errors.
     func createZeros(file: String, length: Int64) async throws
 
     /// Creates (or overwrites) a remote file filled with random bytes from the host CSPRNG.
@@ -90,7 +94,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - file: Remote destination path.
     ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// libssh2 errors.
     func createRandomData(file: String, length: Int64) async throws
 
     /// Creates a tar archive on the server from remote paths.
@@ -101,8 +105,8 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - input: One or more remote files or directories to include (order preserved).
     ///   - output: Remote archive path to create or overwrite.
     ///   - compression: Shared GNU/bsdtar compression filter.
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``, libssh2
+    /// errors.
     func tar(input: [String], output: String, compression: TarCompression) async throws
 
     /// Creates a ZIP archive on the server from remote paths.
@@ -115,7 +119,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// (Info-ZIP, then `tar --format=zip`, then Microsoft `Compress-Archive`).
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable on that shell family (including when
-    /// ``ZipTool/poke`` finds nothing); otherwise ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2
+    /// ``ZipTool/poke`` finds nothing); otherwise ``ShellAgentError`` or libssh2
     /// errors.
     func zip(input: [String], output: String, compressionLevel: Int, tool: ZipTool) async throws
 
@@ -130,7 +134,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - compressionLevel: Level `0...9` passed as `-mxN` (`0` store / fastest, `9` ultra).
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise
-    /// ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// ``ShellAgentError`` or libssh2 errors.
     func sevenZip(input: [String], output: String, compressionLevel: Int) async throws
 
     /// Extracts a tar archive on the server into a destination directory.
@@ -142,7 +146,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - file: Remote archive path (`.tar`, `.tar.gz`, `.tgz`, …).
     ///   - to: Remote directory to extract into.
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty; otherwise
-    /// ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    /// ``ShellAgentError`` or libssh2 / SFTP errors.
     func untar(file: String, to: String) async throws
 
     /// Extracts a ZIP archive on the server into a destination directory.
@@ -156,7 +160,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// (Info-ZIP `unzip`, then `tar` ZIP extract, then Microsoft `Expand-Archive`).
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    /// libssh2 / SFTP errors.
     func unzip(file: String, to: String, tool: ZipTool) async throws
 
     /// Extracts a 7-Zip (or compatible) archive on the server into a destination directory.
@@ -169,7 +173,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - to: Remote directory to extract into.
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` or `to` is empty;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    /// libssh2 / SFTP errors.
     func unSevenZip(file: String, to: String) async throws
 
     /// Computes a cryptographic hash of a remote file on the server and returns the raw digest bytes.
@@ -178,7 +182,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - file: Remote regular-file path to hash.
     ///   - algorithm: Digest algorithm to request.
     /// - Returns: Raw digest bytes (not hex-encoded).
-    /// - Throws: ``ShellAgentError``, ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func calculateHash(file: String, algorithm: CalculateHashAlgorithm) async throws -> Data
 
     /// Reads a remote file's metadata with the host's own `stat`, at full timestamp resolution.
@@ -195,7 +199,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// ``ShellAgentError/commandFailed(exitCode:stdout:stderr:)`` when the path does not exist;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when extended attributes are requested and unavailable;
     /// ``ShellAgentError/unexpectedOutput(_:)`` when the host's `stat` prints an unknown format (for example BusyBox);
-    /// otherwise ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 errors.
+    /// otherwise libssh2 errors.
     func stat(file: String, options: ShellStatOptions) async throws -> ShellFileStatus
 
     /// Downloads a remote URL onto the server with `curl` (or `curl.exe` on Windows).
@@ -210,7 +214,7 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///   - headers: Optional HTTP headers in `Name: value` form, each passed as `curl -H`.
     /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `file` is empty or `url` has no absolute string;
     /// ``ShellAgentError/hostDoesNotSupportOperation`` when `curl` is missing; otherwise ``ShellAgentError``,
-    /// ``AlreadyClosed``, ``NotLoggedIn``, or libssh2 / SFTP errors.
+    /// libssh2 / SFTP errors.
     func download(url: URL, file: String, headers: [String]) async throws
 }
 

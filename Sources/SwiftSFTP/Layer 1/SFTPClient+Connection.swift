@@ -8,9 +8,7 @@ public extension SFTPClient {
         timeOut: TimeInterval = 10.0,
         shortHandForm: Bool = true
     ) async throws -> String {
-        guard timeOut > 0, timeOut.isFinite else {
-            throw SFTPClientInvalidConfig.invalidTimeOutValue
-        }
+        timeOut.requireValidTimeout("timeOut")
 
         try SSHInit()
         defer { SSHExit() }
@@ -55,15 +53,16 @@ public extension SFTPClient {
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for no
-    /// blocking timeout (libssh2 default).
-    ///   - loginTimeOut: Positive finite timeout for login, handshake, authentication, and SFTP initialization.
+    ///   - operationsTimeOut: Positive timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for
+    /// no blocking timeout (libssh2 default). Zero, negative, and NaN values stop the process.
+    ///   - loginTimeOut: Positive timeout for login, handshake, authentication, and SFTP initialization, or `.infinity`
+    /// for none. Any other value stops the process.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
     ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
     /// sent to the server; `serverToClient` applies to data received from it.
-    ///   - programmingErrorHandler: Receives the ``ProgrammingError``s of the client and of the file handles and shell
-    /// agents opened from it.
+    ///   - deinitErrorHandler: Receives the failures of closing the client, and the file handles and shell agents
+    /// opened from it, when they are released without `close()`.
     /// - Returns: A connected and authenticated SFTP client.
     /// - Throws: ``SFTPClientInvalidConfig`` for invalid configuration, or libssh2/socket/authentication errors from
     /// login.
@@ -77,7 +76,7 @@ public extension SFTPClient {
             [],
             []
         ),
-        programmingErrorHandler: @escaping ProgrammingErrorHandler = failFastProgrammingErrorHandler
+        deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
     ) async throws -> Self {
         let instance = try Self(
             openSocketIn: openSocketIn,
@@ -85,7 +84,7 @@ public extension SFTPClient {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            programmingErrorHandler: programmingErrorHandler
+            deinitErrorHandler: deinitErrorHandler
         )
 
         do {
@@ -106,9 +105,7 @@ public extension SFTPClient {
 
 public extension SFTPClient {
     func login(timeOut: TimeInterval = 10.0) async throws {
-        guard timeOut > 0, timeOut.isFinite else {
-            throw SFTPClientInvalidConfig.invalidTimeOutValue
-        }
+        timeOut.requireValidTimeout("timeOut")
 
         try checkClosed()
 
@@ -121,6 +118,10 @@ public extension SFTPClient {
             return false
         }
         guard !alreadyLoggedIn else {
+            // A second login is a misuse that changes nothing: stop a debug build, and leave the connection as it is.
+            if MisuseScope.assertsOnMisuse {
+                assertionFailure("SwiftSFTP misuse: the SFTP client was asked to log in while already logged in.")
+            }
             return
         }
 
@@ -152,33 +153,7 @@ public extension SFTPClient {
     }
 
     func close() async throws {
-        let resources: TeardownResources? = internalStateQueue.sync {
-            guard _closed == false else {
-                return nil
-            }
-
-            _closed = true
-            _keepAliveGeneration &+= 1
-
-            let resources = TeardownResources(
-                sftp: _sftp,
-                knownHosts: _knownHosts,
-                socket: _socket,
-                keepAliveTask: _keepAliveTask,
-                abandonedHandles: _abandonedHandles
-            )
-
-            _sftp = nil
-            _knownHosts = nil
-            _socket = nil
-            _keepAliveTask = nil
-            _abandonedHandles = []
-            _cache = nil
-
-            return resources
-        }
-
-        guard let resources else {
+        guard let resources = takeTeardownResources() else {
             return
         }
 
@@ -195,7 +170,7 @@ public extension SFTPClient {
             Never
         >) in
             DispatchQueue.global().async {
-                continuation.resume(returning: Result { try self.teardown(box.value) })
+                continuation.resume(returning: Result { try self.teardown(box.value, politely: true) })
             }
         }
 
@@ -222,7 +197,7 @@ public extension SFTPClient {
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
-            programmingErrorHandler: programmingErrorHandler
+            deinitErrorHandler: deinitErrorHandler
         )
 
         instance.internalStateQueue.sync {

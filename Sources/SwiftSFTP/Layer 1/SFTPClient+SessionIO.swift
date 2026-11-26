@@ -3,28 +3,25 @@ import Foundation
 // MARK: Shared session state
 
 extension SFTPClient {
-    /// Returns the SFTP Session or throws NotLoggedIn if inexistent
+    /// Returns the SFTP session. Before login, this is a ``MisuseError/clientUsedBeforeLogin``.
     var sftp: LibSSH2SFTP {
-        get throws {
+        get throws(MisuseError) {
             let session = internalStateQueue.sync {
                 _sftp
             }
 
             guard let session else {
-                throw NotLoggedIn()
+                try misuse(.clientUsedBeforeLogin)
             }
 
             return session
         }
     }
 
-    func checkClosed() throws(AlreadyClosed) {
-        let status = internalStateQueue.sync {
-            _closed
-        }
-
-        if status {
-            throw AlreadyClosed()
+    /// Once the client is closed, its use is a ``MisuseError/clientUsedAfterClosing``.
+    func checkClosed() throws(MisuseError) {
+        if closed {
+            try misuse(.clientUsedAfterClosing)
         }
     }
 
@@ -67,9 +64,5 @@ extension SFTPClient {
         sessionIOLock.lock()
         defer { sessionIOLock.unlock() }
         return try operation()
-    }
-
-    func checkOpenForFileOperation() throws(AlreadyClosed) {
-        try checkClosed()
     }
 }

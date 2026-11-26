@@ -176,10 +176,17 @@ struct SFTPClientMultiKeyAuth {
         try await expectLoginFails(user: "charmander", set: set)
     }
 
-    @Test("multi-key fails with empty PrivateKeySet")
-    func multiKeyEmptySet() async throws {
-        try await expectLoginFails(user: "charmander", set: PrivateKeySet(files: []))
-    }
+    #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
+        @Test("an empty PrivateKeySet stops the process")
+        func emptySetStopsTheProcess() async {
+            await #expect(processExitsWith: .failure) {
+                _ = try? SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "charmander", auth: .privateKeys(PrivateKeySet(files: [])))
+                )
+            }
+        }
+    #endif
 
     @Test("multi-key rejects missing key files at client construction")
     func multiKeyMissingFilesOnly() throws {

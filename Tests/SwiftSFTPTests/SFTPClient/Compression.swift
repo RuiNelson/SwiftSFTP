@@ -26,8 +26,7 @@ struct SFTPClientCompression {
                 operationsTimeOut: 5,
                 loginTimeOut: 5,
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                compressionPreference: (clientToServer: clientToServer, serverToClient: serverToClient),
-                programmingErrorHandler: recordProgrammingError
+                compressionPreference: (clientToServer: clientToServer, serverToClient: serverToClient)
             )
         }
         do {
@@ -79,8 +78,7 @@ struct SFTPClientCompression {
                 openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
                 operationsTimeOut: 5,
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib]),
-                programmingErrorHandler: recordProgrammingError
+                compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib])
             )
             SFTPClient.configureCompression(
                 session: client.session,
