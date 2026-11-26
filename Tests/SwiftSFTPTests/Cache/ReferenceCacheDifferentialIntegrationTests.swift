@@ -168,7 +168,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
         }
 
         func listed(_ client: SFTPClient) async -> [String: UInt64]? {
-            guard let entries = try? await client.contentsOfDirectory(path: paths.directory, recursive: false) else {
+            guard let entries = try? await client.listDirectory(path: paths.directory, recursive: false) else {
                 return nil
             }
             return Dictionary(entries.map { ($0.fileName, $0.attributes.fileSize) }) { first, _ in first }
@@ -393,7 +393,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
                                     )
 
                                 default:
-                                    _ = try? await client.contentsOfDirectory(path: paths.directory, recursive: false)
+                                    _ = try? await client.listDirectory(path: paths.directory, recursive: false)
                                 }
                             }
                             return (index, isMoved, log)

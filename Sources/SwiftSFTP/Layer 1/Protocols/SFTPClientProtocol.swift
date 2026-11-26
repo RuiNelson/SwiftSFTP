@@ -248,7 +248,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - recursive: Whether to include descendants of subdirectories.
     /// - Returns: Metadata for entries under `path`. The directory itself is not included.
     /// - Throws: libssh2/SFTP errors.
-    func contentsOfDirectory(path: String, recursive: Bool) async throws -> [FileMetadata]
+    func listDirectory(path: String, recursive: Bool) async throws -> [FileMetadata]
 
     /// Returns metadata for a regular file, or `nil` if the path is missing or is not a regular file.
     ///
@@ -413,22 +413,6 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
 }
 
 public extension SFTPClientProtocol {
-    /// Lists entries in a remote directory, as a set.
-    ///
-    /// A set keeps one of two entries that `FileMetadata` compares as equal: entries whose names differ only in Unicode
-    /// normalization and whose attributes match collapse into one. Use ``contentsOfDirectory(path:recursive:)``, which
-    /// keeps every entry.
-    ///
-    /// - Parameters:
-    ///   - path: Remote directory path to open.
-    ///   - recursive: Whether to include descendants of subdirectories.
-    /// - Returns: Metadata for entries under `path`. The directory itself is not included.
-    /// - Throws: libssh2/SFTP errors.
-    @available(*, deprecated, message: "Use contentsOfDirectory(path:recursive:), which keeps every entry")
-    func listDirectory(path: String, recursive: Bool = false) async throws -> Set<FileMetadata> {
-        try await Set(contentsOfDirectory(path: path, recursive: recursive))
-    }
-
     /// Disables periodic SSH keepalive messages.
     func disableKeepAlive() async throws {
         try await setKeepAlive(every: nil, requestsReply: false, onFailure: nil)

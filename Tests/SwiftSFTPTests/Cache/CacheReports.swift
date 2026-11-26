@@ -37,13 +37,13 @@ struct CacheReportTests {
 
             // A stat and a listing missed, then answered, and a listing the server fails.
             let metadata = try #require(try await client.stat(path: file, followLink: true))
-            _ = try await client.contentsOfDirectory(path: directory, recursive: false)
+            _ = try await client.listDirectory(path: directory, recursive: false)
             await cache.answerStat(.doesNotExist, path: file)
             _ = try await client.stat(path: file, followLink: true)
             await cache.answerListing([], path: directory)
-            _ = try await client.contentsOfDirectory(path: directory, recursive: false)
+            _ = try await client.listDirectory(path: directory, recursive: false)
             await #expect(throws: (any Error).self) {
-                _ = try await client.contentsOfDirectory(path: "\(directory)/missing", recursive: false)
+                _ = try await client.listDirectory(path: "\(directory)/missing", recursive: false)
             }
             await cache.answerStat(.exists(metadata), path: file)
 

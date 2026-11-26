@@ -62,7 +62,7 @@ let home = try await myClient.currentWorkingDirectory
 print(home)
 
 // - List a directory
-let contents = try await myClient.contentsOfDirectory(path: "./Fixtures")
+let contents = try await myClient.listDirectory(path: "./Fixtures")
 
 // - Open a file handle
 if let largestFile = contents.bySize.last {

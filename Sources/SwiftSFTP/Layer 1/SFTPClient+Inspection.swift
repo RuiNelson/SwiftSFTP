@@ -14,7 +14,7 @@ public extension SFTPClient {
         }
     }
 
-    func contentsOfDirectory(path: String, recursive: Bool = false) async throws -> [FileMetadata] {
+    func listDirectory(path: String, recursive: Bool = false) async throws -> [FileMetadata] {
         try checkClosed()
 
         var sanitizedPath = path.sanitizePath
@@ -28,7 +28,7 @@ public extension SFTPClient {
             try await self.withSessionIOReportingChanges {
                 try self.checkClosed()
                 var entries: [FileMetadata] = []
-                try self.contentsOfDirectory(
+                try self.listDirectory(
                     sanitizedPath: sanitizedPath,
                     recursive: recursive,
                     openedDirectories: [],
@@ -196,7 +196,7 @@ private extension SFTPClient {
     ///
     /// - Parameter openedDirectories: The directories being listed above this one, by their bytes: names that differ
     /// only in Unicode normalization are different directories.
-    func contentsOfDirectory(
+    func listDirectory(
         sanitizedPath: String,
         recursive: Bool,
         openedDirectories: Set<[UInt8]>,
@@ -236,7 +236,7 @@ private extension SFTPClient {
             entries.append(metadata)
 
             if recursive, metadata.isDirectory {
-                try contentsOfDirectory(
+                try listDirectory(
                     sanitizedPath: metadata.fullPath,
                     recursive: true,
                     openedDirectories: openedDirectories,

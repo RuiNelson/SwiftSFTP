@@ -1326,7 +1326,7 @@ final class CacheSimulation {
         )
     }
 
-    /// The steps of `SFTPClient.contentsOfDirectory(path:recursive:)`.
+    /// The steps of `SFTPClient.listDirectory(path:recursive:)`.
     private func makeList(path: String, recursive: Bool) -> Operation {
         let request = CacheRequestID()
         var answered = false

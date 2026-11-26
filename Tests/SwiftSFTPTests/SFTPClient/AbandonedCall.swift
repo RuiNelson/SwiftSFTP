@@ -89,7 +89,7 @@ struct AbandonedCallTests {
             let client = fixture.wedged.client
 
             try await fixture.stall()
-            try await fixture.abandon { _ = try await client.contentsOfDirectory(path: fixture.directory) }
+            try await fixture.abandon { _ = try await client.listDirectory(path: fixture.directory) }
             fixture.resume()
 
             let other = try await client.openFile(.read, path: fixture.smallFiles[0], permissions: [])

@@ -135,8 +135,8 @@ final class FaultInjectingClient: SFTPClientProtocol {
         get async throws { try await base.currentWorkingDirectory }
     }
 
-    func contentsOfDirectory(path: String, recursive: Bool) async throws -> [FileMetadata] {
-        try await base.contentsOfDirectory(path: path, recursive: recursive)
+    func listDirectory(path: String, recursive: Bool) async throws -> [FileMetadata] {
+        try await base.listDirectory(path: path, recursive: recursive)
     }
 
     func statFile(path: String, followLink: Bool) async throws -> FileMetadata? {

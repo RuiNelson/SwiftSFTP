@@ -30,12 +30,12 @@ struct SFTPClientFilesystemOps {
         }
     }
 
-    // MARK: - contentsOfDirectory
+    // MARK: - listDirectory
 
-    @Test("contentsOfDirectory returns entries")
-    func contentsOfDirectoryReturnsEntries() async throws {
+    @Test("listDirectory returns entries")
+    func listDirectoryReturnsEntries() async throws {
         try await withClient { client in
-            let entries = try await client.contentsOfDirectory(path: TS.testHome, recursive: false)
+            let entries = try await client.listDirectory(path: TS.testHome, recursive: false)
             #expect(!entries.isEmpty)
             let names = entries.map(\.fileName)
             #expect(names.contains("KeyPairs"))
@@ -43,29 +43,29 @@ struct SFTPClientFilesystemOps {
         }
     }
 
-    @Test("contentsOfDirectory excludes . and ..")
-    func contentsOfDirectoryExcludesDots() async throws {
+    @Test("listDirectory excludes . and ..")
+    func listDirectoryExcludesDots() async throws {
         try await withClient { client in
-            let entries = try await client.contentsOfDirectory(path: TS.testHome, recursive: false)
+            let entries = try await client.listDirectory(path: TS.testHome, recursive: false)
             let names = entries.map(\.fileName)
             #expect(!names.contains("."))
             #expect(!names.contains(".."))
         }
     }
 
-    @Test("contentsOfDirectory recursive includes subdirectories")
-    func contentsOfDirectoryRecursive() async throws {
+    @Test("listDirectory recursive includes subdirectories")
+    func listDirectoryRecursive() async throws {
         try await withClient { client in
-            let flat = try await client.contentsOfDirectory(path: TS.keyPairsPath, recursive: false)
-            let recursive = try await client.contentsOfDirectory(path: TS.keyPairsPath, recursive: true)
+            let flat = try await client.listDirectory(path: TS.keyPairsPath, recursive: false)
+            let recursive = try await client.listDirectory(path: TS.keyPairsPath, recursive: true)
             #expect(recursive.count >= flat.count)
         }
     }
 
-    @Test("contentsOfDirectory on charmander home has documents and symlinks")
-    func contentsOfDirectoryCharmander() async throws {
+    @Test("listDirectory on charmander home has documents and symlinks")
+    func listDirectoryCharmander() async throws {
         try await withClient(user: "charmander") { client in
-            let entries = try await client.contentsOfDirectory(path: TS.charmanderHome, recursive: false)
+            let entries = try await client.listDirectory(path: TS.charmanderHome, recursive: false)
             let names = entries.map(\.fileName)
             #expect(names.contains("documents"))
             #expect(names.contains("archives"))
@@ -74,10 +74,10 @@ struct SFTPClientFilesystemOps {
         }
     }
 
-    @Test("contentsOfDirectory resolves relative path against CWD")
-    func contentsOfDirectoryRelativePath() async throws {
+    @Test("listDirectory resolves relative path against CWD")
+    func listDirectoryRelativePath() async throws {
         try await withClient { client in
-            let entries = try await client.contentsOfDirectory(path: "Fixtures", recursive: false)
+            let entries = try await client.listDirectory(path: "Fixtures", recursive: false)
             #expect(entries.count(where: { $0.fileExtension == "bin" }) == 4)
             let names = entries.map(\.fileName)
             #expect(names.contains("DEADBEAF.bin"))
@@ -87,26 +87,26 @@ struct SFTPClientFilesystemOps {
         }
     }
 
-    @Test("contentsOfDirectory on non-existent throws")
-    func contentsOfDirectoryNonExistent() async throws {
+    @Test("listDirectory on non-existent throws")
+    func listDirectoryNonExistent() async throws {
         try await withClient { client in
             await #expect(throws: (any Error).self) {
-                try await client.contentsOfDirectory(path: "/no/such/directory", recursive: false)
+                try await client.listDirectory(path: "/no/such/directory", recursive: false)
             }
         }
     }
 
-    @Test("contentsOfDirectory charmander recursive discovers nested files")
-    func contentsOfDirectoryCharmanderRecursive() async throws {
+    @Test("listDirectory charmander recursive discovers nested files")
+    func listDirectoryCharmanderRecursive() async throws {
         try await withClient(user: "charmander") { client in
-            let entries = try await client.contentsOfDirectory(path: "\(TS.charmanderHome)/documents", recursive: true)
+            let entries = try await client.listDirectory(path: "\(TS.charmanderHome)/documents", recursive: true)
             let files = entries.regularFiles
             #expect(files.contains(where: { $0.fileName == "report.txt" }))
         }
     }
 
-    @Test("contentsOfDirectory keeps names that differ only in Unicode normalization, and delete removes both")
-    func contentsOfDirectoryNormalizationForms() async throws {
+    @Test("listDirectory keeps names that differ only in Unicode normalization, and delete removes both")
+    func listDirectoryNormalizationForms() async throws {
         let directory = uniqueRemotePath("unicode-listing")
         let names = ["caf\u{E9}.bin", "cafe\u{301}.bin"]
 
@@ -126,7 +126,7 @@ struct SFTPClientFilesystemOps {
                 try await client.setAttributes(path: "\(directory)/\(name)", date: (modification: time, access: time))
             }
 
-            let entries = try await client.contentsOfDirectory(path: directory, recursive: false)
+            let entries = try await client.listDirectory(path: directory, recursive: false)
             try await client.delete(path: directory)
             let remaining = try await client.stat(path: directory, followLink: false)
 
@@ -578,10 +578,10 @@ struct SFTPClientFilesystemOps {
 
     // MARK: - FileMetadata helpers
 
-    @Test("contentsOfDirectory metadata contains correct types")
+    @Test("listDirectory metadata contains correct types")
     func metadataContainsCorrectTypes() async throws {
         try await withClient(user: "charmander") { client in
-            let entries = try await client.contentsOfDirectory(path: TS.charmanderHome, recursive: false)
+            let entries = try await client.listDirectory(path: TS.charmanderHome, recursive: false)
 
             let dirs = entries.directories
             let links = entries.filter(\.isSymLink)
@@ -596,7 +596,7 @@ struct SFTPClientFilesystemOps {
     @Test("FileMetadata Set helpers work")
     func fileMetadataSetHelpers() async throws {
         try await withClient { client in
-            let entries = try await client.contentsOfDirectory(path: TS.keyPairsPath, recursive: false)
+            let entries = try await client.listDirectory(path: TS.keyPairsPath, recursive: false)
 
             #expect(entries.regularFiles.count + entries.directories.count == entries.count)
             let sorted = entries.byPath

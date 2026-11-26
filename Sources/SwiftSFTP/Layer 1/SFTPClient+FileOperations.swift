@@ -131,7 +131,7 @@ public extension SFTPClient {
         }
 
         if metadata.isDirectory {
-            let children = try await contentsOfDirectory(path: sanitizedPath, recursive: false)
+            let children = try await listDirectory(path: sanitizedPath, recursive: false)
             for child in children {
                 try await delete(path: child.fullPath)
             }

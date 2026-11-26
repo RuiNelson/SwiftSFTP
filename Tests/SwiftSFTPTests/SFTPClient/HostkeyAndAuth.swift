@@ -570,7 +570,7 @@ struct SFTPClientHostkeyAndAuth {
                 try await client.currentWorkingDirectory
             }
             await expectMisuse(.clientUsedAfterClosing) {
-                try await client.contentsOfDirectory(path: ".", recursive: false)
+                try await client.listDirectory(path: ".", recursive: false)
             }
             await expectMisuse(.clientUsedAfterClosing) {
                 try await client.stat(path: ".", followLink: false)
@@ -608,7 +608,7 @@ struct SFTPClientHostkeyAndAuth {
             try await client.currentWorkingDirectory
         }
         await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.contentsOfDirectory(path: ".", recursive: false)
+            try await client.listDirectory(path: ".", recursive: false)
         }
         await expectMisuse(.clientUsedBeforeLogin) {
             try await client.stat(path: ".", followLink: false)

@@ -490,7 +490,7 @@ struct ReferenceCacheIntegrationTests {
             try await writeRemoteFile(client, path: file, contents: Self.payload)
             _ = try await client.stat(path: file, followLink: false)
             _ = try await client.stat(path: file, followLink: true)
-            _ = try await client.contentsOfDirectory(path: directory, recursive: false)
+            _ = try await client.listDirectory(path: directory, recursive: false)
 
             let handle = try await client.openFile(.write, path: file, permissions: [])
             handle.offset = UInt64(Self.payload.count)
@@ -499,7 +499,7 @@ struct ReferenceCacheIntegrationTests {
 
             let linkStat = try await client.stat(path: file, followLink: false)
             let stat = try await client.stat(path: file, followLink: true)
-            let listing = try await client.contentsOfDirectory(path: directory, recursive: false)
+            let listing = try await client.listDirectory(path: directory, recursive: false)
 
             client.detachCache()
             try await client.delete(path: directory)
