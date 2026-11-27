@@ -14,8 +14,6 @@ public enum MisuseError: Error, Sendable, Equatable {
     /// This includes an operation that was waiting for the connection when another task closed it. An operation already
     /// running on the connection fails with the ``LibSSH2Error`` of the socket the close shut down instead.
     case clientUsedAfterClosing
-    /// An ``SFTPClient`` was used for a remote operation before ``SFTPClient/login(timeOut:)`` succeeded.
-    case clientUsedBeforeLogin
     /// An ``SFTPFile`` was used after its ``SFTPFile/close()``.
     case fileUsedAfterClosing
     /// An ``SSHShellAgent`` was used after its ``SSHShellAgent/close()``.
@@ -27,8 +25,6 @@ extension MisuseError: LocalizedError {
         switch self {
         case .clientUsedAfterClosing:
             "The SFTP client was used after being closed."
-        case .clientUsedBeforeLogin:
-            "The SFTP client was used before logging in."
         case .fileUsedAfterClosing:
             "The SFTP file was used after being closed."
         case .shellAgentUsedAfterClosing:

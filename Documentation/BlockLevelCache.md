@@ -79,7 +79,7 @@ browsing folders feels slow, `ReferenceCache.Configuration` lets you trade a lit
 options need the cache to talk to the server itself, over a **control connection** of its own:
 
 ```swift
-let control = try await client.fork(loggedIn: true)
+let control = try await client.fork()
 let cache = try await ReferenceCache(
     storage: InMemoryCacheStorage(byteBudget: 128 * 1024 * 1024),
     controlConnection: control,
@@ -95,7 +95,7 @@ client.attachCache(cache)
 
 Line by line:
 
-- `client.fork(loggedIn: true)` opens the control connection, a second logged-in connection to the same server. Opening
+- `client.fork()` opens the control connection, a second logged-in connection to the same server. Opening
   it is up to you: fork **before** attaching any cache to the client, so that this connection does not go through a
   cache itself, and use it for nothing else while the cache has it.
 - `trustPolicy: .statOnServer` has the cache stat a file on the server before answering from it, so changes made by
@@ -246,7 +246,7 @@ A cache that checks files against the server needs a connection of its own. Fork
 cache, so that connection does not go through the cache itself, and close it when you close the cache:
 
 ```swift
-let control = try await client.fork(loggedIn: true)
+let control = try await client.fork()
 client.attachCache(MyCache(controlConnection: control))
 ```
 

@@ -9,7 +9,7 @@ public extension SFTPClient {
                 try checkClosed()
 
                 guard let banner = SessionBannerGet(session: session) else {
-                    try misuse(.clientUsedBeforeLogin)
+                    throw LibSSH2Error.nullPointer(function: "SessionBannerGet")
                 }
 
                 return banner

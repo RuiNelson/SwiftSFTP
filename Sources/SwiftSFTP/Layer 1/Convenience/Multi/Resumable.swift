@@ -387,7 +387,7 @@ private extension SFTPClientProtocol {
             initial: self,
             requested: max(min(workers, remainingBlocks), 1)
         ) {
-            try await self.fork(loggedIn: true)
+            try await self.fork()
         }
 
         // Sized against the connections that actually came up rather than the ones asked for, so the blocks still

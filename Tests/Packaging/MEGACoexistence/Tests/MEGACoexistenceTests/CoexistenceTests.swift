@@ -61,14 +61,13 @@ func sftpDownloadAndMEGACryptoWorkInOneProcess() async throws {
     let key = try #require(env["SFTP_TEST_KEY"])
     let password = try #require(env["SFTP_TEST_PASSWORD"])
     let expectedHash = try #require(env["SFTP_TEST_SHA256"])
-    let client = try SFTPClient(
+    let client = try await SFTPClient(
         openSocketIn: .init(hostname: "127.0.0.1", port: port),
-        operationsTimeOut: 5,
         hostKeyAcceptance: .shortHandAcceptedKeys([key]),
-        authentication: .init(name: "proof", auth: .password(password))
+        authentication: .init(name: "proof", auth: .password(password)),
+        operationsTimeOut: 5
     )
     do {
-        try await client.login()
         let files = try await client.listDirectory(path: "/", recursive: false)
         #expect(files.contains(where: { $0.fileName == "bytes.bin" }))
         let file = try await client.openFile([.read], path: "/bytes.bin")

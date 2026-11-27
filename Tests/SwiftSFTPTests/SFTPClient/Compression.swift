@@ -21,12 +21,12 @@ struct SFTPClientCompression {
         serverToClient: [CompressionAlgorithm]
     ) async throws {
         let client = try await retryingTransientConnectionFailure {
-            try await SFTPClient.initAndLogin(
+            try await SFTPClient(
                 openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                operationsTimeOut: 5,
-                loginTimeOut: 5,
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                compressionPreference: (clientToServer: clientToServer, serverToClient: serverToClient)
+                compressionPreference: (clientToServer: clientToServer, serverToClient: serverToClient),
+                loginTimeOut: 5,
+                operationsTimeOut: 5
             )
         }
         do {
@@ -55,7 +55,7 @@ struct SFTPClientCompression {
             try await client.delete(path: remotePath)
 
             let fork = try await retryingTransientConnectionFailure {
-                try await client.fork(loggedIn: true)
+                try await client.fork()
             }
             #expect(fork.compression.clientToServer == (clientToServer.first ?? .none))
             #expect(fork.compression.serverToClient == (serverToClient.first ?? .none))
@@ -73,18 +73,19 @@ struct SFTPClientCompression {
         arguments: [true, false]
     )
     func rejectedCompressionPreferences(failClientToServer: Bool) async throws {
-        let client = try await loginWithRetry(timeOut: 5) {
+        let client = try await loginWithRetry {
             let client = try SFTPClient(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                operationsTimeOut: 5,
+                unconnectedTo: TCPLocation(hostname: TS.hostname, port: TS.port),
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
-                compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib])
+                compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib]),
+                operationsTimeOut: 5
             )
             SFTPClient.configureCompression(
                 session: client.session,
                 clientToServerPreferences: failClientToServer ? "unsupported" : "zlib@openssh.com,zlib,none",
                 serverToClientPreferences: failClientToServer ? "zlib@openssh.com,zlib,none" : "unsupported"
             )
+            try await client.loginOrClose()
             return client
         }
 
@@ -104,7 +105,7 @@ struct SFTPClientCompression {
             try await file.close()
 
             let fork = try await retryingTransientConnectionFailure {
-                try await client.fork(loggedIn: true)
+                try await client.fork()
             }
             #expect(fork.compression.clientToServer == .zlib)
             #expect(fork.compression.serverToClient == .zlib)

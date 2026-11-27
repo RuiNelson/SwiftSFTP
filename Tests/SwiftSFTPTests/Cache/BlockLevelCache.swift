@@ -282,10 +282,10 @@ struct BlockLevelCacheTests {
 
         try await withClient { client in
             try await makeRemoteFile(client, path: path, contents: Self.payload.prefix(100))
-            let control = try await client.fork(loggedIn: true)
+            let control = try await client.fork()
             let cache = RecordingCache()
             client.attachCache(cache)
-            let fork = try await client.fork(loggedIn: true)
+            let fork = try await client.fork()
 
             let kept = try await client.openFile(.read, path: path, permissions: [])
             client.detachCache()

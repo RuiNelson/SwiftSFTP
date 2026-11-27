@@ -39,21 +39,35 @@ final class FaultInjectingClient: SFTPClientProtocol {
 
     init(
         openSocketIn: TCPLocation,
-        operationsTimeOut: TimeInterval?,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
+        loginTimeOut: TimeInterval,
+        operationsTimeOut: TimeInterval?,
         deinitErrorHandler: @escaping DeinitErrorHandler
-    ) throws(SFTPClientInvalidConfig) {
-        base = try SFTPClient(
+    ) async throws {
+        base = try await SFTPClient(
             openSocketIn: openSocketIn,
-            operationsTimeOut: operationsTimeOut,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
+            loginTimeOut: loginTimeOut,
+            operationsTimeOut: operationsTimeOut,
             deinitErrorHandler: deinitErrorHandler
         )
         faults = InjectedFaults()
+    }
+
+    static func preflightConfigurationCheck(
+        openSocketIn: TCPLocation,
+        hostKeyAcceptance: HostKeyAcceptance,
+        authentication: UserAuthentication
+    ) throws(SFTPClientInvalidConfig) {
+        try SFTPClient.preflightConfigurationCheck(
+            openSocketIn: openSocketIn,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication
+        )
     }
 
     static func getServerHostKey(
@@ -70,10 +84,6 @@ final class FaultInjectingClient: SFTPClientProtocol {
 
     // MARK: Connection
 
-    func login(timeOut: TimeInterval) async throws {
-        try await base.login(timeOut: timeOut)
-    }
-
     func close() async throws {
         try await base.close()
     }
@@ -82,9 +92,9 @@ final class FaultInjectingClient: SFTPClientProtocol {
         base.closed
     }
 
-    func fork(loggedIn: Bool) async throws -> FaultInjectingClient {
+    func fork() async throws -> FaultInjectingClient {
         try faults.beforeFork()
-        return try await FaultInjectingClient(wrapping: base.fork(loggedIn: loggedIn), faults: faults)
+        return try await FaultInjectingClient(wrapping: base.fork(), faults: faults)
     }
 
     // MARK: Session

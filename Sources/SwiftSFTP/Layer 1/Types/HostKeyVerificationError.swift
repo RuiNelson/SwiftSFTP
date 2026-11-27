@@ -1,4 +1,4 @@
-/// Thrown by ``SFTPClient/login(timeOut:)`` when the server's host key fails verification against the configured
+/// Thrown by the ``SFTPClient`` initializer when the server's host key fails verification against the configured
 /// ``HostKeyAcceptance`` settings.
 public enum HostKeyVerificationError: Error, Equatable {
     /// The host was found in the accepted host keys, but the server presented a different key (possible

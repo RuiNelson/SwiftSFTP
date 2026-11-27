@@ -2,52 +2,77 @@ import Foundation
 
 /// A connected SFTP client interface.
 ///
-/// `SFTPClientProtocol` models an SSH session plus an initialized SFTP subsystem. The initializer validates and stores
-/// configuration only; call ``login(timeOut:)`` before performing remote filesystem operations.
+/// `SFTPClientProtocol` models an SSH session plus an initialized SFTP subsystem. The initializer connects,
+/// authenticates, and initializes SFTP, so a client that exists is logged in. Use
+/// ``preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)`` to validate a configuration without
+/// connecting.
 ///
 /// Implementations normalize remote path components with PathWorks and map empty input to `"."`. Whitespace in remote
 /// names is preserved. Use the explicit Windows-path conversion APIs when normalizing Windows notation.
 ///
-/// Using the client after ``close()``, or for a remote operation before ``login(timeOut:)``, is a
-/// ``MisuseError``: a debug build stops there with an assertion failure, and a release build throws it. Values no
-/// correct program passes, such as a non-positive timeout or buffer size, stop the process with a precondition failure
-/// in every build.
+/// Using the client after ``close()`` is a ``MisuseError``: a debug build stops there with an assertion failure, and a
+/// release build throws it. Values no correct program passes, such as a non-positive timeout or buffer size, stop the
+/// process with a precondition failure in every build.
 ///
 /// Calling ``close()`` is optional: a client released without it closes itself, skipping the polite goodbye. Call it
 /// when the moment of disconnection matters, or to unblock a call stuck on an unresponsive peer.
 public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     // MARK: Initialization
 
-    /// Creates a client and validates its static configuration without opening the network connection.
+    /// Creates a client, opens the SSH connection, authenticates, and initializes the SFTP subsystem.
     ///
-    /// The initializer creates the underlying libssh2 session, prepares host-key acceptance data, validates the user
-    /// authentication payload, and configures blocking mode. It does not open a socket, perform the SSH handshake, or
-    /// initialize SFTP; those steps happen in ``login(timeOut:)``.
+    /// The initializer first runs the checks of
+    /// ``preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)``, then opens the socket,
+    /// performs the SSH handshake, verifies the host key, authenticates, and initializes SFTP under `loginTimeOut`.
+    /// `operationsTimeOut` applies to every blocking call after that. When a step fails, the client closes what it
+    /// opened before throwing.
     ///
     /// Compression lists are ordered from most to least preferred. Duplicates are removed while preserving their first
     /// occurrence. An empty list means `[.none]`; `.none` is appended when absent to allow an uncompressed fallback. If
-    /// the preferences cannot be configured, initialization continues without compression in either direction. Check
-    /// both members of ``compression`` after login when compression is required.
+    /// the preferences cannot be configured, the client continues without compression in either direction. Check both
+    /// members of ``compression`` when compression is required.
     ///
     /// - Parameters:
     ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Positive timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for
-    /// no blocking timeout (libssh2 default). Zero, negative, and NaN values stop the process.
     ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
     ///   - authentication: Username and authentication material.
     ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
     /// sent to the server; `serverToClient` applies to data received from it.
+    ///   - loginTimeOut: Positive timeout for the connection, handshake, authentication, and SFTP initialization, or
+    /// `.infinity` for none. Any other value stops the process.
+    ///   - operationsTimeOut: Positive timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for
+    /// no blocking timeout (libssh2 default). Zero, negative, and NaN values stop the process.
     ///   - deinitErrorHandler: Receives the failures of closing the client, and the file handles and shell agents
     /// opened from it, when they are released without `close()`. The default prints them in a debug build and ignores
     /// them in a release build.
-    /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created.
+    /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created;
+    /// ``HostKeyVerificationError`` when the server's host key is not accepted; libssh2, socket, and authentication
+    /// errors from connecting.
     init(
         openSocketIn: TCPLocation,
-        operationsTimeOut: TimeInterval?,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
+        loginTimeOut: TimeInterval,
+        operationsTimeOut: TimeInterval?,
         deinitErrorHandler: @escaping DeinitErrorHandler
+    ) async throws
+
+    /// Validates a client configuration without opening a network connection.
+    ///
+    /// Runs the checks the initializer runs before it connects: the hostname, port, username, and authentication
+    /// material are validated, a libssh2 session is created, and the host-key acceptance data is loaded into it. The
+    /// session is freed before returning.
+    ///
+    /// - Parameters:
+    ///   - openSocketIn: Hostname and port for the SSH server.
+    ///   - hostKeyAcceptance: Host-key policy to validate.
+    ///   - authentication: Username and authentication material.
+    /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created.
+    static func preflightConfigurationCheck(
+        openSocketIn: TCPLocation,
+        hostKeyAcceptance: HostKeyAcceptance,
+        authentication: UserAuthentication
     ) throws(SFTPClientInvalidConfig)
 
     /// Connects only long enough to fetch the server host key, then disconnects.
@@ -70,19 +95,6 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ) async throws -> String
 
     // MARK: Connection
-
-    /// Opens the SSH connection, authenticates, and initializes the SFTP subsystem.
-    ///
-    /// The concrete implementation applies `timeOut` while connecting and initializing SFTP, then restores
-    /// `operationsTimeOut` from initialization for later operations.
-    ///
-    /// Calling it again while logged in stops a debug build with an assertion failure; a release build ignores it and
-    /// leaves the connection as it was. Calling it after ``close()`` is a ``MisuseError/clientUsedAfterClosing``.
-    ///
-    /// - Parameter timeOut: Positive timeout for login, handshake, authentication, and SFTP initialization, or
-    /// `.infinity` for none. Any other value stops the process.
-    /// - Throws: libssh2/socket/authentication errors.
-    func login(timeOut: TimeInterval) async throws
 
     /// Closes the SFTP subsystem, disconnects and frees the SSH session, and closes the socket.
     ///
@@ -117,14 +129,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
-    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and deinit error handler.
+    /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and deinit error handler. It is
+    /// logged in when it returns.
     ///
-    /// - Parameter loggedIn: When `true`, connect and initialize SFTP before returning. When `false`, return a
-    /// configured but disconnected client.
-    /// - Returns: A new, independent client.
-    /// - Throws: ``MisuseError/clientUsedAfterClosing`` when the receiver is closed, configuration errors while
-    /// creating the fork, or connection and authentication errors when `loggedIn` is `true`.
-    func fork(loggedIn: Bool) async throws -> Self
+    /// - Returns: A new, independent, logged-in client.
+    /// - Throws: ``MisuseError/clientUsedAfterClosing`` when the receiver is closed, or the errors of the initializer.
+    func fork() async throws -> Self
 
     // MARK: Session
 
@@ -158,8 +168,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///
     /// Raise it for links slow enough that a legitimate goodbye needs longer, or set it to `.infinity` to switch the
     /// cap off entirely and let the goodbye run under `operationsTimeOut` alone, as it did before the cap existed.
-    /// Zero, negative, and NaN values stop the process. A client created by ``fork(loggedIn:)`` inherits the current
-    /// value.
+    /// Zero, negative, and NaN values stop the process. A client created by ``fork()`` inherits the current value.
     ///
     /// > Warning: With `.infinity`, ``close()`` no longer drops the socket to get past a call that is still blocked
     /// inside libssh2; it waits for it. Combined with an `operationsTimeOut` of `nil` that means `close()` can block
@@ -180,7 +189,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// transfer conveniences do.
     ///
     /// Values are clamped to 128 KiB...8 MiB, the most libssh2 keeps in flight for one handle. A client created by
-    /// ``fork(loggedIn:)`` inherits the current value.
+    /// ``fork()`` inherits the current value.
     var readAhead: Int { get set }
 
     /// Bytes a file write keeps on their way to the server ahead of its acknowledgements. Defaults to 2 MiB, what
@@ -196,7 +205,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// remote file, so its size, rather than the handle's position, is the resume point.
     ///
     /// Values are clamped to 32 KiB...8 MiB. The lower bound is what a write kept in flight before this setting
-    /// existed. A client created by ``fork(loggedIn:)`` inherits the current value.
+    /// existed. A client created by ``fork()`` inherits the current value.
     var writeAhead: Int { get set }
 
     /// Negotiated compression in each direction, or `(.none, .none)` before handshake or after closing the client.

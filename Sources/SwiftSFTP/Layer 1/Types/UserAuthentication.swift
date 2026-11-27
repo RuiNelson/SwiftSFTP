@@ -13,9 +13,8 @@ import Foundation
 
 /// Credentials used by ``SFTPClient`` to authenticate after the SSH handshake.
 ///
-/// You build a ``UserAuthentication`` (username + ``UserAuthenticationMode``), pass it into the client initializer, and
-/// authentication runs during
-/// ``SFTPClientProtocol/login(timeOut:)``.
+/// You build a ``UserAuthentication`` (username + ``UserAuthenticationMode``) and pass it into the client initializer,
+/// which authenticates after the SSH handshake.
 ///
 /// ```swift
 /// // Password

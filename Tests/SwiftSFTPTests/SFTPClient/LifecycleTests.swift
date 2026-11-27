@@ -18,7 +18,7 @@ private func eventually(timeout: TimeInterval = 15, _ condition: () async -> Boo
 struct LifecycleTests {
     func makeUnconnectedClient() throws -> SFTPClient {
         try SFTPClient(
-            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            unconnectedTo: TCPLocation(hostname: "localhost", port: 1),
             authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
     }
@@ -37,8 +37,8 @@ struct LifecycleTests {
         let proxy = try StallingProxy(forwardingToPort: TS.port, stallAfterBytes: .max)
         defer { proxy.stop() }
 
-        var client: SFTPClient? = try await loginWithRetry(timeOut: 15) {
-            try makeClient(port: proxy.port)
+        var client: SFTPClient? = try await loginWithRetry {
+            try await makeClient(port: proxy.port)
         }
         #expect(try await client?.currentWorkingDirectory == TS.testHome)
 
@@ -85,8 +85,8 @@ struct LifecycleTests {
         let proxy = try StallingProxy(forwardingToPort: TS.port, stallAfterBytes: .max)
         defer { proxy.stop() }
 
-        let client = try await loginWithRetry(timeOut: 15) {
-            try makeClient(port: proxy.port, timeout: 5, deinitErrorHandler: recorder.handler)
+        let client = try await loginWithRetry {
+            try await makeClient(port: proxy.port, timeout: 5, deinitErrorHandler: recorder.handler)
         }
         client.teardownGracePeriod = 0.2
 
@@ -143,30 +143,11 @@ struct LifecycleTests {
             // Used after close.
             await #expect(processExitsWith: .failure) {
                 let client = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    unconnectedTo: TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "unused", auth: .password("unused"))
                 )
                 try? await client?.close()
                 _ = try? await client?.stat(path: "/", followLink: true)
-            }
-            // Used before login.
-            await #expect(processExitsWith: .failure) {
-                let client = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "unused", auth: .password("unused"))
-                )
-                _ = try? await client?.stat(path: "/", followLink: true)
-            }
-        }
-
-        @Test("in a debug build, logging in twice stops at an assertion failure")
-        func loginTwiceStopsADebugBuild() async {
-            await #expect(processExitsWith: .failure) {
-                guard let client = try? await makeLoggedInClient() else {
-                    // Without the server there is nothing to log in to: exit cleanly so the expectation fails visibly.
-                    return
-                }
-                try? await client.login(timeOut: 10)
             }
         }
     #endif

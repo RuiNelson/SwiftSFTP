@@ -64,7 +64,7 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let other = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
             let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
             let attached = client.hasCacheAttached()
@@ -95,7 +95,7 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let other = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
             let cache = ReferenceCache(configuration: .init(trustPolicy: .trustReports, metadata: .neverAnswer))
             client.attachCache(cache)
 
@@ -118,7 +118,7 @@ struct ReferenceCacheIntegrationTests {
     @Test("releasing the cache leaves its control connection open for the caller to close")
     func releaseLeavesControlConnectionOpen() async throws {
         try await withClient { client in
-            let control = try await client.fork(loggedIn: true)
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(resolvesRelativePaths: true)
@@ -139,8 +139,8 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 2.5)
@@ -197,8 +197,8 @@ struct ReferenceCacheIntegrationTests {
                     access: Date(timeIntervalSince1970: TimeInterval(written.attributes.accessTime))
                 )
             )
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 0)
@@ -246,8 +246,8 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(trustPolicy: .statOnServer, revalidationInterval: 0)
@@ -291,8 +291,8 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: small)
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(trustPolicy: .sampleBlocks(count: 2), revalidationInterval: nil)
@@ -330,8 +330,8 @@ struct ReferenceCacheIntegrationTests {
 
         try await withClient { client in
             try await writeRemoteFile(client, path: path, contents: Self.payload)
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(trustPolicy: .hashOnServer(.sha256), revalidationInterval: nil)
@@ -369,7 +369,7 @@ struct ReferenceCacheIntegrationTests {
         let destination = uniqueRemotePath("inmemory-rename-destination")
 
         try await withClient { client in
-            let other = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
             let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
@@ -405,8 +405,8 @@ struct ReferenceCacheIntegrationTests {
             try await client.createDirectory(path: directory, makePath: false)
             try await writeRemoteFile(client, path: file, contents: Self.payload)
             try await client.createSymLink(path: link, destination: directory)
-            let other = try await client.fork(loggedIn: true)
-            let control = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(resolvesRelativePaths: true, deduplicatesSymlinks: true)
@@ -444,7 +444,7 @@ struct ReferenceCacheIntegrationTests {
         let changed = overwritten(Self.payload, at: 0, with: Self.marker)
 
         try await withClient { client in
-            let other = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
             let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
@@ -542,7 +542,7 @@ struct ReferenceCacheIntegrationTests {
         let total = UInt64(Self.payload.count + Self.marker.count)
 
         try await withClient { client in
-            let other = try await client.fork(loggedIn: true)
+            let other = try await client.fork()
             let cache = ReferenceCache(configuration: .init())
             client.attachCache(cache)
 
@@ -583,7 +583,7 @@ struct ReferenceCacheIntegrationTests {
             try await writeRemoteFile(client, path: source, contents: Self.payload)
             try await writeRemoteFile(client, path: destination, contents: Self.payload.prefix(10))
 
-            let control = try await client.fork(loggedIn: true)
+            let control = try await client.fork()
             let cache = try await ReferenceCache(
                 controlConnection: control,
                 configuration: .init(deduplicatesSymlinks: true)

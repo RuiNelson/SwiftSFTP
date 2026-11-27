@@ -98,7 +98,7 @@ struct CacheReportTests {
         try await withClient { client in
             let cache = RecordingCache()
             client.attachCache(cache)
-            let fork = try await client.fork(loggedIn: true)
+            let fork = try await client.fork()
 
             let handle = try await client.openFile([.create, .write, .read], path: first, permissions: .serverDefault)
             try await handle.write(Self.payload.prefix(100))
@@ -176,7 +176,7 @@ struct CacheReportTests {
         try await withClient { client in
             let cache = RecordingCache()
             client.attachCache(cache)
-            let fork = try await client.fork(loggedIn: true)
+            let fork = try await client.fork()
 
             let handle = try await client.openFile([.create, .write], path: path, permissions: .serverDefault)
             try await handle.write(Self.payload.prefix(10))
@@ -244,7 +244,7 @@ struct CacheReportTests {
             try await makeRemoteFile(client, path: path, contents: Self.payload.prefix(100))
             let cache = RecordingCache()
             client.attachCache(cache)
-            let fork = try await client.fork(loggedIn: true)
+            let fork = try await client.fork()
             let handle = try await client.openFile([.read, .write], path: path, permissions: [])
 
             // A stat of the open file, still on its way to the cache while a fork changes the file's attributes.
@@ -298,7 +298,7 @@ struct CacheReportTests {
         let path = uniqueRemotePath("cache-close-after-client")
 
         try await withClient { client in
-            let writer = try await client.fork(loggedIn: true)
+            let writer = try await client.fork()
             let cache = RecordingCache()
             writer.attachCache(cache)
 

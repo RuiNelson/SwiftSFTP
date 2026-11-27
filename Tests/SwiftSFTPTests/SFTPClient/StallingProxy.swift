@@ -444,22 +444,22 @@ func withStalledConnection(
                 stallAfterBytes: stallAfterBytes,
                 receiveBufferSize: receiveBufferSize
             )
-            let client = try SFTPClient(
-                openSocketIn: TCPLocation(hostname: "127.0.0.1", port: proxy.port),
-                operationsTimeOut: operationsTimeOut,
-                hostKeyAcceptance: .acceptAny,
-                authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password))
-            )
-            if let gracePeriod {
-                client.teardownGracePeriod = gracePeriod
-            }
+            let client: SFTPClient
             do {
-                try await client.login(timeOut: 15)
+                client = try await SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "127.0.0.1", port: proxy.port),
+                    hostKeyAcceptance: .acceptAny,
+                    authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
+                    loginTimeOut: 15,
+                    operationsTimeOut: operationsTimeOut
+                )
             }
             catch {
                 proxy.stop()
-                try? await client.close()
                 throw error
+            }
+            if let gracePeriod {
+                client.teardownGracePeriod = gracePeriod
             }
             return (proxy, client)
         }

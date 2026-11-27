@@ -518,7 +518,7 @@ struct SFTPClientResumableRecovery {
             }
 
             let observer = try await retryingTransientConnectionFailure {
-                try await client.fork(loggedIn: true)
+                try await client.fork()
             }
             do {
                 #expect(ResumableSynchronizer.flushInterval == 2, "the cadence the spec fixes, and not configurable")

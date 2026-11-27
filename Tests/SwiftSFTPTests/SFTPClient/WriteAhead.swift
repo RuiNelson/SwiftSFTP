@@ -19,7 +19,7 @@ struct WriteAheadTests {
             #expect(client.writeAhead == 8 * 1024 * 1024)
 
             client.writeAhead = 512 * 1024
-            let forked = try await client.fork(loggedIn: false)
+            let forked = try await client.fork()
             #expect(forked.writeAhead == 512 * 1024)
             try await forked.close()
         }

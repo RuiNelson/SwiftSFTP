@@ -40,8 +40,8 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     /// agents opened from it.
     let deinitErrorHandler: DeinitErrorHandler
     let authentication: UserAuthentication
-    /// The most recent timeout configured by `login(timeOut:)`. Protected by `internalStateQueue`.
-    nonisolated(unsafe) var loginTimeOut: TimeInterval = 10.0
+    /// The timeout for connecting, authenticating, and initializing SFTP, inherited by forks.
+    let loginTimeOut: TimeInterval
     /// Backing storage for ``teardownGracePeriod``. Protected by `internalStateQueue`.
     nonisolated(unsafe) var _teardownGracePeriod: TimeInterval = 1.0
     /// Backing storage for ``readAhead``. Protected by `internalStateQueue`.
@@ -67,61 +67,61 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
 
     // MARK: Initialization
 
-    public init(
+    public convenience init(
         openSocketIn: TCPLocation,
-        operationsTimeOut: TimeInterval? = 10.0,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
         compressionPreference: (
             clientToServer: [CompressionAlgorithm],
             serverToClient: [CompressionAlgorithm]
         ) = ([], []),
+        loginTimeOut: TimeInterval = 10.0,
+        operationsTimeOut: TimeInterval? = 10.0,
+        deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
+    ) async throws {
+        try self.init(
+            unconnectedTo: openSocketIn,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication,
+            compressionPreference: compressionPreference,
+            loginTimeOut: loginTimeOut,
+            operationsTimeOut: operationsTimeOut,
+            deinitErrorHandler: deinitErrorHandler
+        )
+        try await loginOrClose()
+    }
+
+    /// Creates a client with its libssh2 session configured, without connecting.
+    ///
+    /// The public initializer and ``fork()`` follow it with ``loginOrClose()`` straight away, so no caller sees a
+    /// client that is not logged in. Tests use it on its own for what needs no server.
+    init(
+        unconnectedTo openSocketIn: TCPLocation,
+        hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
+        authentication: UserAuthentication,
+        compressionPreference: (
+            clientToServer: [CompressionAlgorithm],
+            serverToClient: [CompressionAlgorithm]
+        ) = ([], []),
+        loginTimeOut: TimeInterval = 10.0,
+        operationsTimeOut: TimeInterval? = 10.0,
         deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
     ) throws(SFTPClientInvalidConfig) {
-        // initial validation
-        guard openSocketIn.hostnameCheckup != .invalid else {
-            throw SFTPClientInvalidConfig.invalidHostname
-        }
-
-        guard openSocketIn.validPort else {
-            throw SFTPClientInvalidConfig.invalidPort
-        }
-
+        loginTimeOut.requireValidTimeout("loginTimeOut")
         // `nil` and `+infinity` both mean no blocking timeout (libssh2 default).
         operationsTimeOut?.requireValidTimeout("operationsTimeOut")
         let normalizedOperationsTimeOut = operationsTimeOut.flatMap { $0.isFinite ? $0 : nil }
 
-        guard authentication.name.isEmpty == false else {
-            throw SFTPClientInvalidConfig.invalidUsername
-        }
-
-        switch authentication.auth {
-        case let .password(pass):
-            guard pass.isEmpty == false else {
-                throw SFTPClientInvalidConfig.invalidPassword
-            }
-
-        case let .privateKeys(set):
-            precondition(!set.isEmpty, "PrivateKeySet must hold at least one key")
-            for keyFile in set.files {
-                guard FileManager.default.fileExists(atPath: keyFile.file.path) else {
-                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
-                }
-            }
-
-        case let .privateKeyFile(file, _):
-            // Deprecated single-key mode; kept for API compatibility.
-            guard FileManager.default.fileExists(atPath: file.path) else {
-                throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
-            }
-
-        case .privateKeyString:
-            break
-        }
+        let prepared = try Self.prepareSession(
+            openSocketIn: openSocketIn,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication
+        )
 
         // store state
 
         self.tcpLocation = openSocketIn
+        self.loginTimeOut = loginTimeOut
         self.operationsTimeOut = normalizedOperationsTimeOut
         self.hostKeyAcceptance = hostKeyAcceptance
         self.deinitErrorHandler = deinitErrorHandler
@@ -130,24 +130,8 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
             clientToServer: CompressionAlgorithm.sanitizePreferencesArray(compressionPreference.clientToServer),
             serverToClient: CompressionAlgorithm.sanitizePreferencesArray(compressionPreference.serverToClient)
         )
-
-        // init session
-
-        do {
-            try SSHInit()
-        }
-        catch {
-            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
-        }
-
-        do {
-            self.session = try SessionInit()
-        }
-        catch {
-            // Balance the SSHInit above; deinit does not.
-            SSHExit()
-            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
-        }
+        self.session = prepared.session
+        self._knownHosts = prepared.knownHosts
 
         Self.configureCompression(
             session: session,
@@ -163,28 +147,28 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
                 .joined(separator: ",")
         )
 
-        // HostKeys
-
-        do {
-            self._knownHosts = try Self.loadHostKeyAcceptanceSettings(
-                to: session,
-                with: hostKeyAcceptance,
-                location: openSocketIn
-            )
-        }
-        catch {
-            // Balance SessionInit and SSHInit from above. Every stored property is set by now, so deinit runs when this
-            // throws: marking the client closed keeps it from freeing them again.
-            try? SessionFree(session: session)
-            SSHExit()
-            _closed = true
-            throw error
-        }
-
         if let normalizedOperationsTimeOut {
             SessionSetTimeout(session: session, timeoutMilliseconds: normalizedOperationsTimeOut.milliseconds)
         }
         SessionSetBlocking(session: session, blocking: true)
+    }
+
+    public class func preflightConfigurationCheck(
+        openSocketIn: TCPLocation,
+        hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
+        authentication: UserAuthentication
+    ) throws(SFTPClientInvalidConfig) {
+        let prepared = try prepareSession(
+            openSocketIn: openSocketIn,
+            hostKeyAcceptance: hostKeyAcceptance,
+            authentication: authentication
+        )
+
+        if let knownHosts = prepared.knownHosts {
+            KnownHostFree(hosts: knownHosts)
+        }
+        try? SessionFree(session: prepared.session)
+        SSHExit()
     }
 
     /// Closes a client released without ``close()``.

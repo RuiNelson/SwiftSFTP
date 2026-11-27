@@ -3,9 +3,9 @@ import Foundation
 /// A client that routes its reads, writes, and metadata lookups through an attached ``SFTPBlockLevelReadCache``.
 ///
 /// A client has at most one cache attached. Files opened while a cache is attached keep using it until they close, even
-/// if the client detaches it in the meantime. Clients created with ``SFTPClientProtocol/fork(loggedIn:)`` while a cache
-/// is attached start with the same cache. To run an operation without the cache, fork the client and detach the cache
-/// from the fork.
+/// if the client detaches it in the meantime. Clients created with ``SFTPClientProtocol/fork()`` while a cache is
+/// attached start with the same cache. To run an operation without the cache, fork the client and detach the cache from
+/// the fork.
 ///
 /// The client and the forks that share its cache keep track of the files open with it. A file renamed through any of
 /// them while open, by its own path or a directory above it, reports to the cache under its new path from then on; a
@@ -16,10 +16,9 @@ import Foundation
 /// that connection does not use the cache:
 ///
 /// ```swift
-/// let client = try SFTPClient(openSocketIn: location, authentication: authentication)
-/// try await client.login(timeOut: 10)
+/// let client = try await SFTPClient(openSocketIn: location, authentication: authentication)
 ///
-/// let control = try await client.fork(loggedIn: true)
+/// let control = try await client.fork()
 /// client.attachCache(MySFTPCache(controlConnection: control))
 /// ```
 ///

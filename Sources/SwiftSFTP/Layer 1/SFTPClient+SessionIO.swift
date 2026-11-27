@@ -3,7 +3,7 @@ import Foundation
 // MARK: Shared session state
 
 extension SFTPClient {
-    /// Returns the SFTP session. Before login, this is a ``MisuseError/clientUsedBeforeLogin``.
+    /// Returns the SFTP session. Once the client is closed, this is a ``MisuseError/clientUsedAfterClosing``.
     var sftp: LibSSH2SFTP {
         get throws(MisuseError) {
             let session = internalStateQueue.sync {
@@ -11,7 +11,7 @@ extension SFTPClient {
             }
 
             guard let session else {
-                try misuse(.clientUsedBeforeLogin)
+                try misuse(.clientUsedAfterClosing)
             }
 
             return session

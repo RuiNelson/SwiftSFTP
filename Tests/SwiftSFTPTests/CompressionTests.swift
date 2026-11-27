@@ -45,7 +45,7 @@ struct CompressionTests {
     }
 
     @Test(
-        "directional compression and forks can be configured before login and queried after close",
+        "directional compression is configured on the session before login and queried after close",
         arguments: CompressionAlgorithm.allCases,
         CompressionAlgorithm.allCases
     )
@@ -53,8 +53,9 @@ struct CompressionTests {
         clientToServer: CompressionAlgorithm,
         serverToClient: CompressionAlgorithm
     ) async throws {
+        // Offline: the client is never connected, so only the session configuration is checked here. The integration tests check what is negotiated, and that forks inherit the preferences.
         let client = try SFTPClient(
-            openSocketIn: TCPLocation(hostname: "localhost"),
+            unconnectedTo: TCPLocation(hostname: "localhost"),
             authentication: UserAuthentication(name: "test", auth: .password("test")),
             compressionPreference: (clientToServer: [clientToServer], serverToClient: [serverToClient])
         )
@@ -62,19 +63,8 @@ struct CompressionTests {
         #expect(protocolClient.compression.clientToServer == .none)
         #expect(protocolClient.compression.serverToClient == .none)
 
-        let fork = try await client.fork(loggedIn: false)
-        do {
-            #expect(fork.compression.clientToServer == .none)
-            #expect(fork.compression.serverToClient == .none)
-            let algorithms = try SessionSupportedAlgs(session: fork.session, methodType: .compressClientToServer)
-            #expect(algorithms.contains("zlib") == (clientToServer == .zlib || serverToClient == .zlib))
-        }
-        catch {
-            try? await fork.close()
-            try? await client.close()
-            throw error
-        }
-        try await fork.close()
+        let algorithms = try SessionSupportedAlgs(session: client.session, methodType: .compressClientToServer)
+        #expect(algorithms.contains("zlib") == (clientToServer == .zlib || serverToClient == .zlib))
 
         try await client.close()
         #expect(protocolClient.compression.clientToServer == .none)

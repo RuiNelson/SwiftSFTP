@@ -41,20 +41,23 @@ extension TS {
     static let keyPassphrase = "secret123"
 }
 
+/// Creates a client, which connects and logs in.
 func makeClient(
     user: String = TS.testUser,
     auth: UserAuthentication = UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
     hostname: String = TS.hostname,
     port: Int = TS.port,
     hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
+    loginTimeout: TimeInterval = 15.0,
     timeout: TimeInterval? = 15.0,
     deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
-) throws -> SFTPClient {
-    try SFTPClient(
+) async throws -> SFTPClient {
+    try await SFTPClient(
         openSocketIn: TCPLocation(hostname: hostname, port: port),
-        operationsTimeOut: timeout,
         hostKeyAcceptance: hostKeyAcceptance,
         authentication: auth,
+        loginTimeOut: loginTimeout,
+        operationsTimeOut: timeout,
         deinitErrorHandler: deinitErrorHandler
     )
 }
@@ -66,34 +69,26 @@ func makeLoggedInClient(
     loginTimeout: TimeInterval = 15.0,
     deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
 ) async throws -> SFTPClient {
-    try await loginWithRetry(timeOut: loginTimeout) {
-        try makeClient(
+    try await loginWithRetry {
+        try await makeClient(
             user: user,
             auth: auth,
             hostKeyAcceptance: hostKeyAcceptance,
+            loginTimeout: loginTimeout,
             deinitErrorHandler: deinitErrorHandler
         )
     }
 }
 
-/// Logs in on a freshly constructed client, retrying up to 3 times when the handshake fails for a transient
-/// connection-level reason (observed as intermittent KEX/socket/channel failures through Docker Desktop's port
-/// forwarding on macOS). Non-transient errors (authentication or host-key rejections) are rethrown immediately without
-/// retrying, so tests asserting a specific failure reason still see it.
+/// Creates a client, retrying up to 3 times when the handshake fails for a transient connection-level reason (observed
+/// as intermittent KEX/socket/channel failures through Docker Desktop's port forwarding on macOS). Non-transient errors
+/// (authentication or host-key rejections) are rethrown immediately without retrying, so tests asserting a specific
+/// failure reason still see it.
 func loginWithRetry(
-    timeOut: TimeInterval = 15.0,
-    makeClient: () throws -> SFTPClient
+    makeClient: () async throws -> SFTPClient
 ) async throws -> SFTPClient {
     try await retryingTransientConnectionFailure {
-        let client = try makeClient()
-        do {
-            try await client.login(timeOut: timeOut)
-            return client
-        }
-        catch {
-            try? await client.close()
-            throw error
-        }
+        try await makeClient()
     }
 }
 
@@ -163,23 +158,15 @@ func expectRejects<E: Error & Equatable>(
     }
 }
 
-/// Asserts that logging in on a freshly constructed client fails with `expectedError`, retrying up to 3 times when the
-/// handshake itself fails first for a transient connection-level reason.
+/// Asserts that creating a client fails with `expectedError`, retrying up to 3 times when the handshake itself fails
+/// first for a transient connection-level reason.
 func expectLoginRejects(
     _ expectedError: some Error & Equatable,
-    timeOut: TimeInterval = 10.0,
-    makeClient: () throws -> SFTPClient
+    makeClient: () async throws -> SFTPClient
 ) async throws {
     try await expectRejects(expectedError) {
-        let client = try makeClient()
-        do {
-            try await client.login(timeOut: timeOut)
-            try? await client.close()
-        }
-        catch {
-            try? await client.close()
-            throw error
-        }
+        let client = try await makeClient()
+        try? await client.close()
     }
 }
 

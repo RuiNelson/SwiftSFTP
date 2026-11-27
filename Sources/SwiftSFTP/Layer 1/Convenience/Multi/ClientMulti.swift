@@ -176,7 +176,7 @@ public extension SFTPClientProtocol {
             initial: self,
             requested: multiTransferWorkerCount(fileSize: fileSize, requested: workers)
         ) {
-            try await self.fork(loggedIn: true)
+            try await self.fork()
         }
         let ranges = multiTransferRanges(fileSize: fileSize, workers: transferWorkers.count)
         let progress = MultiTransferProgressReporter(totalBytes: fileSize, continuation: continuation)
@@ -321,7 +321,7 @@ public extension SFTPClientProtocol {
             initial: self,
             requested: multiTransferWorkerCount(fileSize: fileSize, requested: workers)
         ) {
-            try await self.fork(loggedIn: true)
+            try await self.fork()
         }
         let ranges = multiTransferRanges(fileSize: fileSize, workers: transferWorkers.count)
         let progress = MultiTransferProgressReporter(totalBytes: fileSize, continuation: continuation)

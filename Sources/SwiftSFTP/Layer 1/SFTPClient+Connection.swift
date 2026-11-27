@@ -39,119 +39,11 @@ public extension SFTPClient {
             return "\(openSocketIn.knownHostsHost) \(shortHand)"
         }
     }
-
-    /// Creates, connects, authenticates, and initializes an SFTP client in one async operation.
-    ///
-    /// Use this convenience when callers need a fully logged-in, `Sendable` client without performing the separate
-    /// initializer and ``login(timeOut:)`` steps. `operationsTimeOut` applies after login; `loginTimeOut` covers
-    /// connection, authentication, and SFTP initialization.
-    ///
-    /// Compression lists preserve preference order and remove duplicates. An empty list means `[.none]`; `.none` is
-    /// appended when absent to allow an uncompressed fallback. If the preferences cannot be configured, the client
-    /// continues without compression in both directions. Check both members of ``compression`` after login when
-    /// compression is required.
-    ///
-    /// - Parameters:
-    ///   - openSocketIn: Hostname and port for the SSH server.
-    ///   - operationsTimeOut: Positive timeout for ordinary blocking libssh2 operations. Pass `nil` or `.infinity` for
-    /// no blocking timeout (libssh2 default). Zero, negative, and NaN values stop the process.
-    ///   - loginTimeOut: Positive timeout for login, handshake, authentication, and SFTP initialization, or `.infinity`
-    /// for none. Any other value stops the process.
-    ///   - hostKeyAcceptance: Host-key policy to apply during the SSH handshake.
-    ///   - authentication: Username and authentication material.
-    ///   - compressionPreference: Ordered compression preferences for each direction. `clientToServer` applies to data
-    /// sent to the server; `serverToClient` applies to data received from it.
-    ///   - deinitErrorHandler: Receives the failures of closing the client, and the file handles and shell agents
-    /// opened from it, when they are released without `close()`.
-    /// - Returns: A connected and authenticated SFTP client.
-    /// - Throws: ``SFTPClientInvalidConfig`` for invalid configuration, or libssh2/socket/authentication errors from
-    /// login.
-    static func initAndLogin(
-        openSocketIn: TCPLocation,
-        operationsTimeOut: TimeInterval? = 10.0,
-        loginTimeOut: TimeInterval = 10.0,
-        hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
-        authentication: UserAuthentication,
-        compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]) = (
-            [],
-            []
-        ),
-        deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
-    ) async throws -> Self {
-        let instance = try Self(
-            openSocketIn: openSocketIn,
-            operationsTimeOut: operationsTimeOut,
-            hostKeyAcceptance: hostKeyAcceptance,
-            authentication: authentication,
-            compressionPreference: compressionPreference,
-            deinitErrorHandler: deinitErrorHandler
-        )
-
-        do {
-            try await instance.login(timeOut: loginTimeOut)
-        }
-        catch {
-            // Nobody else can close the never-returned instance; avoid leaking the session and tripping the
-            // deinit-without-close trap.
-            try? await instance.close()
-            throw error
-        }
-
-        return instance
-    }
 }
 
 // MARK: SFTPClientProtocol + Connection
 
 public extension SFTPClient {
-    func login(timeOut: TimeInterval = 10.0) async throws {
-        timeOut.requireValidTimeout("timeOut")
-
-        try checkClosed()
-
-        let alreadyLoggedIn = internalStateQueue.sync {
-            guard _sftp == nil else {
-                return true
-            }
-
-            loginTimeOut = timeOut
-            return false
-        }
-        guard !alreadyLoggedIn else {
-            // A second login is a misuse that changes nothing: stop a debug build, and leave the connection as it is.
-            if MisuseScope.assertsOnMisuse {
-                assertionFailure("SwiftSFTP misuse: the SFTP client was asked to log in while already logged in.")
-            }
-            return
-        }
-
-        // Restore whatever is configured now, which includes a `timeout` the caller set before logging in.
-        let oldTimeout = SessionGetTimeout(session: session)
-        SessionSetTimeout(session: session, timeOut: timeOut)
-        defer {
-            SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
-        }
-
-        let socket = try SessionHandshakeTCP(
-            session: session,
-            host: tcpLocation.trimmedHostname,
-            port: tcpLocation.port
-        )
-        internalStateQueue.sync {
-            self._socket = socket
-        }
-
-        try verifyHostKey()
-
-        try authenticate()
-
-        let sftp = try SFTPInit(session: session)
-
-        internalStateQueue.sync {
-            self._sftp = sftp
-        }
-    }
-
     func close() async throws {
         guard let resources = takeTeardownResources() else {
             return
@@ -185,42 +77,154 @@ public extension SFTPClient {
         }
     }
 
-    func fork(loggedIn: Bool = true) async throws -> Self {
+    func fork() async throws -> Self {
         try checkClosed()
 
-        let (loginTimeOut, cache) = internalStateQueue.sync {
-            (self.loginTimeOut, _cache)
+        let cache = internalStateQueue.sync {
+            _cache
         }
         let instance = try Self(
-            openSocketIn: tcpLocation,
-            operationsTimeOut: operationsTimeOut,
+            unconnectedTo: tcpLocation,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
+            loginTimeOut: loginTimeOut,
+            operationsTimeOut: operationsTimeOut,
             deinitErrorHandler: deinitErrorHandler
         )
 
         instance.internalStateQueue.sync {
-            instance.loginTimeOut = loginTimeOut
             instance._teardownGracePeriod = teardownGracePeriod
             instance._readAhead = readAhead
             instance._writeAhead = writeAhead
             instance._cache = cache
         }
 
-        guard loggedIn else {
-            return instance
+        try await instance.loginOrClose()
+        return instance
+    }
+}
+
+// MARK: Initialization support
+
+extension SFTPClient {
+    /// Validates the static configuration and creates a libssh2 session with the host keys to accept.
+    ///
+    /// On success the caller owns the session, the known-hosts collection, and one `SSHInit`, and must release them
+    /// with ``SessionFree(session:)``, ``KnownHostFree(hosts:)``, and `SSHExit()`. On failure nothing is left to
+    /// release.
+    static func prepareSession(
+        openSocketIn: TCPLocation,
+        hostKeyAcceptance: HostKeyAcceptance,
+        authentication: UserAuthentication
+    ) throws(SFTPClientInvalidConfig) -> (session: LibSSH2Session, knownHosts: LibSSH2KnownHosts?) {
+        guard openSocketIn.hostnameCheckup != .invalid else {
+            throw SFTPClientInvalidConfig.invalidHostname
+        }
+
+        guard openSocketIn.validPort else {
+            throw SFTPClientInvalidConfig.invalidPort
+        }
+
+        guard authentication.name.isEmpty == false else {
+            throw SFTPClientInvalidConfig.invalidUsername
+        }
+
+        switch authentication.auth {
+        case let .password(pass):
+            guard pass.isEmpty == false else {
+                throw SFTPClientInvalidConfig.invalidPassword
+            }
+
+        case let .privateKeys(set):
+            precondition(!set.isEmpty, "PrivateKeySet must hold at least one key")
+            for keyFile in set.files {
+                guard FileManager.default.fileExists(atPath: keyFile.file.path) else {
+                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+                }
+            }
+
+        case let .privateKeyFile(file, _):
+            // Deprecated single-key mode; kept for API compatibility.
+            guard FileManager.default.fileExists(atPath: file.path) else {
+                throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+            }
+
+        case .privateKeyString:
+            break
         }
 
         do {
-            try await instance.login(timeOut: loginTimeOut)
+            try SSHInit()
         }
         catch {
-            try? await instance.close()
-            throw error
+            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
         }
 
-        return instance
+        let session: LibSSH2Session
+        do {
+            session = try SessionInit()
+        }
+        catch {
+            SSHExit()
+            throw SFTPClientInvalidConfig.couldNotCreateSession(error)
+        }
+
+        do {
+            let knownHosts = try loadHostKeyAcceptanceSettings(
+                to: session,
+                with: hostKeyAcceptance,
+                location: openSocketIn
+            )
+            return (session, knownHosts)
+        }
+        catch {
+            try? SessionFree(session: session)
+            SSHExit()
+            throw error
+        }
+    }
+
+    /// Logs in, or closes the client and rethrows when that fails: nobody else can close a client that was never
+    /// returned.
+    func loginOrClose() async throws {
+        do {
+            try login()
+        }
+        catch {
+            try? await close()
+            throw error
+        }
+    }
+
+    /// Opens the socket, performs the SSH handshake, verifies the host key, authenticates, and initializes SFTP, all
+    /// under ``loginTimeOut``.
+    private func login() throws {
+        // Restore the operations timeout configured by the initializer afterwards.
+        let oldTimeout = SessionGetTimeout(session: session)
+        SessionSetTimeout(session: session, timeOut: loginTimeOut)
+        defer {
+            SessionSetTimeout(session: session, timeoutMilliseconds: oldTimeout)
+        }
+
+        let socket = try SessionHandshakeTCP(
+            session: session,
+            host: tcpLocation.trimmedHostname,
+            port: tcpLocation.port
+        )
+        internalStateQueue.sync {
+            self._socket = socket
+        }
+
+        try verifyHostKey()
+
+        try authenticate()
+
+        let sftp = try SFTPInit(session: session)
+
+        internalStateQueue.sync {
+            self._sftp = sftp
+        }
     }
 }
 

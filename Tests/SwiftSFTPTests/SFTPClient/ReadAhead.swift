@@ -19,7 +19,7 @@ struct ReadAheadTests {
             #expect(client.readAhead == 8 * 1024 * 1024)
 
             client.readAhead = 512 * 1024
-            let forked = try await client.fork(loggedIn: false)
+            let forked = try await client.fork()
             #expect(forked.readAhead == 512 * 1024)
             try await forked.close()
         }

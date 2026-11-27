@@ -1,9 +1,9 @@
 import Foundation
 
-/// How the server's host key is verified during ``SFTPClient/login(timeOut:)``.
+/// How the ``SFTPClient`` initializer verifies the server's host key.
 ///
-/// With any setting other than ``acceptAny``, login throws ``HostKeyVerificationError`` when the server's host key is
-/// not among the accepted keys.
+/// With any setting other than ``acceptAny``, the initializer throws ``HostKeyVerificationError`` when the server's
+/// host key is not among the accepted keys.
 public enum HostKeyAcceptance: Codable, Equatable, Sendable {
     /// Accept any host key without verification. Vulnerable to man-in-the-middle attacks; not for production use.
     case acceptAny

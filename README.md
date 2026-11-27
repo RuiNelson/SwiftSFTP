@@ -42,16 +42,13 @@ Here is a quick-start example showing how to connect, navigate, and upload files
 import SwiftSFTP
 import Foundation
 
-// - Instantiate an SFTP client
-let myClient = try SFTPClient(
+// - Instantiate an SFTP client: this connects and logs in
+let myClient = try await SFTPClient(
     openSocketIn: .init(hostname: "localhost", port: 6922),
     hostKeyAcceptance: .acceptAny, // Configurable for strict host key checking
     authentication: .init(name: "bulbasaur", auth: .password("pass123")), // Also supports .privateKey
     compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib]) // Falls back to .none if unsupported
 )
-
-// - Call this to connect
-try await myClient.login()
 
 // - Check server banner
 let banner = try await myClient.banner
@@ -101,10 +98,10 @@ try await myClient.close()
 ```
 
 The example requests zlib compression in both directions, with automatic fallback to `.none` if the server does not
-support it. Check `myClient.compression` after login for the negotiated algorithms.
+support it. Check `myClient.compression` for the negotiated algorithms.
 
 Closing is optional for clients, files, and shell agents: release one and it closes itself, reporting any failure to the
-client's `deinitErrorHandler`. Using one after `close()` or before `login()` is a bug in the calling code, so debug
+client's `deinitErrorHandler`. Using one after `close()` is a bug in the calling code, so debug
 builds stop there with an assertion failure, and release builds throw `MisuseError`. See
 [Closing and releasing](Documentation/UserGuide.md#closing-and-releasing) and
 [Errors, misuse, and impossible values](Documentation/UserGuide.md#errors-misuse-and-impossible-values).

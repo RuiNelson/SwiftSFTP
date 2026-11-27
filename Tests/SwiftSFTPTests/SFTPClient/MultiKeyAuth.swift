@@ -180,7 +180,7 @@ struct SFTPClientMultiKeyAuth {
         @Test("an empty PrivateKeySet stops the process")
         func emptySetStopsTheProcess() async {
             await #expect(processExitsWith: .failure) {
-                _ = try? SFTPClient(
+                try? SFTPClient.preflightConfigurationCheck(
                     openSocketIn: TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "charmander", auth: .privateKeys(PrivateKeySet(files: [])))
                 )
@@ -188,14 +188,14 @@ struct SFTPClientMultiKeyAuth {
         }
     #endif
 
-    @Test("multi-key rejects missing key files at client construction")
+    @Test("multi-key rejects missing key files in the preflight check")
     func multiKeyMissingFilesOnly() throws {
         let missing = URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)")
         let set = PrivateKeySet(files: [PrivateKeyFile(file: missing)])
         #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
+                authentication: UserAuthentication(name: "charmander", auth: .privateKeys(set))
             )
         }
     }
@@ -257,8 +257,8 @@ struct SFTPClientMultiKeyAuth {
 
     private func loginAndClose(user: String, set: PrivateKeySet) async throws {
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 15.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: user,
                     auth: UserAuthentication(name: user, auth: .privateKeys(set))
                 )
@@ -270,14 +270,12 @@ struct SFTPClientMultiKeyAuth {
 
     private func expectLoginFails(user: String, set: PrivateKeySet) async throws {
         try await withClient { _ in
-            let client = try makeClient(
-                user: user,
-                auth: UserAuthentication(name: user, auth: .privateKeys(set))
-            )
             await #expect(throws: (any Error).self) {
-                try await client.login(timeOut: 15.0)
+                try await makeClient(
+                    user: user,
+                    auth: UserAuthentication(name: user, auth: .privateKeys(set))
+                )
             }
-            try? await client.close()
         }
     }
 }

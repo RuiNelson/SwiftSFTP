@@ -24,9 +24,9 @@ func withCachedClients(
     _ body: (CachedClients) async throws -> Void
 ) async throws {
     try await withClient { client in
-        let truth = try await client.fork(loggedIn: true)
+        let truth = try await client.fork()
         let storage = InMemoryCacheStorage(byteBudget: byteBudget)
-        let control = configuration.needsControlConnection ? try await client.fork(loggedIn: true) : nil
+        let control = configuration.needsControlConnection ? try await client.fork() : nil
         let cache = if let control {
             try await ReferenceCache(storage: storage, controlConnection: control, configuration: configuration)
         }
@@ -38,7 +38,7 @@ func withCachedClients(
 
         let result: Result<Void, any Error>
         do {
-            let fork = try await client.fork(loggedIn: true)
+            let fork = try await client.fork()
             do {
                 try await body(CachedClients(client: client, fork: fork, truth: truth, cache: cache, gated: gated))
                 result = .success(())

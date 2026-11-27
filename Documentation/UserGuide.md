@@ -24,12 +24,14 @@ The optional products that connect SwiftSFTP to AVFoundation and EXIFKit are cov
 
 ## Connecting to a Server
 
-### Quick start — one call
+### Quick start
+
+The initializer connects, authenticates, and initializes SFTP: a client that exists is logged in.
 
 ```swift
 import SwiftSFTP
 
-let client = try await SFTPClient.initAndLogin(
+let client = try await SFTPClient(
     openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
     hostKeyAcceptance: .acceptAny,          // see Host Key Verification
     authentication: UserAuthentication(
@@ -42,25 +44,37 @@ defer { try? await client.close() }
 // … your operations …
 ```
 
-### Two-step (recommended when you want fine-grained control)
+With every parameter:
 
 ```swift
-// Step 1: validate config and create session (no network I/O)
-let client = try SFTPClient(
+let client = try await SFTPClient(
     openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
-    operationsTimeOut: 30.0,    // applied to every libssh2 call after login; nil or .infinity = no timeout
     hostKeyAcceptance: .acceptAny,
     authentication: UserAuthentication(
         name: "alice",
         auth: .privateKeys(.init(URL(filePath: "/Users/alice/.ssh/id_ed25519")))
     ),
+    compressionPreference: ([], []),
+    loginTimeOut: 15.0,         // connection, handshake, authentication, and SFTP initialization
+    operationsTimeOut: 30.0,    // applied to every libssh2 call after login; nil or .infinity = no timeout
     deinitErrorHandler: { error in  // optional; the default prints in a debug build only
         myLogger.error("\(error.localizedDescription)")
     }
 )
+```
 
-// Step 2: connect (network I/O)
-try await client.login(timeOut: 15.0)
+### Checking a configuration without connecting
+
+`preflightConfigurationCheck` runs the checks the initializer runs before it connects — hostname, port, username,
+authentication material, and host-key acceptance data, loaded into a libssh2 session that is then freed — and throws
+`SFTPClientInvalidConfig` when one fails. Use it to validate user input, such as a connection form, before connecting:
+
+```swift
+try SFTPClient.preflightConfigurationCheck(
+    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    hostKeyAcceptance: .shortHandAcceptedKeys([savedHostKey]),
+    authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t"))
+)
 ```
 
 ### `TCPLocation`
@@ -72,16 +86,16 @@ TCPLocation(hostname: "192.168.1.10", port: 2222)
 
 Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 
-### `initAndLogin` parameters summary
+### Initializer parameters summary
 
 | Parameter | Type | Default | Notes |
 |-----------|------|---------|-------|
 | `openSocketIn` | `TCPLocation` | — | Server address |
-| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout for each blocking libssh2 call; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
-| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; positive, or `.infinity` for none |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
 | `compressionPreference` | `(clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])` | `([], [])` | Ordered preferences for each direction; an empty array means `[.none]` |
+| `loginTimeOut` | `TimeInterval` | `10.0` | Timeout for the login phase only; positive, or `.infinity` for none |
+| `operationsTimeOut` | `TimeInterval?` | `10.0` | Post-login timeout for each blocking libssh2 call; must be positive when set. Pass `nil` or `.infinity` for no blocking timeout (libssh2 default) |
 | `deinitErrorHandler` | `DeinitErrorHandler` | `debugPrintDeinitErrorHandler` | Receives the failures of objects closing themselves after being released, see [Closing and releasing](#closing-and-releasing) |
 
 ### Closing and releasing
@@ -117,10 +131,8 @@ SwiftSFTP tells three kinds of failure apart:
 | Misuse | Debug | Release |
 |------|------|------|
 | Using a client, or a file or shell agent opened from it, after the client's `close()` — including an operation that was waiting for the connection when another task closed it | Assertion failure | Throws `MisuseError.clientUsedAfterClosing` |
-| A remote operation before `login()` succeeded | Assertion failure | Throws `MisuseError.clientUsedBeforeLogin` |
 | Using a file after its `close()` | Assertion failure | Throws `MisuseError.fileUsedAfterClosing` |
 | Using a shell agent after its `close()` | Assertion failure | Throws `MisuseError.shellAgentUsedAfterClosing` |
-| `login()` on a client already logged in | Assertion failure | Ignored |
 
 An operation already running when another task closes the client fails with the socket error the close caused, a
 runtime error. Closing more than once is not a misuse, and neither is closing or releasing a file or shell agent after
@@ -134,7 +146,7 @@ These values stop the process in every build:
 
 | Where | Value |
 |------|------|
-| `operationsTimeOut`, `login(timeOut:)`, `loginTimeOut`, `getServerHostKey(timeOut:)`, `timeout`, `teardownGracePeriod` | Zero, negative, or NaN. `.infinity` means no timeout |
+| `loginTimeOut`, `operationsTimeOut`, `getServerHostKey(timeOut:)`, `timeout`, `teardownGracePeriod` | Zero, negative, or NaN. `.infinity` means no timeout |
 | `setKeepAlive(every:)` | Zero, negative, NaN, or infinite (`nil` disables keepalives) |
 | Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL |
 | `UserAuthentication` | An empty `PrivateKeySet` |
@@ -143,11 +155,11 @@ These values stop the process in every build:
 
 ### SSH compression
 
-Compression is disabled by default. Set `compressionPreference` on `SFTPClient.init` or `initAndLogin` to request zlib
+Compression is disabled by default. Set `compressionPreference` on `SFTPClient.init` to request zlib
 independently for each direction:
 
 ```swift
-let client = try await SFTPClient.initAndLogin(
+let client = try await SFTPClient(
     openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
     authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t")),
     compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib])
@@ -158,7 +170,7 @@ Arrays list algorithms from most to least preferred. An empty array means `[.non
 to allow an uncompressed fallback.
 
 Unsupported compression falls back to `.none`; configuration failures also continue without compression rather than
-throwing. Check `client.compression.clientToServer` and `client.compression.serverToClient` after login for the
+throwing. Check `client.compression.clientToServer` and `client.compression.serverToClient` for the
 negotiated algorithms (`.zlib` or `.none`).
 
 Currently, SwiftSFTP and libssh2 only support zlib, but other compression algorithms can be added in the future.
@@ -169,8 +181,8 @@ Timeout rules differ by API:
 
 | API | Valid values | How to disable timeout |
 |-----|--------------|------------------------|
-| `operationsTimeOut` at init / `initAndLogin` | Positive, `nil`, or `.infinity` | Pass `nil` or `.infinity` (libssh2 default: no blocking-call timeout) |
-| `login(timeOut:)` / `loginTimeOut` | Positive, or `.infinity` | Pass `.infinity` |
+| `loginTimeOut` at init | Positive, or `.infinity` | Pass `.infinity` |
+| `operationsTimeOut` at init | Positive, `nil`, or `.infinity` | Pass `nil` or `.infinity` (libssh2 default: no blocking-call timeout) |
 | `getServerHostKey(..., timeOut:)` | Positive, or `.infinity` | Pass `.infinity` |
 | `client.timeout` after construction | Positive, or `.infinity` | Set `client.timeout = .infinity` (maps to libssh2 `0`) |
 | `client.teardownGracePeriod` | Positive, or `.infinity` (default `1.0`) | Set `client.teardownGracePeriod = .infinity` — the goodbye then runs under `operationsTimeOut` alone |
@@ -182,17 +194,17 @@ property after `close()` is a misuse: a debug build stops, and a release build r
 
 ### Forking a client
 
-Use `fork(loggedIn:)` when concurrent work needs another connection with the same configuration:
+Use `fork()` when concurrent work needs another connection with the same configuration:
 
 ```swift
-let worker = try await client.fork(loggedIn: true)
+let worker = try await client.fork()
 defer { try? await worker.close() }
 ```
 
-The fork inherits the server location, operation timeout, most recently configured login timeout, host-key acceptance
-policy, authentication, compression preferences in both directions, and deinit error handler. It has an
-independent SSH session, socket, SFTP subsystem, identity, and keepalive state. Pass `false` to create the configured
-client without connecting it.
+The fork is logged in when it returns. It inherits the server location, operation and login timeouts, host-key
+acceptance policy, authentication, compression preferences in both directions, teardown grace period, read-ahead,
+write-ahead, and deinit error handler. It has an independent SSH session, socket, SFTP subsystem, identity, and
+keepalive state.
 
 ### Closing the connection
 
@@ -210,7 +222,7 @@ The `closed` property is available on both if you need to check state.
 ## Authentication
 
 Credentials are a `UserAuthentication` value: remote **username** plus a `UserAuthenticationMode`.
-They are applied during `login(timeOut:)` (or inside `initAndLogin`).
+The initializer applies them after the SSH handshake.
 
 | Mode | Use when |
 |------|----------|
@@ -334,8 +346,8 @@ deprecated. Prefer `.privateKeys(.init(...))` as in the examples above.
 
 ## Host Key Verification
 
-The server's host key is verified right after the SSH handshake inside `login(timeOut:)`. If the key does not match
-the configured acceptance settings, login throws `HostKeyVerificationError.keyMismatch` (the host is known but
+The server's host key is verified right after the SSH handshake, inside the initializer. If the key does not match
+the configured acceptance settings, the initializer throws `HostKeyVerificationError.keyMismatch` (the host is known but
 presented a different key — a possible man-in-the-middle) or `HostKeyVerificationError.unknownHostKey` (no entry for
 the host).
 
@@ -669,7 +681,7 @@ try await client.multiDownload(
 ```
 
 `workers` is the maximum total number of connections, including the client on which the method is called. Additional
-connections are created with `fork(loggedIn: true)`. Forks are attempted sequentially; if any additional fork cannot
+connections are created with `fork()`. Forks are attempted sequentially; if any additional fork cannot
 log in, no more forks are attempted and the transfer continues silently with the workers already connected. This
 allows servers with lower per-user or global connection limits to reduce parallelism without failing the transfer.
 
@@ -1103,7 +1115,7 @@ For more formats, file-based validation, public keys, and algorithm-specific che
 
 ### Configuration errors (`SFTPClientInvalidConfig`)
 
-Thrown synchronously from `SFTPClient.init` (including when called by `initAndLogin`), except where noted:
+Thrown by `SFTPClient.preflightConfigurationCheck` and by `SFTPClient.init` before it connects, except where noted:
 
 | Case | Cause |
 |------|-------|
@@ -1114,11 +1126,11 @@ Thrown synchronously from `SFTPClient.init` (including when called by `initAndLo
 | `.couldNotCreateSession(Error)` | libssh2 session allocation failed |
 | `.invalidHostKeyFormat(Error)` | Malformed known_hosts file or string |
 | `.invalidPrivateKey(Error)` | Private key file missing at init |
-| `.authenticationFailed(Error)` | Server rejected credentials during `login()` (including all multi-key candidates failed or none matched `server-sig-algs`) |
+| `.authenticationFailed(Error)` | Thrown by `SFTPClient.init` only: the server rejected credentials (including all multi-key candidates failed or none matched `server-sig-algs`) |
 
 ### Host key verification errors (`HostKeyVerificationError`)
 
-Thrown from `login()` after the handshake when a host key acceptance other than `.acceptAny` is configured:
+Thrown by `SFTPClient.init` after the handshake when a host key acceptance other than `.acceptAny` is configured:
 
 | Case | Cause |
 |------|-------|
@@ -1143,7 +1155,7 @@ Thrown from `login()` after the handshake when a host key acceptance other than 
 | `.resumableTruncateUnsupported(path:)` | Every byte arrived, but the server refused to shrink the trailer away, so the rename was skipped. The partial file is preserved with every block marked done, and a later run finishes it without re-transferring anything |
 | `.resumableDestinationNameTooLong(byteCount:maximum:)` | Destination file name is longer than the 4096 bytes a trailer can record; refused before anything is created |
 
-### Using a client before login or after close
+### Using a client after close
 
 These are misuses: a debug build stops, and a release build throws `MisuseError`. See
 [Errors, misuse, and impossible values](#errors-misuse-and-impossible-values).

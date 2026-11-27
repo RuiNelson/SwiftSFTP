@@ -78,7 +78,6 @@
         func loadingErrors() {
             let cases: [(any Error, Int32)] = [
                 (MisuseError.clientUsedAfterClosing, ENOTCONN),
-                (MisuseError.clientUsedBeforeLogin, ENOTCONN),
                 (FileTransferErrors.remoteFileNotFound(path: "missing"), ENOENT),
                 (FileTransferErrors.remotePathIsADirectory(path: "directory"), EISDIR),
                 (LibSSH2Error.sftp(status: .noSuchFile), ENOENT),
@@ -101,7 +100,7 @@
     /// A client that is never logged in. Creating assets with it must not touch the network.
     private func makeUnconnectedClient() throws -> SFTPClient {
         try SFTPClient(
-            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            unconnectedTo: TCPLocation(hostname: "localhost", port: 1),
             authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
     }

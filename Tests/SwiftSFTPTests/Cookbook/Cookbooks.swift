@@ -24,16 +24,13 @@ struct Cookbook {
         //
         // A simple quick-start example to "sell" the library to users
 
-        // - Instantiate a SFTP client
+        // - Instantiate a SFTP client: this connects and logs in
         
-        let myClient = try SFTPClient(
+        let myClient = try await SFTPClient(
             openSocketIn: .init(hostname: "localhost", port: 6922),
             hostKeyAcceptance: .acceptAny, // configurable
             authentication: .init(name: "bulbasaur", auth: .password("pass123")) // supports private keys
         )
-
-        // - Call this to connect
-        try await myClient.login()
 
         // - Check server banner
         let banner = try await myClient.banner

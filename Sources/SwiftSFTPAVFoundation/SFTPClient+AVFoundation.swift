@@ -12,7 +12,7 @@
         /// Each client opens the file read-only on its own connection when AVFoundation first loads the asset. The file
         /// is split into stripes of `stripeSize` bytes, and the clients fetch different stripes in parallel, so adding
         /// connections raises throughput where one connection cannot fill the link. Make the extra connections with
-        /// `fork(loggedIn:)`. Every piece reaches AVFoundation as soon as it arrives, without downloading the whole
+        /// `fork()`. Every piece reaches AVFoundation as soon as it arrives, without downloading the whole
         /// file or creating a local copy.
         ///
         /// The clients also read ahead: they keep fetched, or in flight, the `readAheadSize` bytes that follow the
@@ -24,10 +24,9 @@
         /// surface as asset loading errors or a failed player item, with an underlying POSIX error such as `ENOENT` for
         /// a missing file or `ENOTCONN` for a closed client.
         ///
-        /// The asset keeps the clients alive and shares their connections with other operations. Call
-        /// `login(timeOut:)` on each client before loading the asset, and keep them open during playback. Releasing
-        /// the asset or its player item cancels pending reads and closes the asset's file handles. The clients remain
-        /// yours to close.
+        /// The asset keeps the clients alive and shares their connections with other operations. Keep them open during
+        /// playback. Releasing the asset or its player item cancels pending reads and closes the asset's file handles.
+        /// The clients remain yours to close.
         ///
         /// ```swift
         /// let clients = [client, try await client.fork(), try await client.fork(), try await client.fork()]

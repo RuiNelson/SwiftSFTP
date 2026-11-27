@@ -57,14 +57,14 @@ struct SFTPReadOnlyRegressionTests {
         let key = try #require(environment["SWIFTSFTP_REGRESSION_HOST_KEY"])
         let user = try #require(environment["SWIFTSFTP_REGRESSION_USERNAME"])
         let password = try #require(environment["SWIFTSFTP_REGRESSION_PASSWORD"])
-        let client = try SFTPClient(
+        let client = try await SFTPClient(
             openSocketIn: .init(hostname: host, port: port),
-            operationsTimeOut: 5,
             hostKeyAcceptance: .shortHandAcceptedKeys([key]),
-            authentication: .init(name: user, auth: .password(password))
+            authentication: .init(name: user, auth: .password(password)),
+            loginTimeOut: 5,
+            operationsTimeOut: 5
         )
         do {
-            try await client.login(timeOut: 5)
             try await operation(client)
             try await client.close()
         }

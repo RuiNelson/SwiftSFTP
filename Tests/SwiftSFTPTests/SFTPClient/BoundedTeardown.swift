@@ -114,7 +114,7 @@ struct BoundedTeardownTests {
             client.teardownGracePeriod = .infinity
             #expect(client.teardownGracePeriod == .infinity)
 
-            let forked = try await client.fork(loggedIn: false)
+            let forked = try await client.fork()
             #expect(forked.teardownGracePeriod == .infinity)
             try await forked.close()
         }

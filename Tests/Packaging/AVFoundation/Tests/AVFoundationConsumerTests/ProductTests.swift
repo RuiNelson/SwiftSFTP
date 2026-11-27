@@ -5,20 +5,24 @@
     import Testing
 
     /// Consumes the product boundary, which the library's own target dependencies do not exercise.
+    ///
+    /// Creating a client connects to a server, which this offline test does not have: the core module is exercised at
+    /// run time through the preflight check, and the media conveniences only have to compile against the product.
     @Test @MainActor func productProvidesCoreAndMediaModules() async throws {
         guard #available(macOS 11, iOS 14, tvOS 14, macCatalyst 14, visionOS 1, *) else { return }
-        let client = try SFTPClient(
+        try SFTPClient.preflightConfigurationCheck(
             openSocketIn: TCPLocation(hostname: "localhost", port: 1),
             authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
-        let source: any SFTPClientProtocol = client
-        let asset = source.makeAsset(at: "/Videos/holiday.mp4")
-        #expect(asset.url.scheme == "swiftsftp-media")
-        #expect(asset.url.lastPathComponent == "holiday.mp4")
-        let item = source.makePlayerItem(at: "/Audio/extensionless", contentType: .mp3)
-        #expect(item.asset is AVURLAsset)
-        let striped = [client].makeAsset(at: "/Videos/holiday.mp4", readAheadSize: 4 * 1024 * 1024)
-        #expect(striped.url.lastPathComponent == "holiday.mp4")
-        try await client.close()
+
+        func makeMedia(with client: SFTPClient) -> (AVURLAsset, AVPlayerItem, AVURLAsset) {
+            let source: any SFTPClientProtocol = client
+            return (
+                source.makeAsset(at: "/Videos/holiday.mp4"),
+                source.makePlayerItem(at: "/Audio/extensionless", contentType: .mp3),
+                [client].makeAsset(at: "/Videos/holiday.mp4", readAheadSize: 4 * 1024 * 1024)
+            )
+        }
+        _ = makeMedia
     }
 #endif

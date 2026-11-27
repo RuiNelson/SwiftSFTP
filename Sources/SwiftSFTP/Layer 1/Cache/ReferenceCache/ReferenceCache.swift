@@ -7,7 +7,7 @@ import PathWorks
 /// Attach one cache to a client, and its forks, connected to one server:
 ///
 /// ```swift
-/// let control = try await client.fork(loggedIn: true)
+/// let control = try await client.fork()
 /// let cache = try await ReferenceCache(
 ///     storage: InMemoryCacheStorage(byteBudget: 64 * 1024 * 1024),
 ///     controlConnection: control,
@@ -166,9 +166,9 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
 
     /// Creates a cache with `control` as its control connection.
     ///
-    /// Open `control` yourself, typically with `client.fork(loggedIn: true)` on the client the cache is for. Fork
-    /// before attaching any cache to that client: a fork made while a cache is attached starts with that cache, and the
-    /// control connection must not use one. Use `control` for nothing else afterwards.
+    /// Open `control` yourself, typically with `client.fork()` on the client the cache is for. Fork before attaching
+    /// any cache to that client: a fork made while a cache is attached starts with that cache, and the control
+    /// connection must not use one. Use `control` for nothing else afterwards.
     ///
     /// `control` stays the caller's: the cache never closes it. Close it once the cache is detached from every client,
     /// or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's working

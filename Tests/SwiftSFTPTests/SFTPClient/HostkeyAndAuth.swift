@@ -4,24 +4,43 @@ import Testing
 
 @Suite("SFTPClient: Init, Host Keys & Auth", .serialized)
 struct SFTPClientHostkeyAndAuth {
-    // MARK: - Init Validation
+    // MARK: - Preflight Configuration Check
 
-    @Test("rejects empty hostname")
+    @Test("preflight accepts a valid configuration without connecting")
+    func preflightAcceptsValidConfiguration() throws {
+        // Port 1 has no server: the check would fail if it connected.
+        try SFTPClient.preflightConfigurationCheck(
+            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            authentication: UserAuthentication(name: "x", auth: .password("x"))
+        )
+    }
+
+    @Test("preflight is available through the protocol")
+    func preflightThroughProtocol() throws {
+        func check<Client: SFTPClientProtocol>(_: Client.Type) throws(SFTPClientInvalidConfig) {
+            try Client.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                hostKeyAcceptance: .acceptAny,
+                authentication: UserAuthentication(name: "x", auth: .password("x"))
+            )
+        }
+        try check(SFTPClient.self)
+    }
+
+    @Test("preflight rejects empty hostname")
     func rejectsEmptyHostname() {
         #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                user: "x",
-                auth: UserAuthentication(name: "x", auth: .password("x")),
-                hostname: "",
-                timeout: nil
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: ""),
+                authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
         }
     }
 
-    @Test("rejects port zero")
+    @Test("preflight rejects port zero")
     func rejectsPortZero() {
         #expect(throws: SFTPClientInvalidConfig.self) {
-            try SFTPClient(
+            try SFTPClient.preflightConfigurationCheck(
                 openSocketIn: TCPLocation(hostname: "localhost", port: 0),
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
@@ -29,10 +48,10 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("rejects negative port")
+    @Test("preflight rejects negative port")
     func rejectsNegativePort() {
         #expect(throws: SFTPClientInvalidConfig.self) {
-            try SFTPClient(
+            try SFTPClient.preflightConfigurationCheck(
                 openSocketIn: TCPLocation(hostname: "localhost", port: -1),
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
@@ -40,28 +59,84 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
+    @Test("preflight rejects empty username")
+    func rejectsEmptyUsername() {
+        #expect(throws: SFTPClientInvalidConfig.self) {
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: "localhost"),
+                authentication: UserAuthentication(name: "", auth: .password("pass"))
+            )
+        }
+    }
+
+    @Test("preflight rejects empty password")
+    func rejectsEmptyPassword() {
+        #expect(throws: SFTPClientInvalidConfig.self) {
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: "localhost"),
+                authentication: UserAuthentication(name: "x", auth: .password(""))
+            )
+        }
+    }
+
+    @Test("preflight rejects missing private key file")
+    func rejectsMissingKeyFile() {
+        #expect(throws: SFTPClientInvalidConfig.self) {
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: "localhost"),
+                authentication: UserAuthentication(
+                    name: "x",
+                    auth: .privateKeys(.init(URL(fileURLWithPath: "/nonexistent/key")))
+                )
+            )
+        }
+    }
+
+    @Test("preflight rejects malformed host keys")
+    func rejectsMalformedHostKeys() {
+        #expect(throws: SFTPClientInvalidConfig.self) {
+            try SFTPClient.preflightConfigurationCheck(
+                openSocketIn: TCPLocation(hostname: "localhost"),
+                hostKeyAcceptance: .shortHandAcceptedKeys(["not a host key"]),
+                authentication: UserAuthentication(name: "x", auth: .password("x"))
+            )
+        }
+    }
+
+    @Test("the initializer runs the preflight checks before connecting")
+    func initRejectsInvalidConfiguration() async {
+        await #expect(throws: SFTPClientInvalidConfig.self) {
+            try await SFTPClient(
+                openSocketIn: TCPLocation(hostname: "localhost", port: 0),
+                authentication: UserAuthentication(name: "x", auth: .password("x"))
+            )
+        }
+    }
+
+    // MARK: - Init Timeouts
+
     #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
         @Test("a negative, zero, or NaN operations timeout stops the process")
         func rejectsInvalidOperationsTimeout() async {
             await #expect(processExitsWith: .failure) {
-                _ = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost"),
-                    operationsTimeOut: -1,
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                _ = try? await SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x")),
+                    operationsTimeOut: -1
                 )
             }
             await #expect(processExitsWith: .failure) {
-                _ = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost"),
-                    operationsTimeOut: 0,
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                _ = try? await SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x")),
+                    operationsTimeOut: 0
                 )
             }
             await #expect(processExitsWith: .failure) {
-                _ = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost"),
-                    operationsTimeOut: .nan,
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                _ = try? await SFTPClient(
+                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    authentication: UserAuthentication(name: "x", auth: .password("x")),
+                    operationsTimeOut: .nan
                 )
             }
         }
@@ -69,24 +144,18 @@ struct SFTPClientHostkeyAndAuth {
         @Test("a non-positive login timeout or timeout setting stops the process")
         func rejectsInvalidTimeouts() async {
             await #expect(processExitsWith: .failure) {
-                let client = try? SFTPClient(
+                _ = try? await SFTPClient(
                     openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
+                    authentication: UserAuthentication(name: "x", auth: .password("x")),
+                    loginTimeOut: 0
                 )
-                try? await client?.login(timeOut: 0)
             }
             await #expect(processExitsWith: .failure) {
-                let client = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
-                )
+                let client = try? await makeClient()
                 client?.timeout = -1
             }
             await #expect(processExitsWith: .failure) {
-                let client = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
-                )
+                let client = try? await makeClient()
                 client?.teardownGracePeriod = .nan
             }
         }
@@ -94,60 +163,43 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("infinite operations timeout is accepted as no timeout")
     func infiniteTimeoutAccepted() async throws {
-        let client = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: .infinity
-        )
+        let client = try await loginWithRetry {
+            try await makeClient(timeout: .infinity)
+        }
         defer { try? await client.close() }
         #expect(!client.closed)
         #expect(client.timeout == .infinity)
-    }
-
-    @Test("rejects empty username")
-    func rejectsEmptyUsername() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                user: "",
-                auth: UserAuthentication(name: "", auth: .password("pass")),
-                timeout: nil
-            )
-        }
-    }
-
-    @Test("rejects empty password")
-    func rejectsEmptyPassword() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                user: "x",
-                auth: UserAuthentication(name: "x", auth: .password("")),
-                timeout: nil
-            )
-        }
-    }
-
-    @Test("rejects missing private key file")
-    func rejectsMissingKeyFile() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try makeClient(
-                user: "x",
-                auth: UserAuthentication(
-                    name: "x",
-                    auth: .privateKeys(.init(URL(fileURLWithPath: "/nonexistent/key")))
-                ),
-                timeout: nil
-            )
-        }
     }
 
     @Test("nil timeout is accepted")
     func nilTimeoutAccepted() async throws {
-        let client = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: nil
-        )
+        let client = try await loginWithRetry {
+            try await makeClient(timeout: nil)
+        }
         defer { try? await client.close() }
         #expect(!client.closed)
         #expect(client.timeout == .infinity)
+    }
+
+    @Test("the operations timeout applies after login")
+    func operationsTimeoutAppliesAfterLogin() async throws {
+        let client = try await loginWithRetry {
+            try await makeClient(loginTimeout: 20.0, timeout: 7.0)
+        }
+        defer { try? await client.close() }
+        #expect(client.timeout == 7.0)
+    }
+
+    @Test("a failed login throws from the initializer")
+    func failedLoginThrowsFromInit() async {
+        // Nothing listens on port 1.
+        await #expect(throws: (any Error).self) {
+            try await SFTPClient(
+                openSocketIn: TCPLocation(hostname: "127.0.0.1", port: 1),
+                authentication: UserAuthentication(name: "x", auth: .password("x")),
+                loginTimeOut: 5
+            )
+        }
     }
 
     // MARK: - getServerHostKey
@@ -212,8 +264,8 @@ struct SFTPClientHostkeyAndAuth {
             )
         }
 
-        let client = try await loginWithRetry(timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([shortKey]))
+        let client = try await loginWithRetry {
+            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([shortKey]))
         }
         #expect(!client.closed)
         try await client.close()
@@ -229,8 +281,8 @@ struct SFTPClientHostkeyAndAuth {
             )
         }
 
-        let client = try await loginWithRetry(timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .loadFromFileString(file: knownHostsLine))
+        let client = try await loginWithRetry {
+            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: knownHostsLine))
         }
         #expect(!client.closed)
         try await client.close()
@@ -248,8 +300,8 @@ struct SFTPClientHostkeyAndAuth {
 
         // The matching entry sits on the second line, so it is only found when CRLF splits into lines.
         let content = "# accepted hosts\r\n\(knownHostsLine)\r\n"
-        let client = try await loginWithRetry(timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .loadFromFileString(file: content))
+        let client = try await loginWithRetry {
+            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: content))
         }
         #expect(!client.closed)
         try await client.close()
@@ -270,8 +322,8 @@ struct SFTPClientHostkeyAndAuth {
         try knownHostsLine.write(to: tmpFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmpFile) }
 
-        let client = try await loginWithRetry(timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .loadFromFile(file: tmpFile))
+        let client = try await loginWithRetry {
+            try await makeClient(hostKeyAcceptance: .loadFromFile(file: tmpFile))
         }
         #expect(!client.closed)
         try await client.close()
@@ -281,8 +333,8 @@ struct SFTPClientHostkeyAndAuth {
     func shortHandAcceptedKeysRejectsWrongKey() async throws {
         let wrongKey = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().publicKey.encode(format: .openSSH)
 
-        try await expectLoginRejects(HostKeyVerificationError.keyMismatch, timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey]))
+        try await expectLoginRejects(HostKeyVerificationError.keyMismatch) {
+            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey]))
         }
     }
 
@@ -296,8 +348,8 @@ struct SFTPClientHostkeyAndAuth {
             )
         }
 
-        try await expectLoginRejects(HostKeyVerificationError.unknownHostKey, timeOut: 10.0) {
-            try makeClient(hostKeyAcceptance: .loadFromFileString(file: "other-host.example.com \(shortKey)"))
+        try await expectLoginRejects(HostKeyVerificationError.unknownHostKey) {
+            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: "other-host.example.com \(shortKey)"))
         }
     }
 
@@ -313,12 +365,10 @@ struct SFTPClientHostkeyAndAuth {
     @Test("login rejects wrong password")
     func loginRejectsWrongPassword() async throws {
         try await withClient { _ in
-            let badClient = try makeClient(
-                auth: UserAuthentication(name: TS.testUser, auth: .password("wrong-password"))
-            )
-            defer { try? await badClient.close() }
             await #expect(throws: (any Error).self) {
-                try await badClient.login(timeOut: 10.0)
+                try await makeClient(
+                    auth: UserAuthentication(name: TS.testUser, auth: .password("wrong-password"))
+                )
             }
         }
     }
@@ -329,8 +379,8 @@ struct SFTPClientHostkeyAndAuth {
         guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
 
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 10.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: "charmander",
                     auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyPath)))
                 )
@@ -346,8 +396,8 @@ struct SFTPClientHostkeyAndAuth {
         guard let keyData = try? String(contentsOfFile: keyPath, encoding: .utf8) else { return }
 
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 10.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: "charmander",
                     auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyData)))
                 )
@@ -363,8 +413,8 @@ struct SFTPClientHostkeyAndAuth {
         guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
 
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 10.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: "charmander",
                     auth: UserAuthentication(
                         name: "charmander",
@@ -383,8 +433,8 @@ struct SFTPClientHostkeyAndAuth {
         guard let keyData = try? String(contentsOfFile: keyPath, encoding: .utf8) else { return }
 
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 10.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: "charmander",
                     auth: UserAuthentication(
                         name: "charmander",
@@ -403,17 +453,15 @@ struct SFTPClientHostkeyAndAuth {
         guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
 
         try await withClient { _ in
-            let client = try makeClient(
-                user: "charmander",
-                auth: UserAuthentication(
-                    name: "charmander",
-                    auth: .privateKeys(.init(keyPath, passphrase: "wrong-passphrase"))
-                )
-            )
             await #expect(throws: (any Error).self) {
-                try await client.login(timeOut: 10.0)
+                try await makeClient(
+                    user: "charmander",
+                    auth: UserAuthentication(
+                        name: "charmander",
+                        auth: .privateKeys(.init(keyPath, passphrase: "wrong-passphrase"))
+                    )
+                )
             }
-            try? await client.close()
         }
     }
 
@@ -434,8 +482,8 @@ struct SFTPClientHostkeyAndAuth {
         ])
 
         try await withClient { _ in
-            let client = try await loginWithRetry(timeOut: 10.0) {
-                try makeClient(
+            let client = try await loginWithRetry {
+                try await makeClient(
                     user: "charmander",
                     auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
                 )
@@ -458,41 +506,40 @@ struct SFTPClientHostkeyAndAuth {
         ])
 
         try await withClient { _ in
-            let client = try makeClient(
-                user: "charmander",
-                auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
-            )
             await #expect(throws: (any Error).self) {
-                try await client.login(timeOut: 10.0)
+                try await makeClient(
+                    user: "charmander",
+                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+                )
             }
-            try? await client.close()
         }
     }
 
     // MARK: - Forking
 
-    @Test("fork without login creates an independent disconnected client")
-    func forkWithoutLoginCreatesDisconnectedClient() async throws {
-        let client = try makeClient(timeout: 7.0)
+    @Test("fork creates an independent logged-in client with the same timeouts")
+    func forkCreatesLoggedInClient() async throws {
+        let client = try await loginWithRetry {
+            try await makeClient(timeout: 7.0)
+        }
+        defer { try? await client.close() }
         let protocolClient: any SFTPClientProtocol = client
-        let fork = try await protocolClient.fork(loggedIn: false)
+        let fork = try await retryingTransientConnectionFailure {
+            try await protocolClient.fork()
+        }
 
         #expect(fork.id != client.id)
         #expect(fork.timeout == 7.0)
-        // The fork reports to the handler it inherited.
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await fork.currentWorkingDirectory
-        }
+        #expect(try await fork.currentWorkingDirectory == TS.testHome)
 
         try await fork.close()
-        try await client.close()
     }
 
     @Test("logged-in fork remains usable after closing its source client")
     func loggedInForkIsIndependent() async throws {
         try await withClient { client in
             let fork = try await retryingTransientConnectionFailure {
-                try await client.fork(loggedIn: true)
+                try await client.fork()
             }
             do {
                 #expect(fork.id != client.id)
@@ -509,15 +556,24 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("fork preserves host key acceptance policy")
     func forkPreservesHostKeyAcceptancePolicy() async throws {
-        let wrongKey = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().publicKey.encode(format: .openSSH)
-        let client = try makeClient(
-            hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey])
-        )
-
-        try await expectRejects(HostKeyVerificationError.keyMismatch) {
-            _ = try await client.fork(loggedIn: true)
+        let shortKey = try await retryingTransientConnectionFailure {
+            try await SFTPClient.getServerHostKey(
+                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0,
+                shortHandForm: true
+            )
         }
-        try? await client.close()
+        let client = try await loginWithRetry {
+            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([shortKey]))
+        }
+        defer { try? await client.close() }
+        #expect(client.hostKeyAcceptance == .shortHandAcceptedKeys([shortKey]))
+
+        let fork = try await retryingTransientConnectionFailure {
+            try await client.fork()
+        }
+        defer { try? await fork.close() }
+        #expect(fork.hostKeyAcceptance == client.hostKeyAcceptance)
     }
 
     // MARK: - Lifecycle
@@ -540,24 +596,13 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("logging in twice is ignored in a release build and leaves the connection usable")
-    func loginTwiceIsIgnored() async throws {
-        try await withClient { client in
-            try await MisuseScope.$assertsOnMisuse.withValue(false) {
-                try await client.login(timeOut: 10)
-            }
-            let workingDirectory = try await client.currentWorkingDirectory
-            #expect(workingDirectory == TS.testHome)
-        }
-    }
-
     @Test("fork after close is reported and throws")
     func forkAfterCloseIsReported() async throws {
-        let client = try makeClient()
+        let client = try await makeLoggedInClient()
         try await client.close()
 
         await expectMisuse(.clientUsedAfterClosing) {
-            try await client.fork(loggedIn: false)
+            try await client.fork()
         }
     }
 
@@ -590,37 +635,6 @@ struct SFTPClientHostkeyAndAuth {
             await expectMisuse(.clientUsedAfterClosing) {
                 try await client.rename(from: "a", to: "b")
             }
-            await expectMisuse(.clientUsedAfterClosing) {
-                try await client.login(timeOut: 10)
-            }
-        }
-    }
-
-    @Test("operations before login are reported and throw")
-    func operationsBeforeLoginAreReported() async throws {
-        let client = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: nil
-        )
-        defer { try? await client.close() }
-
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.currentWorkingDirectory
-        }
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.listDirectory(path: ".", recursive: false)
-        }
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.stat(path: ".", followLink: false)
-        }
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.banner
-        }
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.createDirectory(path: uniqueRemotePath(), makePath: true, mode: .serverDefault)
-        }
-        await expectMisuse(.clientUsedBeforeLogin) {
-            try await client.deleteFile(path: uniqueRemotePath())
         }
     }
 
@@ -659,10 +673,7 @@ struct SFTPClientHostkeyAndAuth {
         )
         func keepAliveRejectsInvalidIntervals(interval: TimeInterval) async {
             await #expect(processExitsWith: .failure) { [interval] in
-                let client = try? SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "x", auth: .password("x"))
-                )
+                let client = try? await makeClient()
                 try? await client?.setKeepAlive(every: interval)
             }
         }
@@ -709,15 +720,9 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("client id is unique")
     func clientIDIsUnique() async throws {
-        let c1 = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: nil
-        )
+        let c1 = try await makeLoggedInClient()
         defer { try? await c1.close() }
-        let c2 = try makeClient(
-            auth: UserAuthentication(name: "x", auth: .password("x")),
-            timeout: nil
-        )
+        let c2 = try await makeLoggedInClient()
         defer { try? await c2.close() }
         #expect(c1.id != c2.id)
     }
