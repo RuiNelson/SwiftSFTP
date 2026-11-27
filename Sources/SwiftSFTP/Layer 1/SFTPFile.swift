@@ -53,14 +53,6 @@ public extension SFTPFile {
         try await core.write(data)
     }
 
-    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
-        try await core.pread(upTo: upTo, at: fileOffset)
-    }
-
-    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
-        try await core.pwrite(data, at: fileOffset)
-    }
-
     func fsync() async throws {
         try await core.fsync()
     }

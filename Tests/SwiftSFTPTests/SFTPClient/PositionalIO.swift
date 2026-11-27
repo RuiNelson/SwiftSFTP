@@ -248,8 +248,8 @@ struct SFTPFilePositionalIO {
         }
     }
 
-    @Test("the protocol's default pread and pwrite put the position back")
-    func defaultImplementations() async throws {
+    @Test("pread and pwrite on a file other than SFTPFile put the position back")
+    func otherConformers() async throws {
         let path = uniqueRemotePath("pread-default")
         let patch = Data(repeating: 0x77, count: 1000)
 
@@ -257,7 +257,7 @@ struct SFTPFilePositionalIO {
             try await writeRemoteFile(client, path: path, contents: Self.payload)
 
             let base = try await client.openFile([.read, .write], path: path, permissions: [])
-            // Forwards neither, so the protocol's defaults run.
+            // Not an SFTPFile, so pread and pwrite go through offset, read and write.
             let file = FaultInjectingFile(wrapping: base, faults: InjectedFaults())
             file.offset = 42
             let read = try await file.pread(upTo: 2000, at: 800_000)

@@ -362,7 +362,9 @@ extension SFTPFileCore {
         return try await read(upTo: upTo, readAheadLimit: readAheadLimit, at: nil)
     }
 
-    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
+    /// Backs ``SFTPFileProtocol/pread(upTo:at:)`` for an ``SFTPFile``: moves, reads and moves back under one hold of
+    /// the parent's session I/O lock.
+    func positionalRead(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
         precondition(upTo > 0, "upTo must be greater than zero")
         return try await read(upTo: upTo, readAheadLimit: fileOffset.saturatingAdd(UInt64(upTo)), at: fileOffset)
     }
@@ -608,7 +610,9 @@ extension SFTPFileCore {
         try await write(data, at: nil)
     }
 
-    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
+    /// Backs ``SFTPFileProtocol/pwrite(_:at:)`` for an ``SFTPFile``: moves, writes and moves back under one hold of the
+    /// parent's session I/O lock.
+    func positionalWrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
         try await write(data, at: fileOffset)
     }
 
