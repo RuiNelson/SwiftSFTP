@@ -1,5 +1,5 @@
-@testable import SwiftSFTP
 import Foundation
+@testable import SwiftSFTP
 import Testing
 
 @Suite("README Cookbook", .serialized)

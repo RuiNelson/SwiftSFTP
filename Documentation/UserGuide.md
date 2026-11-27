@@ -47,19 +47,24 @@ defer { try? await client.close() }
 With every parameter:
 
 ```swift
-let client = try await SFTPClient(
-    TCPLocation(hostname: "sftp.example.com", port: 22),
-    hostKeyAcceptance: .acceptAny,
+let susanaED25519 = URL(filePath: "/Users/susana/.ssh/id_ed25519")      // has passphrase (encrypted)
+let susanaRSA = URL(filePath: "/Users/susana/.ssh/id_rsa")              // in plaintext
+let serverHostkey = "[::1]:5022 ecdsa-sha2-nistp256 AAAAE2VjZ(...)lPM=" // same format as known_hosts
+
+let myClient = try await SFTPClient(
+    TCPLocation(hostname: "::1", port: 5022),
+    hostKeyAcceptance: .loadFromFileString(file: serverHostkey),
     authentication: UserAuthentication(
-        name: "alice",
-        auth: .privateKey(PrivateKey(file: URL(filePath: "/Users/alice/.ssh/id_ed25519")))
+        name: "susana",
+        auth: .privateKeys(
+            [PrivateKey(file: susanaED25519, passphrase: "nobodyknows"),
+             PrivateKey(file: susanaRSA)]
+        )
     ),
-    compressionPreference: ([], []),
-    loginTimeOut: 15.0,         // connection, handshake, authentication, and SFTP initialization
-    operationsTimeOut: 30.0,    // applied to every libssh2 call after login; nil or .infinity = no timeout
-    deinitErrorHandler: { error in  // optional; the default prints in a debug build only
-        myLogger.error("\(error.localizedDescription)")
-    }
+    compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib]),
+    loginTimeOut: 10.0,
+    operationsTimeOut: 10.5,
+    deinitErrorHandler: { myLogger.error("error on deinit: \($0.localizedDescription)") }
 )
 ```
 
