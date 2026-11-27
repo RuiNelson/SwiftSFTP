@@ -39,7 +39,7 @@ import SwiftSFTP
 import Foundation
 
 // - Instantiate an SFTP client: this connects and logs in
-let myClient = try await SFTPClient("localhost:6922", authentication: "bulbasaur:pass123")
+let myClient = try await SFTPClient("sftp://bulbasaur:pass123@localhost:6922")
     // supports IPv4, IPv6,
     //          host key validation,
     //          private key auth (one or more),

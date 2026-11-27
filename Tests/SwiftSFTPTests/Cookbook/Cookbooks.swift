@@ -25,8 +25,8 @@ struct Cookbook {
         // A simple quick-start example to "sell" the library to users
 
         // - Instantiate a SFTP client: this connects and logs in
-        
-        let myClient = try await SFTPClient("localhost:6922", authentication: "bulbasaur:pass123")
+
+        let myClient = try await SFTPClient("sftp://bulbasaur:pass123@localhost:6922")
 
         // - Check server banner
         let banner = try await myClient.banner
@@ -40,7 +40,7 @@ struct Cookbook {
         let contents = try await myClient.listDirectory(path: "./Fixtures")
 
         // - Open a file handle
-        let largestFile = contents.bySize.last!
+        let largestFile = try #require(contents.bySize.last)
         let myFileHandle = try await myClient.openFile([.read], path: largestFile.fullPath)
 
         let firstBytes = try await myFileHandle.read(upTo: 1024)
@@ -52,8 +52,11 @@ struct Cookbook {
 
         // - Upload a file
         let localFile = URL(filePath: "myfile.zip")
-        try await myClient.upload(from: localFile, to: "/home/bulbasaur/myfolder/myfile.zip")
-            { doneBytes, totalBytes, lastBlockBytes, lastBlockTime in
+        try await myClient
+            .upload(
+                from: localFile,
+                to: "/home/bulbasaur/myfolder/myfile.zip"
+            ) { doneBytes, totalBytes, lastBlockBytes, lastBlockTime in
                 // return true/false if you want to continue/terminate the upload
 
                 let progress = ((Double(doneBytes) / Double(totalBytes)) * 100).rounded()
@@ -63,13 +66,13 @@ struct Cookbook {
 
                 return true
             }
-        
+
         // - Deletes a file or directory with everything in it (less radical methods available)
         try await myClient.delete(path: "myfolder")
 
         // - Close (optional: a released client closes itself, without waiting for the server)
         try await myClient.close()
-        
+
         #expect(firstBytes?.count == 1024)
     }
 }
