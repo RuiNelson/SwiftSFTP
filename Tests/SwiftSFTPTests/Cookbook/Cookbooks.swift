@@ -26,11 +26,7 @@ struct Cookbook {
 
         // - Instantiate a SFTP client: this connects and logs in
         
-        let myClient = try await SFTPClient(
-            "localhost:6922",
-            hostKeyAcceptance: .acceptAny, // configurable
-            authentication: "bulbasaur:pass123" // supports private keys
-        )
+        let myClient = try await SFTPClient("localhost:6922", authentication: "bulbasaur:pass123")
 
         // - Check server banner
         let banner = try await myClient.banner
