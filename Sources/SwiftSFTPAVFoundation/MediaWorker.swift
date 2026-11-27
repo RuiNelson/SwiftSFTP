@@ -15,7 +15,7 @@
 
         let open: @Sendable () async throws -> any SFTPFileProtocol
         /// Opened by the worker's first fetch, except the first worker's, which also reads the file size.
-        var handle: (any SFTPFileProtocol)?
+        var handle: any SFTPFileProtocol?
         /// The handle's cursor after its last read, or `nil` when unknown. A fetch seeks only when it starts elsewhere,
         /// because any seek discards libssh2's read-ahead, even one to the current offset.
         var cursor: Int64?

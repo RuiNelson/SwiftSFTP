@@ -1170,7 +1170,7 @@ Thrown by `shellAgent(shellType:)` and by `SSHShellAgent` operations:
 | `.hostDoesNotSupportOperation` | Requested hash algorithm (or equivalent) is unavailable on that shell family |
 | `.commandFailed(exitCode:stdout:stderr:)` | Remote command exited non-zero |
 | `.unexpectedOutput(String)` | Command output could not be parsed (for example a hash line) |
-| `.invalidArgument(String)` | An empty archive or destination path, an empty download URL, or an unknown 7-Zip binary name |
+| `.invalidArgument(String)` | An empty path (to `stat`, or an archive or destination path), an empty download URL, or an unknown 7-Zip binary name |
 | `.channelClosedAfterFailure` | An earlier command failed part way and the agent closed itself; open a new agent |
 
 ### libssh2 errors (`LibSSH2Error`)

@@ -26,7 +26,7 @@ public func KnownHostInit(session: LibSSH2Session) throws -> LibSSH2KnownHosts {
     guard let hosts = libssh2.libssh2_knownhost_init(session.rawValue) else {
         throw LibSSH2Error.nullPointer(function: "KnownHostInit")
     }
-    return LibSSH2KnownHosts(rawValue: hosts)
+    return .init(rawValue: hosts)
 }
 
 /// Adds a host key to a known-hosts collection.
@@ -347,7 +347,7 @@ public func KnownHostWriteLine(
             )
         }
     ).checkReturnValue()
-    return String(decoding: buffer.prefix(outputLength).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    return .init(decoding: buffer.prefix(outputLength).map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 /// Writes a known-hosts collection to a file.

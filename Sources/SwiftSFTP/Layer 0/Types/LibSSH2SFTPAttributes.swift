@@ -50,7 +50,7 @@ public struct LibSSH2SFTPAttributes: Sendable, Codable, Equatable, Hashable {
     }
 
     public var rawValue: LIBSSH2_SFTP_ATTRIBUTES {
-        LIBSSH2_SFTP_ATTRIBUTES(
+        .init(
             flags: CUnsignedLong(flags.rawValue),
             filesize: libssh2_uint64_t(fileSize),
             uid: CUnsignedLong(uid),

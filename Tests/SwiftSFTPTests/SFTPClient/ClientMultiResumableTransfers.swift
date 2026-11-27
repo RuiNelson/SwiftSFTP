@@ -610,7 +610,7 @@ struct SFTPClientResumableTransfers {
             FileManager.default.attributesOfItem(atPath: source.path)[.modificationDate] as? Date
         )
 
-        return ResumableTrailer(
+        return .init(
             fileName: "payload.bin",
             fileSize: UInt64(payload.count),
             sourceModificationTime: UInt64(modified.secondSince1970) + modificationTimeOffset,

@@ -15,7 +15,7 @@ public func AgentInit(session: LibSSH2Session) throws -> LibSSH2Agent {
     guard let agent = libssh2.libssh2_agent_init(session.rawValue) else {
         throw LibSSH2Error.nullPointer(function: "AgentInit")
     }
-    return LibSSH2Agent(rawValue: agent)
+    return .init(rawValue: agent)
 }
 
 /// Connects to an ssh-agent running on the system.

@@ -194,9 +194,11 @@ private extension SFTPClient {
     }
 
     static func isTimeoutOrCancellation(_ error: any Error) -> Bool {
-        if case .timeout = error as? LibSSH2Error {
-            return true
+        switch error as? LibSSH2Error {
+        case .timeout:
+            true
+        default:
+            error is CancellationError
         }
-        return error is CancellationError
     }
 }

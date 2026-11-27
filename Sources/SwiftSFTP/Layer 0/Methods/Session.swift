@@ -287,7 +287,7 @@ public func SessionLastError(
 /// - Parameter session: The session to inspect.
 /// - Returns: The error reported by the last libssh2 call.
 public func SessionLastErrno(session: LibSSH2Session) -> LibSSH2Error {
-    LibSSH2Error(code: libssh2.libssh2_session_last_errno(session.rawValue), message: session.lastErrorMessage)
+    .init(code: libssh2.libssh2_session_last_errno(session.rawValue), message: session.lastErrorMessage)
 }
 
 /// Overrides the session's last-error state.
@@ -320,7 +320,7 @@ public func SessionSetLastError(
 /// - Parameter session: The session to inspect.
 /// - Returns: ``LibSSH2SessionBlockDirections`` indicating which directions the session is blocked on.
 public func SessionBlockDirections(session: LibSSH2Session) -> LibSSH2SessionBlockDirections {
-    LibSSH2SessionBlockDirections(rawValue: Int(libssh2.libssh2_session_block_directions(session.rawValue)))
+    .init(rawValue: Int(libssh2.libssh2_session_block_directions(session.rawValue)))
 }
 
 /// Sets or clears a session option.

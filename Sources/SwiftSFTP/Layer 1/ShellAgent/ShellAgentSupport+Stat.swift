@@ -94,7 +94,7 @@ extension ShellAgentSupport {
         // Birth time reads `0` (BSD) or `-` (GNU) when the file system does not record it.
         let birth = parseUnixTimestamp(f[8]).flatMap { $0.timeIntervalSince1970 == 0 ? nil : $0 }
 
-        return ShellFileStatus(
+        return .init(
             kind: kind(unixMode: mode),
             size: size,
             modificationDate: modified,
@@ -127,7 +127,7 @@ extension ShellAgentSupport {
             .regular
         }
 
-        return ShellFileStatus(
+        return .init(
             kind: kind,
             size: size,
             modificationDate: date(windowsTicks: write),

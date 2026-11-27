@@ -200,10 +200,12 @@ private extension AbandonedCallTests {
         }
 
         static func isTimeout(_ error: any Error) -> Bool {
-            if case .timeout = error as? LibSSH2Error {
-                return true
+            switch error as? LibSSH2Error {
+            case .timeout:
+                true
+            default:
+                false
             }
-            return false
         }
 
         /// Runs `call` against the silent server and gives it up while it waits.
@@ -232,7 +234,7 @@ private extension AbandonedCallTests {
     static let smallPayload = testPayload(megabytes: 1).prefix(smallSize)
 
     static func permissions(_ permissions: POSIXPermissions) -> FileAttributes {
-        FileAttributes(flags: .permissions, permissions: permissions)
+        .init(flags: .permissions, permissions: permissions)
     }
 
     /// Seeds a directory of small files, opens the stalled file on a connection that goes silent once ``stall()`` runs,

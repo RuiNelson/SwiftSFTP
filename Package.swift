@@ -3,8 +3,8 @@
 
 import PackageDescription
 
-// BEGIN OPENSSL SOURCE MANIFEST
-// OpenSSL source manifest SHA-256: 07a07c497547770033117a40a3f6ded028419721cb05f97c3cd547182d96dae4
+// BEGIN OPENSSL SOURCE MANIFEST OpenSSL source manifest SHA-256:
+// 07a07c497547770033117a40a3f6ded028419721cb05f97c3cd547182d96dae4
 let opensslSourcePaths: [String] = [
     "crypto",
     "providers",
@@ -140,14 +140,25 @@ let opensslExcludedPaths: [String] = [
 ]
 // END OPENSSL SOURCE MANIFEST
 
-// Every platform with a POSIX socket and libc API. Windows is the one that is not: it uses Winsock and has no system zlib.
+// Every platform with a POSIX socket and libc API. Windows is the one that is not: it uses Winsock and has no system
+// zlib.
 let posixPlatforms: [Platform] = [
-    .macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .driverKit, .linux, .android, .openbsd, .wasi,
+    .macOS,
+    .iOS,
+    .tvOS,
+    .watchOS,
+    .visionOS,
+    .macCatalyst,
+    .driverKit,
+    .linux,
+    .android,
+    .openbsd,
+    .wasi,
 ]
 let windowsPlatforms: [Platform] = [.windows]
 
-// Prepared in the pinned SwiftSFTP-OpenSSL submodule. SwiftPM compiles these
-// portable C sources for the destination: no binary targets or build-time tools.
+// Prepared in the pinned SwiftSFTP-OpenSSL submodule. SwiftPM compiles these portable C sources for the destination: no
+// binary targets or build-time tools.
 let opensslTarget = Target.target(
     name: "OpenSSLCrypto",
     path: "Vendor/SwiftSFTP-OpenSSL/Sources/OpenSSLCrypto",
@@ -302,10 +313,10 @@ let libssh2CSettings: [CSetting] = [
     .define("_WINSOCK_DEPRECATED_NO_WARNINGS", .when(platforms: windowsPlatforms)),
 ] + legacyAlgorithmDefines.map { .define($0, .when(traits: [legacyAlgorithmsTrait])) }
 
-// zlib, compiled from the pinned Vendor/zlib submodule where the system has none (Windows). The sources are
-// one-line forwarders into the submodule, which stays unmodified, and zlib.h and zconf.h are forwarded the same way,
-// because the submodule has no include directory of its own. libssh2 builds it only on Windows; the other platforms link
-// the system's zlib.
+// zlib, compiled from the pinned Vendor/zlib submodule where the system has none (Windows). The sources are one-line
+// forwarders into the submodule, which stays unmodified, and zlib.h and zconf.h are forwarded the same way, because the
+// submodule has no include directory of its own. libssh2 builds it only on Windows; the other platforms link the
+// system's zlib.
 let zlibTarget = Target.target(
     name: "SwiftSFTPZlib",
     path: "Sources/zlib",
@@ -362,8 +373,8 @@ let swiftSFTPAVFoundationTestsTarget = Target.testTarget(
     dependencies: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
 )
 
-// Opt-in trait for the EXIFKit integration. While it is disabled, SwiftPM neither resolves nor fetches EXIFKit, and
-// the SwiftSFTPEXIFKit module is empty.
+// Opt-in trait for the EXIFKit integration. While it is disabled, SwiftPM neither resolves nor fetches EXIFKit, and the
+// SwiftSFTPEXIFKit module is empty.
 let exifKitTrait = "EXIFKit"
 
 let swiftSFTPEXIFKitTarget = Target.target(
@@ -394,23 +405,23 @@ let package = Package(
     products: [
         .library(
             name: "SwiftSFTP",
-            // OpenSSL is compiled into SwiftSFTP with SDK-private C symbols. Keeping
-            // the product dynamic also maintains the existing delivery contract.
+            // OpenSSL is compiled into SwiftSFTP with SDK-private C symbols. Keeping the product dynamic also maintains
+            // the existing delivery contract.
             type: .dynamic,
             targets: ["SwiftSFTP"]
         ),
         .library(
             name: "SwiftSFTPStatic",
-            // Consumers sharing static dependencies (for example PathWorks) need one
-            // final link step to avoid duplicate library code.
+            // Consumers sharing static dependencies (for example PathWorks) need one final link step to avoid duplicate
+            // library code.
             type: .static,
             targets: ["SwiftSFTP"]
         ),
         .library(
             name: "SwiftSFTPAVFoundation",
             type: .dynamic,
-            // Supply both modules through one product: linking the SwiftSFTP target
-            // through two dynamic products duplicates its code in Xcode's build graph.
+            // Supply both modules through one product: linking the SwiftSFTP target through two dynamic products
+            // duplicates its code in Xcode's build graph.
             targets: ["SwiftSFTP", "SwiftSFTPAVFoundation"]
         ),
         .library(

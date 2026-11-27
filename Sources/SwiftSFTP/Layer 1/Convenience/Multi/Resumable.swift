@@ -581,6 +581,6 @@ private extension FileManager {
             return 0
         }
 
-        return UInt64(modified.secondSince1970)
+        return .init(modified.secondSince1970)
     }
 }

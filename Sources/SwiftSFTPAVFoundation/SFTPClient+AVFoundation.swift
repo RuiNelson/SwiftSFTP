@@ -92,7 +92,7 @@
             readAheadSize: Int = 8 * 1024 * 1024,
             stripeSize: Int = 2 * 1024 * 1024
         ) -> AVPlayerItem {
-            AVPlayerItem(asset: makeAsset(
+            .init(asset: makeAsset(
                 at: path,
                 contentType: contentType,
                 readAheadSize: readAheadSize,

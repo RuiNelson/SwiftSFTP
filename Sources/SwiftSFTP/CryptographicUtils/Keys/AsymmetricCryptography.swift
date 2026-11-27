@@ -38,7 +38,7 @@ public extension AsymmetricAlgorithm {
         guard privateKey.type == keyType else {
             throw AsymmetricCryptographyError.keyTypeMismatch(expected: keyType, actual: privateKey.type)
         }
-        return AsymmetricKeyPair(privateKey: privateKey)
+        return .init(privateKey: privateKey)
     }
 }
 

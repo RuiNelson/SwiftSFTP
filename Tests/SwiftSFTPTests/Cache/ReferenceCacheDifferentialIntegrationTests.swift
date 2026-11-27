@@ -122,7 +122,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
                 return "\(link)/file\(index)"
 
             default:
-                return String(real(index).dropFirst(TS.testHome.count + 1))
+                return .init(real(index).dropFirst(TS.testHome.count + 1))
             }
         }
     }

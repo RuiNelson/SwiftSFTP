@@ -10,7 +10,7 @@ struct PrivateKeyAuthPlannerTests {
         index: Int,
         algorithm: SSHUserKeyAlgorithm?
     ) -> PrivateKeyAuthCandidate {
-        PrivateKeyAuthCandidate(
+        .init(
             source: .memory(text),
             passphrase: passphrase,
             algorithm: algorithm,
@@ -24,7 +24,7 @@ struct PrivateKeyAuthPlannerTests {
         index: Int,
         algorithm: SSHUserKeyAlgorithm?
     ) -> PrivateKeyAuthCandidate {
-        PrivateKeyAuthCandidate(
+        .init(
             source: .file(URL(fileURLWithPath: path)),
             passphrase: passphrase,
             algorithm: algorithm,
@@ -224,10 +224,10 @@ struct PrivateKeyAuthPlannerTests {
         #expect(candidates[0].originalIndex == 0)
         #expect(candidates[1].algorithm == .ed25519)
         #expect(candidates[1].originalIndex == 1)
-        if case let .file(url) = candidates[1].source {
+        switch candidates[1].source {
+        case let .file(url):
             #expect(url.path == URL(fileURLWithPath: edPath).path)
-        }
-        else {
+        default:
             Issue.record("expected file source for second candidate")
         }
     }

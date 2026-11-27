@@ -6,7 +6,7 @@ import Testing
 
 /// Metadata of a regular file at `path` with `size` bytes, last modified at `modificationTime`.
 private func regularFile(_ path: String, size: UInt64, modificationTime: UInt = 1000) -> FileMetadata {
-    FileMetadata(
+    .init(
         sanitizedPath: path,
         attributes: FileAttributes(
             flags: [.size, .permissions, .accessModificationTime],
@@ -19,7 +19,7 @@ private func regularFile(_ path: String, size: UInt64, modificationTime: UInt = 
 
 /// Metadata of a symbolic link at `path`.
 private func symbolicLink(_ path: String) -> FileMetadata {
-    FileMetadata(
+    .init(
         sanitizedPath: path,
         attributes: FileAttributes(
             flags: [.size, .permissions, .accessModificationTime],
@@ -42,7 +42,7 @@ private func makeCache(
     minimumHitLength: Int = 0,
     metadata: ReferenceCache.MetadataPolicy = .neverAnswer
 ) -> ReferenceCache {
-    ReferenceCache(
+    .init(
         storage: InMemoryCacheStorage(byteBudget: byteBudget, maximumFileSize: maximumFileSize),
         configuration: .init(
             minimumHitLength: minimumHitLength,

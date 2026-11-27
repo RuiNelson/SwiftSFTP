@@ -131,8 +131,8 @@ try await agent.concat(
 )
 ```
 
-Parent directories of `to` are created when supported. An empty `files` array throws
-`ShellAgentError.invalidArgument`. Under the hood this is `cat … > dest` on Unix, `copy /b` on Windows Command Prompt,
+Parent directories of `to` are created when supported. An empty `files` array stops the process with a precondition
+failure. Under the hood this is `cat … > dest` on Unix, `copy /b` on Windows Command Prompt,
 and a PowerShell stream copy when the agent is in the PowerShell family.
 
 ---
@@ -150,14 +150,14 @@ try await agent.createRandomData(file: "/data/random-64MiB.bin", length: 64 * 10
 ```
 
 `length` must be non-negative (`0` creates an empty file). Parent directories of `file` are created when supported.
-Negative lengths throw `ShellAgentError.invalidArgument`.
+A negative length stops the process with a precondition failure.
 
 ---
 
 ## Create archives
 
 Three APIs build archives on the server from remote paths. Parent directories of `output` are created when supported.
-An empty `input` array (or, for ZIP / 7-Zip, a level outside `0...9`) throws `ShellAgentError.invalidArgument`.
+An empty `input` array (or, for ZIP / 7-Zip, a level outside `0...9`) stops the process with a precondition failure.
 
 ```swift
 try await agent.tar(

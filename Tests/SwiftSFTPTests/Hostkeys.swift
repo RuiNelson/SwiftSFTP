@@ -115,7 +115,7 @@ struct Hostkeys {
         let session = try SessionInit()
         do {
             let socket = try SessionHandshakeTCP(session: session, host: TS.hostname, port: TS.port)
-            return TestConnection(session: session, socket: socket)
+            return .init(session: session, socket: socket)
         }
         catch {
             try? SessionFree(session: session)

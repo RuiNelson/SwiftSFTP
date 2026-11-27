@@ -17,7 +17,7 @@ public func SFTPInit(session: LibSSH2Session) throws -> LibSSH2SFTP {
     guard let sftpRaw else {
         throw SessionLastErrno(session: session)
     }
-    return LibSSH2SFTP(rawValue: sftpRaw)
+    return .init(rawValue: sftpRaw)
 }
 
 /// Destroys a previously initialized SFTP session and frees its resources.
@@ -36,7 +36,7 @@ public func SFTPShutdown(sftp: LibSSH2SFTP) throws {
 /// - Parameter sftp: The SFTP instance to inspect.
 /// - Returns: The current SFTP protocol status.
 public func SFTPLastError(sftp: LibSSH2SFTP) -> LibSSH2SFTPStatus {
-    LibSSH2SFTPStatus(rawValue: UInt(libssh2.libssh2_sftp_last_error(sftp.rawValue)))
+    .init(rawValue: UInt(libssh2.libssh2_sftp_last_error(sftp.rawValue)))
 }
 
 /// Returns the SSH channel that backs an SFTP session.
@@ -85,7 +85,7 @@ public func SFTPOpen(
         )
     }
     guard let handle else { throw LibSSH2Error.sftp(status: SFTPLastError(sftp: sftp)) }
-    return LibSSH2SFTPHandle(rawValue: handle)
+    return .init(rawValue: handle)
 }
 
 /// Reads data from an SFTP file handle.
@@ -241,7 +241,7 @@ public func SFTPSeek(handle: LibSSH2SFTPHandle, offset: UInt64) {
 /// - Parameter handle: The SFTP file handle to inspect.
 /// - Returns: The current offset, in bytes, from the beginning of the file.
 public func SFTPTell(handle: LibSSH2SFTPHandle) -> UInt64 {
-    UInt64(libssh2.libssh2_sftp_tell64(handle.rawValue))
+    .init(libssh2.libssh2_sftp_tell64(handle.rawValue))
 }
 
 /// Gets attributes for an SFTP file handle (`fstat`).
@@ -252,7 +252,7 @@ public func SFTPTell(handle: LibSSH2SFTPHandle) -> UInt64 {
 public func SFTPFStat(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPAttributes {
     var rawAttributes = LIBSSH2_SFTP_ATTRIBUTES()
     try libssh2.libssh2_sftp_fstat_ex(handle.rawValue, &rawAttributes, 0).checkReturnValue()
-    return LibSSH2SFTPAttributes(rawAttributes)
+    return .init(rawAttributes)
 }
 
 /// Writes attributes back to the server for an SFTP file handle (`fsetstat`).
@@ -355,7 +355,7 @@ public func SFTPUnlink(sftp: LibSSH2SFTP, filename: String) throws {
 public func SFTPFStatVFS(handle: LibSSH2SFTPHandle) throws -> LibSSH2SFTPStatVFS {
     var stat = LIBSSH2_SFTP_STATVFS()
     try libssh2.libssh2_sftp_fstatvfs(handle.rawValue, &stat).checkReturnValue()
-    return LibSSH2SFTPStatVFS(stat)
+    return .init(stat)
 }
 
 /// Returns `statvfs`-style statistics for the filesystem containing a path.
@@ -372,7 +372,7 @@ public func SFTPStatVFS(sftp: LibSSH2SFTP, path: String) throws -> LibSSH2SFTPSt
     try path.withCString {
         try libssh2.libssh2_sftp_statvfs(sftp.rawValue, $0, path.utf8.count, &stat).checkReturnValue()
     }
-    return LibSSH2SFTPStatVFS(stat)
+    return .init(stat)
 }
 
 /// Creates a directory on the remote SFTP filesystem.
@@ -431,7 +431,7 @@ public func SFTPStat(sftp: LibSSH2SFTP, path: String, statType: LibSSH2SFTPStatT
             )
         ).checkReturnValue()
     }
-    return LibSSH2SFTPAttributes(rawAttributes)
+    return .init(rawAttributes)
 }
 
 /// Sets attributes for a remote SFTP path.

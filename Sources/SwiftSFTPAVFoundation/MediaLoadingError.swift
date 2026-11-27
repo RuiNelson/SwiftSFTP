@@ -23,7 +23,7 @@
                 EIO
             }
             // An underlying Swift error would override this code when AVFoundation unwraps the failure.
-            return NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+            return .init(domain: NSPOSIXErrorDomain, code: Int(code))
         }
 
         private static func posixCode(for error: LibSSH2Error) -> Int32 {

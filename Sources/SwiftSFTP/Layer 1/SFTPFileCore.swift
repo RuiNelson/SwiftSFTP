@@ -23,7 +23,7 @@ final class SFTPFileCore: SFTPFileProtocol {
 
     private let flags: OpenFlags
     /// The parent's cache when the file was opened, kept until the file closes. See ``SFTPClientWithCache``.
-    private let cache: (any SFTPBlockLevelReadCache)?
+    private let cache: any SFTPBlockLevelReadCache?
     /// The registry of files open with ``cache``, which keeps the path the file reports under.
     private let openFiles: OpenFileRegistry?
     /// The file's registration in ``openFiles``.
@@ -574,10 +574,10 @@ extension SFTPFileCore {
             result = .failure(error)
         }
 
-        let failed = if case .failure = result {
+        let failed = switch result {
+        case .failure:
             true
-        }
-        else {
+        default:
             false
         }
 
@@ -734,7 +734,7 @@ private struct CloseOutcome: Sendable {
     /// The file's final attributes, or `nil` when the stat was skipped or failed.
     var finalAttributes: FileAttributes?
     /// Why closing the handle failed, if it did.
-    var error: (any Error)?
+    var error: any Error?
 }
 
 extension SFTPFileCore {
@@ -880,7 +880,7 @@ extension SFTPFileCore {
             }
         }
 
-        let failure: (any Error)?
+        let failure: any Error?
         do {
             try await parent.withCancellableSessionIO { [self] slice in
                 try checkClosed()

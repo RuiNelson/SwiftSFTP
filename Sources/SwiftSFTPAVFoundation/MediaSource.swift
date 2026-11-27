@@ -458,7 +458,7 @@
             stripe: Int,
             range: Range<Int64>,
             worker: Int,
-            handle: (any SFTPFileProtocol)?,
+            handle: any SFTPFileProtocol?,
             cursor: Int64?,
             open: @Sendable () async throws -> any SFTPFileProtocol,
             chunkSize: Int,

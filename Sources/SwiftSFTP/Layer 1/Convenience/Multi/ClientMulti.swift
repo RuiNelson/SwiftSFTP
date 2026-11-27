@@ -29,20 +29,20 @@ public enum ResumeBehavior: Sendable {
 
     /// Whether an existing partial file is thrown away rather than continued.
     var discardsExistingProgress: Bool {
-        if case .discardingProgress = self {
+        switch self {
+        case .discardingProgress:
             true
-        }
-        else {
+        default:
             false
         }
     }
 
     /// Whether this mode leaves a partial file behind for a later call to continue.
     var isResumable: Bool {
-        if case .never = self {
+        switch self {
+        case .never:
             false
-        }
-        else {
+        default:
             true
         }
     }
@@ -603,7 +603,7 @@ final class MultiTransferProgressReporter: @unchecked Sendable {
     private var completedBytes: Int64
     private var lastUpdate = Date()
     private var stopped = false
-    private var failure: (any Error)?
+    private var failure: any Error?
     /// The most recently queued callback invocation; each new report waits for it before running.
     private var inFlight: Task<Bool, Never>?
 
@@ -667,7 +667,7 @@ final class MultiTransferProgressReporter: @unchecked Sendable {
 
     /// Prevents further progress callbacks, makes active workers stop at their next update, and records `error` when it
     /// is the first worker failure of the transfer.
-    func stop(_ error: (any Error)? = nil) {
+    func stop(_ error: any Error? = nil) {
         lock.lock()
         defer {
             lock.unlock()
@@ -684,7 +684,7 @@ final class MultiTransferProgressReporter: @unchecked Sendable {
     /// Once one worker fails it stops the reporter, so its siblings abort with
     /// ``FileTransferErrors/transferCancelled``. The task group surfaces whichever of those lands first, which hides
     /// the real cause; callers rethrow this instead.
-    var firstFailure: (any Error)? {
+    var firstFailure: any Error? {
         lock.lock()
         defer {
             lock.unlock()

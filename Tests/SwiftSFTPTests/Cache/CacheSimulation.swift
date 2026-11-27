@@ -57,7 +57,7 @@ struct SimulatedServer {
         guard let slash = path.lastIndex(of: "/"), slash != path.startIndex else {
             return "/"
         }
-        return String(path[..<slash])
+        return .init(path[..<slash])
     }
 
     static func isPath(_ path: String, atOrUnder ancestor: String) -> Bool {
@@ -1256,7 +1256,7 @@ final class CacheSimulation {
 
     private func makeOperation(_ name: String, mutates: Bool, _ steps: [Operation.Step]) -> Operation {
         nextIdentifier += 1
-        return Operation(id: nextIdentifier, name: name, mutates: mutates, steps: steps)
+        return .init(id: nextIdentifier, name: name, mutates: mutates, steps: steps)
     }
 
     private static func invalidation(_ path: String) -> Operation.Step {

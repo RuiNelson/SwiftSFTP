@@ -98,7 +98,7 @@ func loginWithRetry(
 func retryingTransientConnectionFailure<T>(
     _ operation: () async throws -> T
 ) async throws -> T {
-    var lastError: (any Error)?
+    var lastError: any Error?
     for attempt in 1 ... 3 {
         do {
             return try await operation()

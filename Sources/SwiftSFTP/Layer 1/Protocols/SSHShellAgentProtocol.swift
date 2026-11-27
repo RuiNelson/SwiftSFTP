@@ -71,19 +71,18 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// PowerShell stream copy).
     ///
     /// - Parameters:
-    ///   - files: One or more existing remote source paths, in the order they should appear in the result.
+    ///   - files: One or more existing remote source paths, in the order they should appear in the result. An empty
+    /// list stops the process.
     ///   - to: Remote destination path (created or overwritten).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `files` is empty; otherwise ``ShellAgentError``, libssh2
-    /// errors.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func concat(files: [String], to: String) async throws
 
     /// Creates (or overwrites) a remote file filled with zero bytes.
     ///
     /// - Parameters:
     ///   - file: Remote destination path.
-    ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
-    /// libssh2 errors.
+    ///   - length: Exact size in bytes (`0` creates an empty file). A negative length stops the process.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func createZeros(file: String, length: Int64) async throws
 
     /// Creates (or overwrites) a remote file filled with random bytes from the host CSPRNG.
@@ -92,9 +91,8 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///
     /// - Parameters:
     ///   - file: Remote destination path.
-    ///   - length: Exact size in bytes. Must be non-negative (`0` creates an empty file).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `length` is negative; otherwise ``ShellAgentError``,
-    /// libssh2 errors.
+    ///   - length: Exact size in bytes (`0` creates an empty file). A negative length stops the process.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func createRandomData(file: String, length: Int64) async throws
 
     /// Creates a tar archive on the server from remote paths.
@@ -102,25 +100,24 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// Compression modes are limited to those accepted by both GNU tar and bsdtar.
     ///
     /// - Parameters:
-    ///   - input: One or more remote files or directories to include (order preserved).
+    ///   - input: One or more remote files or directories to include (order preserved). An empty list stops the
+    /// process.
     ///   - output: Remote archive path to create or overwrite.
     ///   - compression: Shared GNU/bsdtar compression filter.
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` when `input` is empty; otherwise ``ShellAgentError``, libssh2
-    /// errors.
+    /// - Throws: ``ShellAgentError`` or libssh2 errors.
     func tar(input: [String], output: String, compression: TarCompression) async throws
 
     /// Creates a ZIP archive on the server from remote paths.
     ///
     /// - Parameters:
-    ///   - input: One or more remote files or directories to include.
+    ///   - input: One or more remote files or directories to include. An empty list stops the process.
     ///   - output: Remote `.zip` path to create or overwrite.
-    ///   - compressionLevel: Deflate level from `0` (store) through `9` (maximum). Exact mapping depends on `tool`.
+    ///   - compressionLevel: Deflate level from `0` (store) through `9` (maximum). Exact mapping depends on `tool`. A
+    /// level outside `0...9` stops the process.
     ///   - tool: Which remote zip implementation to invoke. ``ZipTool/poke`` probes the host in preference order
     /// (Info-ZIP, then `tar --format=zip`, then Microsoft `Compress-Archive`).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
-    /// ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable on that shell family (including when
-    /// ``ZipTool/poke`` finds nothing); otherwise ``ShellAgentError`` or libssh2
-    /// errors.
+    /// - Throws: ``ShellAgentError/hostDoesNotSupportOperation`` when `tool` is unavailable on that shell family
+    /// (including when ``ZipTool/poke`` finds nothing); otherwise ``ShellAgentError`` or libssh2 errors.
     func zip(input: [String], output: String, compressionLevel: Int, tool: ZipTool) async throws
 
     /// Creates a 7-Zip archive on the server via the `7z` / `7zz` / `7za` utility (p7zip / 7-Zip).
@@ -129,11 +126,11 @@ public protocol SSHShellAgentProtocol: Sendable {
     /// example `.7z`, `.zip`). Common on macOS (Homebrew) and Linux (p7zip); optional on Windows.
     ///
     /// - Parameters:
-    ///   - input: One or more remote files or directories to include.
+    ///   - input: One or more remote files or directories to include. An empty list stops the process.
     ///   - output: Remote archive path to create or overwrite.
-    ///   - compressionLevel: Level `0...9` passed as `-mxN` (`0` store / fastest, `9` ultra).
-    /// - Throws: ``ShellAgentError/invalidArgument(_:)`` for an empty `input` or level outside `0...9`;
-    /// ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise
+    ///   - compressionLevel: Level `0...9` passed as `-mxN` (`0` store / fastest, `9` ultra). A level outside `0...9`
+    /// stops the process.
+    /// - Throws: ``ShellAgentError/hostDoesNotSupportOperation`` when no 7-Zip binary is found; otherwise
     /// ``ShellAgentError`` or libssh2 errors.
     func sevenZip(input: [String], output: String, compressionLevel: Int) async throws
 

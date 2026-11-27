@@ -27,7 +27,7 @@ extension UnsafeMutablePointer {
 
 extension UnsafePointer<CChar> {
     var string: String {
-        String(cString: self)
+        .init(cString: self)
     }
 }
 

@@ -279,11 +279,11 @@ extension ResumableTrailer {
     /// would overflow for a scale large enough to cover a payload approaching `UInt64.max`.
     func byteRange(ofBlock index: Int) -> MultiTransferRange {
         guard index >= 0, index < blockCount else {
-            return MultiTransferRange(offset: fileSize, length: 0)
+            return .init(offset: fileSize, length: 0)
         }
 
         let offset = UInt64(index) * blockScale
-        return MultiTransferRange(offset: offset, length: min(blockScale, fileSize - offset))
+        return .init(offset: offset, length: min(blockScale, fileSize - offset))
     }
 
     /// The payload bytes covered by the blocks already marked complete.

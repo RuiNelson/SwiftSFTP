@@ -51,7 +51,7 @@
         init(_ file: any SFTPFileProtocol, synchronizesWithFsync: Bool = true) {
             self.file = file
             self.synchronizesWithFsync = synchronizesWithFsync
-            operations = SerialOperations.shared(for: file)
+            operations = .shared(for: file)
         }
 
         /// The remote file's current length, from the server's attributes for the open handle.

@@ -16,7 +16,7 @@ import Foundation
     }()
 
     private func winsockError(_ function: String, code: Int32 = WSAGetLastError()) -> LibSSH2Error {
-        LibSSH2Error.badSocket("\(function) failed (Winsock error \(code))")
+        .badSocket("\(function) failed (Winsock error \(code))")
     }
 #endif
 

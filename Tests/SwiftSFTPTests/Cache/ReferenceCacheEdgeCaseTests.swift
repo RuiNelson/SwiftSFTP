@@ -82,7 +82,7 @@ struct ReferenceCachePathTests {
     /// A cache that joins relative paths to `workingDirectory`, as one made with a control connection and
     /// ``ReferenceCache/Configuration/resolvesRelativePaths`` does.
     static func cache(workingDirectory: String) -> ReferenceCache {
-        ReferenceCache(
+        .init(
             checkedConfiguration: .init(
                 minimumHitLength: 0,
                 metadata: .answer(for: 60, includingMissing: false),
@@ -932,7 +932,7 @@ struct ReferenceCacheUncheckableTests {
         _ policy: ReferenceCache.TrustPolicy,
         revalidationInterval: TimeInterval?
     ) -> ReferenceCache {
-        ReferenceCache(
+        .init(
             checkedConfiguration: .init(
                 minimumHitLength: 0,
                 trustPolicy: policy,

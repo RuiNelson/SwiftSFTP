@@ -129,7 +129,7 @@ final class StallingProxy: @unchecked Sendable {
     /// Lets the relayed data flow again, as if the server had finally answered the pending requests.
     func resume() {
         lock.lock()
-        _stallAfterBytes = Int.max
+        _stallAfterBytes = .max
         lock.unlock()
     }
 

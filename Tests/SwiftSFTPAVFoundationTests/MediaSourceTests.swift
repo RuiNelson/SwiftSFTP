@@ -426,7 +426,7 @@
         stripeSize: Int = stripeBytes,
         chunkSize: Int = pieceBytes
     ) -> MediaSource {
-        MediaSource(
+        .init(
             openers: openers.map { opener -> @Sendable () async throws -> any SFTPFileProtocol in
                 { await opener.open() }
             },
@@ -497,12 +497,12 @@
         private let lock = NSLock()
         private let data: Data
         private let virtualSize: Int
-        private let statError: (any Error)?
+        private let statError: any Error?
         private let attributes: FileAttributes
         /// Reads starting in this range wait for a minute, unless they are cancelled first.
         private let blockedOffsets: Range<Int>?
         private var readDelay: UInt64
-        private var readError: (any Error)?
+        private var readError: any Error?
         private var position: UInt64 = 0
         private var closes = 0
         private var reads = 0
@@ -518,11 +518,11 @@
         init(
             data: Data,
             readDelay: UInt64 = 0,
-            statError: (any Error)? = nil,
+            statError: any Error? = nil,
             attributes: FileAttributes? = nil,
             virtualSize: Int? = nil,
             blockedOffsets: Range<Int>? = nil,
-            readError: (any Error)? = nil
+            readError: any Error? = nil
         ) {
             self.data = data
             self.virtualSize = virtualSize ?? data.count
@@ -610,7 +610,7 @@
             lock.withLock { readDelay = nanoseconds }
         }
 
-        func failReads(with error: (any Error)?) {
+        func failReads(with error: any Error?) {
             lock.withLock { readError = error }
         }
 

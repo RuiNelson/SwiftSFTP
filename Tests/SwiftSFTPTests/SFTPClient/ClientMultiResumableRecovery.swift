@@ -616,7 +616,7 @@ struct SFTPClientResumableRecovery {
             return 0
         }
 
-        return UInt64(modified.secondSince1970)
+        return .init(modified.secondSince1970)
     }
 
     /// The names of the resumable temporary files in a remote directory.

@@ -40,7 +40,7 @@ public func ChannelOpen(
     guard let channel else {
         throw SessionLastErrno(session: session)
     }
-    return LibSSH2Channel(rawValue: channel)
+    return .init(rawValue: channel)
 }
 
 /// Tunnels a TCP/IP connection through the SSH transport to a third party.
@@ -79,7 +79,7 @@ public func ChannelDirectTCPIP(
     guard let channel else {
         throw SessionLastErrno(session: session)
     }
-    return LibSSH2Channel(rawValue: channel)
+    return .init(rawValue: channel)
 }
 
 /// Tunnels a UNIX-domain socket connection through the SSH transport.
@@ -115,7 +115,7 @@ public func ChannelDirectStreamLocal(
     guard let channel else {
         throw SessionLastErrno(session: session)
     }
-    return LibSSH2Channel(rawValue: channel)
+    return .init(rawValue: channel)
 }
 
 /// Instructs the remote SSH server to begin listening for inbound TCP/IP connections.
@@ -180,7 +180,7 @@ public func ChannelForwardAccept(listener: LibSSH2Listener) throws -> LibSSH2Cha
     guard let channel = libssh2.libssh2_channel_forward_accept(listener.rawValue) else {
         throw LibSSH2Error.nullPointer(function: "ChannelForwardAccept")
     }
-    return LibSSH2Channel(rawValue: channel)
+    return .init(rawValue: channel)
 }
 
 /// Sets an environment variable in the remote channel's process space.

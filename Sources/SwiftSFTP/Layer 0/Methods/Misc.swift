@@ -65,5 +65,5 @@ public func SSHVersion(_ requiredVersionNumber: Int = 0) -> String? {
 ///
 /// - Returns: A ``LibSSH2CryptoEngine`` value identifying the active crypto backend.
 public func SSHCryptoEngine() -> LibSSH2CryptoEngine {
-    LibSSH2CryptoEngine(rawEngineValue: Int32(libssh2.libssh2_crypto_engine().rawValue))
+    .init(rawEngineValue: Int32(libssh2.libssh2_crypto_engine().rawValue))
 }

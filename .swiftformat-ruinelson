@@ -1,0 +1,4 @@
+# Rules from the reflow-comments branch of SwiftFormat that are not upstream yet.
+# Used by format.sh on top of .swiftformat when swiftformat-ruinelson is installed.
+--enable reflowComments
+--reflow-comments line,doc

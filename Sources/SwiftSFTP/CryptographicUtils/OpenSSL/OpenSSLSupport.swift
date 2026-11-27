@@ -213,7 +213,7 @@ enum OpenSSLBIO {
         guard BIO_read(bio, &bytes, Int32(bytes.count)) == Int32(bytes.count) else {
             throw OpenSSLErrorQueue.failure()
         }
-        return String(decoding: bytes, as: UTF8.self)
+        return .init(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -265,7 +265,7 @@ func openSSLPassphraseCallback(
     let source = userData.assumingMemoryBound(to: OpenSSLPassphrase.Source.self).pointee
     guard let base = source.bytes.baseAddress, source.bytes.count <= Int(size) else { return -1 }
     UnsafeMutableRawPointer(buffer).copyMemory(from: base, byteCount: source.bytes.count)
-    return Int32(source.bytes.count)
+    return .init(source.bytes.count)
 }
 
 // MARK: - Secure memory

@@ -25,7 +25,7 @@ struct SeededGenerator: RandomNumberGenerator {
 
     /// A value in `range`.
     mutating func int(_ range: ClosedRange<Int>) -> Int {
-        Int.random(in: range, using: &self)
+        .random(in: range, using: &self)
     }
 
     /// `true` with the given probability.
@@ -101,7 +101,7 @@ enum CacheFuzz {
 
     /// Metadata of a regular file at `path`.
     static func file(_ path: String, size: UInt64, modificationTime: UInt = 1000) -> FileMetadata {
-        FileMetadata(
+        .init(
             sanitizedPath: path,
             attributes: FileAttributes(
                 flags: [.size, .permissions, .accessModificationTime],
@@ -114,7 +114,7 @@ enum CacheFuzz {
 
     /// Metadata of a directory at `path`.
     static func directory(_ path: String, modificationTime: UInt = 1000) -> FileMetadata {
-        FileMetadata(
+        .init(
             sanitizedPath: path,
             attributes: FileAttributes(
                 flags: [.size, .permissions, .accessModificationTime],
@@ -127,7 +127,7 @@ enum CacheFuzz {
 
     /// Metadata of a symbolic link at `path`, as a stat that does not follow it reports it.
     static func link(_ path: String, modificationTime: UInt = 1000) -> FileMetadata {
-        FileMetadata(
+        .init(
             sanitizedPath: path,
             attributes: FileAttributes(
                 flags: [.size, .permissions, .accessModificationTime],
@@ -254,7 +254,7 @@ enum CacheFuzz {
         minimumHitLength: Int = 0,
         metadata: ReferenceCache.MetadataPolicy = .neverAnswer
     ) -> ReferenceCache {
-        ReferenceCache(
+        .init(
             storage: InMemoryCacheStorage(byteBudget: byteBudget, maximumFileSize: maximumFileSize),
             configuration: .init(
                 keepsUploads: keepsUploads,

@@ -139,11 +139,11 @@ struct PrivateKeyTypesTests {
 
         // Type-context `.init` form used at call sites.
         let mode: UserAuthenticationMode = .privateKeys(.init(url, passphrase: "p"))
-        if case let .privateKeys(set) = mode {
+        switch mode {
+        case let .privateKeys(set):
             #expect(set.files.count == 1)
             #expect(set.files[0].passphrase == "p")
-        }
-        else {
+        default:
             Issue.record("expected privateKeys mode")
         }
     }

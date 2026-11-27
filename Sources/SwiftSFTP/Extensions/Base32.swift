@@ -33,6 +33,6 @@ extension Data {
             symbols.append(crockfordAlphabet[Int(pending << UInt16(5 - pendingBits) & 0x1F)])
         }
 
-        return String(decoding: symbols, as: UTF8.self)
+        return .init(decoding: symbols, as: UTF8.self)
     }
 }

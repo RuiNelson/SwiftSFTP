@@ -268,10 +268,10 @@ private extension URL {
 
 private extension FileTransferErrors {
     var isRemoteDirectoryNotFound: Bool {
-        if case .remoteDirectoryNotFound = self {
+        switch self {
+        case .remoteDirectoryNotFound:
             true
-        }
-        else {
+        default:
             false
         }
     }

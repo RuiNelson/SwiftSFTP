@@ -39,5 +39,5 @@ public func SCPSend64(
     guard let channel else {
         throw SessionLastErrno(session: session)
     }
-    return LibSSH2Channel(rawValue: channel)
+    return .init(rawValue: channel)
 }

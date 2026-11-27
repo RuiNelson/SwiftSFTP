@@ -11,7 +11,7 @@ private func makeTrailer(fileSize: UInt64, blockScale: UInt64, completed: [Int] 
         bitmap.set(block: block)
     }
 
-    return ResumableTrailer(
+    return .init(
         version: ResumableTrailer.currentVersion,
         fileName: "report.pdf",
         fileSize: fileSize,
@@ -30,7 +30,7 @@ private struct BitmapWrite: Sendable, Equatable {
 /// A flush target that records writes instead of performing them, standing in for the SFTP and local-file ones.
 private actor FlushRecorder {
     private(set) var writes: [BitmapWrite] = []
-    private var pendingFailure: (any Error)?
+    private var pendingFailure: any Error?
     private var holdsNextWrite = false
 
     /// The closure a ``ResumableSynchronizer`` flushes through.

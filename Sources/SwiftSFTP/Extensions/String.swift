@@ -3,7 +3,7 @@ import PathWorks
 
 extension String {
     var uint32Length: UInt32 {
-        UInt32(clamping: self.utf8.count)
+        .init(clamping: self.utf8.count)
     }
 }
 
@@ -164,7 +164,7 @@ private extension String {
             return "//" + String(dropFirst(8))
         }
         if upper.hasPrefix("//?/") || upper.hasPrefix("//./") {
-            return String(dropFirst(4))
+            return .init(dropFirst(4))
         }
         return self
     }

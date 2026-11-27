@@ -304,8 +304,8 @@
                 .appendingPathComponent(".\(name).\(UUID().uuidString.prefix(8)).exifkit.tmp")
 
             let source = try await openFile([.read], path: sourcePath, permissions: [])
-            var openSource: (any SFTPFileProtocol)? = source
-            var temporary: (any SFTPFileProtocol)?
+            var openSource: any SFTPFileProtocol? = source
+            var temporary: any SFTPFileProtocol?
             var createdTemporary = false
             do {
                 let attributes = try await source.stat

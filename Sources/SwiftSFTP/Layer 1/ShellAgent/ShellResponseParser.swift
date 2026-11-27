@@ -60,7 +60,7 @@ struct ShellResponseParser {
         }
 
         // The channel merges stderr into the standard stream, so its lines are already in `stdout`.
-        return RemoteProcessResult(stdout: stdout, stderr: Data(), exitStatus: exitStatus)
+        return .init(stdout: stdout, stderr: Data(), exitStatus: exitStatus)
     }
 
     private mutating func handleLine(_ rawLine: String) {

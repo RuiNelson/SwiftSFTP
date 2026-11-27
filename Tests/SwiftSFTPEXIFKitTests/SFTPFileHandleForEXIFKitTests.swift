@@ -329,7 +329,7 @@
         private var writes = 0
         private var fsyncs = 0
         private var limits: [UInt64?] = []
-        private var nextFsyncError: (any Error)?
+        private var nextFsyncError: any Error?
 
         init(data: Data, chunkSize: Int = 1024, reportedSize: UInt64? = nil, reportsSize: Bool = true) {
             storage = data
@@ -339,7 +339,7 @@
         }
 
         var handle: SFTPFileHandleForEXIFKit {
-            SFTPFileHandleForEXIFKit(self)
+            .init(self)
         }
 
         var contents: Data {
@@ -366,7 +366,7 @@
             lock.withLock { fsyncs }
         }
 
-        var fsyncError: (any Error)? {
+        var fsyncError: any Error? {
             get { lock.withLock { nextFsyncError } }
             set { lock.withLock { nextFsyncError = newValue } }
         }

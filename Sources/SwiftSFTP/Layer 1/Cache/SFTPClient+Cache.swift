@@ -43,7 +43,7 @@ struct CacheChangeReport: Sendable {
 
 extension SFTPClient {
     /// The attached cache, or `nil`. Must not be read on `internalStateQueue`.
-    var cache: (any SFTPBlockLevelReadCache)? {
+    var cache: any SFTPBlockLevelReadCache? {
         cacheAttachment?.cache
     }
 

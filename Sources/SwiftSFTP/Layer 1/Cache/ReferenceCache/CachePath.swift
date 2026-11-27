@@ -42,7 +42,7 @@ enum CachePath {
                 index += 1
             }
         }
-        return String(decoding: decoded, as: UTF8.self)
+        return .init(decoding: decoded, as: UTF8.self)
     }
 
     /// Whether `first` and `second` hold the same bytes.
@@ -131,7 +131,7 @@ enum CachePath {
                 escaped.append(byte)
             }
         }
-        return String(decoding: escaped, as: UTF8.self)
+        return .init(decoding: escaped, as: UTF8.self)
     }
 
     private static func hexValue(_ digit: UInt8) -> UInt8? {

@@ -29,7 +29,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// advanced the remote file position; `CancellationError` is thrown only when nothing was read.
     ///
     /// - Parameter upTo: Maximum number of bytes to read. A value below one stops the process.
-    /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
+    /// - Returns: Data read from the file, or `nil` at EOF.
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     func read(upTo: Int) async throws -> Data?
 
@@ -46,7 +46,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///   - upTo: Maximum number of bytes to read. A value below one stops the process.
     ///   - readAheadLimit: File offset where reading ahead stops, usually the end of the range being read, or `nil` for
     /// no limit.
-    /// - Returns: Data read from the file, or `nil` at EOF or when `upTo` is zero.
+    /// - Returns: Data read from the file, or `nil` at EOF.
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data?
 

@@ -63,10 +63,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "shortWrite") {
-                if case .shortWrite? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .shortWrite?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -96,10 +96,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "transferCancelled") {
-                if case .transferCancelled? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .transferCancelled?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -127,20 +127,20 @@ struct SFTPClientMultiTransferFailures {
 
             if asDirectory {
                 expectFailure(result, "remotePathIsADirectory") {
-                    if case let .remotePathIsADirectory(path)? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case let .remotePathIsADirectory(path)?:
                         path == remotePath
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
             }
             else {
                 expectFailure(result, "remoteFileAlreadyExists") {
-                    if case let .remoteFileAlreadyExists(path)? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case let .remoteFileAlreadyExists(path)?:
                         path == remotePath
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
@@ -203,10 +203,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "shortRead") {
-                if case .shortRead? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .shortRead?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -302,10 +302,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "shortRead") {
-                if case .shortRead? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .shortRead?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -342,10 +342,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "shortWrite") {
-                if case .shortWrite? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .shortWrite?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -402,10 +402,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "remoteFileAlreadyExists") {
-                if case let .remoteFileAlreadyExists(path)? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case let .remoteFileAlreadyExists(path)?:
                     path == remotePath
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -457,10 +457,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "shortRead") {
-                if case .shortRead? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .shortRead?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -515,10 +515,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "localFileAlreadyExists") {
-                if case let .localFileAlreadyExists(path)? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case let .localFileAlreadyExists(path)?:
                     path == destination.path
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -552,10 +552,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "localFileNotFound") {
-                if case .localFileNotFound? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .localFileNotFound?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -575,20 +575,20 @@ struct SFTPClientMultiTransferFailures {
 
             if asDirectory {
                 expectFailure(result, "remotePathIsADirectory") {
-                    if case .remotePathIsADirectory? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .remotePathIsADirectory?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
             }
             else {
                 expectFailure(result, "remoteFileAlreadyExists") {
-                    if case .remoteFileAlreadyExists? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .remoteFileAlreadyExists?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
@@ -608,10 +608,10 @@ struct SFTPClientMultiTransferFailures {
             }
 
             expectFailure(result, "remotePathIsADirectory") {
-                if case .remotePathIsADirectory? = $0 as? FileTransferErrors {
+                switch $0 as? FileTransferErrors {
+                case .remotePathIsADirectory?:
                     true
-                }
-                else {
+                default:
                     false
                 }
             }
@@ -634,20 +634,20 @@ struct SFTPClientMultiTransferFailures {
 
             if asDirectory {
                 expectFailure(result, "remotePathIsADirectory") {
-                    if case .remotePathIsADirectory? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .remotePathIsADirectory?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
             }
             else {
                 expectFailure(result, "localFileAlreadyExists") {
-                    if case .localFileAlreadyExists? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .localFileAlreadyExists?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
@@ -721,19 +721,19 @@ struct SFTPClientMultiTransferFailures {
             switch source {
             case .missing, .device:
                 expectFailure(result, "remoteFileNotFound") {
-                    if case .remoteFileNotFound? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .remoteFileNotFound?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }
             case .directory:
                 expectFailure(result, "remotePathIsADirectory") {
-                    if case .remotePathIsADirectory? = $0 as? FileTransferErrors {
+                    switch $0 as? FileTransferErrors {
+                    case .remotePathIsADirectory?:
                         true
-                    }
-                    else {
+                    default:
                         false
                     }
                 }

@@ -60,7 +60,7 @@ struct LifecycleTests {
             let cache = RecordingCache()
             client.attachCache(cache)
 
-            var handle: (any SFTPFileProtocol)? = try await client.openFile(
+            var handle: any SFTPFileProtocol? = try await client.openFile(
                 [.create, .write],
                 path: path,
                 permissions: .serverDefault
@@ -90,7 +90,7 @@ struct LifecycleTests {
         }
         client.teardownGracePeriod = 0.2
 
-        var handle: (any SFTPFileProtocol)? = try await client.openFile(
+        var handle: any SFTPFileProtocol? = try await client.openFile(
             .read,
             path: "\(TS.fixturesPath)/TINY.bin",
             permissions: []

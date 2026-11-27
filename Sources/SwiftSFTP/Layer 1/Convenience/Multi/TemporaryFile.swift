@@ -213,7 +213,7 @@ actor RemoteResumableTemporaryFile: ResumableTemporaryFile {
     /// Whether ``close()`` owns `connection`, which it does when the upload forked one just for the trailer.
     private let destinationPath: String
     private let permissions: POSIXPermissions
-    private var handle: (any SFTPFileProtocol)?
+    private var handle: any SFTPFileProtocol?
 
     /// Creates the temporary file of one resumable upload.
     ///

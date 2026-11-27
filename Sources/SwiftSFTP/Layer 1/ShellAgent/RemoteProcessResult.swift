@@ -7,10 +7,10 @@ struct RemoteProcessResult: Sendable, Equatable {
     var exitStatus: Int
 
     var stdoutString: String {
-        String(decoding: stdout, as: UTF8.self)
+        .init(decoding: stdout, as: UTF8.self)
     }
 
     var stderrString: String {
-        String(decoding: stderr, as: UTF8.self)
+        .init(decoding: stderr, as: UTF8.self)
     }
 }

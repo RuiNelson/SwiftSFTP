@@ -91,7 +91,7 @@ extension OpenSSLKey {
 
         var key: OpaquePointer?
         guard EVP_PKEY_generate(context, &key) == 1, let key else { throw OpenSSLErrorQueue.failure() }
-        return OpenSSLKey(taking: key)
+        return .init(taking: key)
     }
 
     /// Whether the linked OpenSSL implements key generation for `type`.
@@ -219,6 +219,6 @@ extension OpenSSLKey {
         guard EVP_PKEY_get_bn_param(pointer, name, &number) == 1, let number else {
             throw OpenSSLErrorQueue.failure()
         }
-        return BigNumber(taking: number)
+        return .init(taking: number)
     }
 }
