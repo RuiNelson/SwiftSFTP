@@ -23,6 +23,7 @@ in runtime behaviour, with what to do about each.
 | `multiTune(..., logger:)` | `multiTune(..., onRound:)` with `MultiTuneRound` |
 | `TraceSetToLogger(session:options:)` | Removed; use `TraceSetHandler` and `Trace` |
 | `ReferenceCache.close()` | Removed; release the cache, or call `removeAll()` |
+| Deprecated `SwiftSFTP_Curve25519`, `OpenSSHKeyPair` | Removed; use `AsymmetricCryptography.EdDSA.Ed25519` with `PrivateKey` and `PublicKey` |
 
 ## Updating the dependency
 

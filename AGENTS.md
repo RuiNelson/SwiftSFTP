@@ -67,7 +67,6 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   `OpenSSHKeyPolicy`. It does not import OpenSSL.
 - `OpenSSL/` is the only place that imports `OpenSSLCrypto`: `OpenSSLKey` wraps `EVP_PKEY`, alongside ciphers, digests, and
   support types.
-- `Deprecated/` holds deprecated API, forwarding to its replacement.
 - Parsing (`PublicKey`, `PrivateKey`) checks that keys are valid and consistent but applies no policy; SSH acceptance
   rules live only in `OpenSSHKeyPolicy`.
 - Check imported keys in the `init(importing:)` initializers of `PublicKey` and `PrivateKey`, so every format gets the

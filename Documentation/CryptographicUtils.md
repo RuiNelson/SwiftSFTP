@@ -431,9 +431,6 @@ The `Bool` checks never throw.
 
 | Deprecated | Replacement |
 |------------|-------------|
-| `SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat()` | `AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()`, then `encode(format: .openSSH)` |
-| `SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat:)` | `PrivateKey(string:).publicKey.encode(format: .openSSH)` |
-| `OpenSSHKeyPair` | `AsymmetricKeyPair` |
 | `isValid_PrivateKey(password:)`, `isValid_RSA_PrivateKey(password:)`, … | The `passphrase:` variants |
 
 ### What these APIs do not check

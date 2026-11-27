@@ -47,8 +47,10 @@ import Testing
             }
         }
         #expect(digest == expected)
-        let key = try #require(SwiftSFTP_Curve25519.generateKeyPairInOpenSSHFormat())
-        #expect(SwiftSFTP_Curve25519.generatePublicKeyFromPrivateKey(openSSHFormat: key.privateKey) == key.publicKey)
+        let pair = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
+        let privateKey = try pair.privateKey.encode(format: .openSSH)
+        #expect(try PrivateKey(string: privateKey).publicKey.encode(format: .openSSH)
+            == pair.publicKey.encode(format: .openSSH))
     }
 }
 
