@@ -8,6 +8,9 @@
     .track { fill: #eeede7; }
     .series-orange { fill: #eb6834; }
     .series-blue { fill: #2a78d6; }
+    .dot { animation-name: cross; animation-timing-function: linear; animation-iteration-count: infinite; animation-direction: alternate; }
+    @keyframes cross { from { transform: translateX(0); } to { transform: translateX(556px); } }
+    @media (prefers-reduced-motion: reduce) { .dot { animation: none; transform: translateX(556px); } }
     @media (prefers-color-scheme: dark) {
       .surface { fill: #1a1a19; }
       .card-stroke { stroke: rgba(255,255,255,0.10); }
@@ -21,29 +24,29 @@
     }</style>
 <rect x="8" y="8" width="624" height="528" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>
 <text x="320" y="42" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="21" font-weight="700" letter-spacing="-0.02em" class="ink">Download Throughput</text>
-<text x="320" y="61" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="10.5" font-weight="600" letter-spacing="0.09em" class="muted">100 MiB FILE · BEST OF 3 RUNS · HIGHER IS BETTER</text>
+<text x="320" y="61" text-anchor="middle" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="10.5" font-weight="600" letter-spacing="0.09em" class="muted">100 MiB FILE · BEST OF 3 RUNS · DOT SPEED IS PROPORTIONAL TO THROUGHPUT</text>
 <text x="32" y="108.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.07em" class="secondary">CITADEL</text>
 <text x="608" y="109.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="17" font-weight="700" letter-spacing="-0.01em" class="ink">7.94 MiB/s</text>
 <text x="608" y="126.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.06em" class="muted">BASELINE</text>
-<rect x="32" y="140.00" width="576.00" height="20" rx="10" ry="10" class="track"/>
-<rect x="32" y="140.00" width="204.54" height="20" rx="10" ry="10" class="series-blue"/>
+<rect x="32" y="140.00" width="576" height="20" rx="10" ry="10" class="track"/>
+<circle cx="42" cy="150.00" r="7" class="dot series-blue" style="animation-duration:1.407s"/>
 <text x="32" y="180.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11.5" font-weight="500" class="muted">12.589 s per run</text>
 <text x="32" y="212.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.07em" class="secondary">SWIFTSFTP · 1 WORKER</text>
 <text x="608" y="213.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="17" font-weight="700" letter-spacing="-0.01em" class="ink">22.36 MiB/s</text>
 <text x="608" y="230.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="12" font-weight="700" class="good">+182%</text>
-<rect x="32" y="244.00" width="576.00" height="20" rx="10" ry="10" class="track"/>
-<rect x="32" y="244.00" width="576.00" height="20" rx="10" ry="10" class="series-orange"/>
+<rect x="32" y="244.00" width="576" height="20" rx="10" ry="10" class="track"/>
+<circle cx="42" cy="254.00" r="7" class="dot series-orange" style="animation-duration:0.500s"/>
 <text x="32" y="284.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11.5" font-weight="500" class="muted">4.473 s per run</text>
 <text x="32" y="316.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.07em" class="secondary">SWIFTSFTP · 2 WORKERS</text>
 <text x="608" y="317.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="17" font-weight="700" letter-spacing="-0.01em" class="ink">20.97 MiB/s</text>
 <text x="608" y="334.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="12" font-weight="700" class="good">+164%</text>
-<rect x="32" y="348.00" width="576.00" height="20" rx="10" ry="10" class="track"/>
-<rect x="32" y="348.00" width="540.19" height="20" rx="10" ry="10" class="series-orange"/>
+<rect x="32" y="348.00" width="576" height="20" rx="10" ry="10" class="track"/>
+<circle cx="42" cy="358.00" r="7" class="dot series-orange" style="animation-duration:0.533s"/>
 <text x="32" y="388.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11.5" font-weight="500" class="muted">4.768 s per run</text>
 <text x="32" y="420.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11" font-weight="700" letter-spacing="0.07em" class="secondary">SWIFTSFTP · 2 WORKERS · RESUMABLE</text>
 <text x="608" y="421.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="17" font-weight="700" letter-spacing="-0.01em" class="ink">20.74 MiB/s</text>
 <text x="608" y="438.00" text-anchor="end" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="12" font-weight="700" class="good">+161%</text>
-<rect x="32" y="452.00" width="576.00" height="20" rx="10" ry="10" class="track"/>
-<rect x="32" y="452.00" width="534.27" height="20" rx="10" ry="10" class="series-orange"/>
+<rect x="32" y="452.00" width="576" height="20" rx="10" ry="10" class="track"/>
+<circle cx="42" cy="462.00" r="7" class="dot series-orange" style="animation-duration:0.539s"/>
 <text x="32" y="492.00" font-family='-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif' font-size="11.5" font-weight="500" class="muted">4.821 s per run</text>
 </svg>

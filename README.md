@@ -324,8 +324,8 @@ so consumers get these optimizations without having to implement them themselves
 compare the transfer paths used here; they do not establish Citadel's maximum achievable throughput.
 
 <p>
-  <img src="Documentation/benchmark-upload.svg" alt="Upload throughput: Citadel 5.05 MiB/s (baseline), SwiftSFTP 1 worker 26.55 MiB/s (+426%), SwiftSFTP 2 workers 25.29 MiB/s (+401%), SwiftSFTP 2 workers resumable 24.96 MiB/s (+394%)" width="49%" />
-  <img src="Documentation/benchmark-download.svg" alt="Download throughput: Citadel 7.94 MiB/s (baseline), SwiftSFTP 1 worker 22.36 MiB/s (+182%), SwiftSFTP 2 workers 20.97 MiB/s (+164%), SwiftSFTP 2 workers resumable 20.74 MiB/s (+161%)" width="49%" />
+  <img src="Documentation/benchmark-upload.svg" alt="Animated upload throughput, one dot per configuration crossing its track in the time of one run: Citadel 5.05 MiB/s (baseline), SwiftSFTP 1 worker 26.55 MiB/s (+426%), SwiftSFTP 2 workers 25.29 MiB/s (+401%), SwiftSFTP 2 workers resumable 24.96 MiB/s (+394%)" width="49%" />
+  <img src="Documentation/benchmark-download.svg" alt="Animated download throughput, one dot per configuration crossing its track in the time of one run: Citadel 7.94 MiB/s (baseline), SwiftSFTP 1 worker 22.36 MiB/s (+182%), SwiftSFTP 2 workers 20.97 MiB/s (+164%), SwiftSFTP 2 workers resumable 20.74 MiB/s (+161%)" width="49%" />
 </p>
 
 ### How the test was run
@@ -344,12 +344,15 @@ keeps compression from affecting the result.
 ### Results
 
 The charts use the API's term, **worker**, for one parallel transfer; each worker normally uses its own
-connection. The one-connection bars use plain `upload` / `download`; the two-worker bars use
-`multiUpload` / `multiDownload`. The time under each bar is for the full 100 MiB file.
+connection. In each chart a dot runs back and forth along its track at a speed proportional to the throughput
+(the fastest one makes a round trip in one second), so a faster dot is a faster transfer. The one-connection dots use plain `upload` /
+`download`; the two-worker dots use `multiUpload` / `multiDownload`. The time under each track is for the full
+100 MiB file.
 
 Over one connection, SwiftSFTP uploads 5.3× and downloads 2.8× as fast as Citadel. Two workers were
 slightly slower than one on this link, and resumability cost about 1%. The charts express improvement as
-a percentage increase over Citadel; +426% is the same as 5.3× faster.
+a percentage increase over Citadel; +426% is the same as 5.3× faster. The dots move only in viewers that
+play animated SVG; with reduced motion requested, each one rests at the end of its track.
 
 ### Why one connection is faster
 
