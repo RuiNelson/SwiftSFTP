@@ -2,7 +2,7 @@
 """Generate the animated benchmark charts of the README (Documentation/benchmark-{upload,download}.svg).
 
 Each configuration is a dot running back and forth along a track. The dot's speed is proportional to the measured
-throughput, and the fastest dot of a chart makes a round trip in one second. Update the numbers in CHARTS from a new
+throughput: a dot makes one round trip (there and back) per second for every 10 MiB/s. Update the numbers in CHARTS from a new
 benchmark run, then run this script from anywhere:
 
     python3 Scripts/generate-benchmark-charts.py [output-directory]
@@ -31,7 +31,16 @@ CHARTS = {
     ]),
 }
 
-TRACK_X, TRACK_W, TRACK_H = 32, 576, 20
+# The card is at most 380 px wide; everything else is laid out from this width.
+WIDTH, HEIGHT = 380, 544
+MARGIN = 8  # between the SVG's edge and the card
+PAD = 24  # between the card's edge and its content
+LEFT, RIGHT = MARGIN + PAD, WIDTH - MARGIN - PAD
+TRACK_X, TRACK_W, TRACK_H = LEFT, RIGHT - LEFT, 20
+ROW_TOP, ROW_PITCH = 116, 108
+FILE_MIB = 100
+# A dot makes one round trip (there and back) per second at this throughput; faster transfers are proportionally faster.
+ROUND_TRIP_MIB_PER_SECOND = 10
 DOT_R = 7
 # The dot's centre runs from the track's left cap to its right cap.
 TRAVEL = TRACK_W - TRACK_H
@@ -46,9 +55,7 @@ def text(x, y, cls, size, weight, body, anchor=None, spacing=None):
 
 def build(title, rows):
     out = []
-    # The fastest dot of the chart makes a round trip (there and back) in 1 s; the rest keep the same proportions.
-    scale = 0.5 / min(r[3] for r in rows)
-    out.append(f'<svg viewBox="0 0 640 544" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{title}">')
+    out.append(f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" width="{WIDTH}" height="{HEIGHT}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{title}">')
     out.append("""<style>    .surface { fill: #fcfcfb; }
     .card-stroke { stroke: rgba(11,11,11,0.10); }
     .ink { fill: #0b0b0b; }
@@ -72,28 +79,30 @@ def build(title, rows):
       .series-orange { fill: #d95926; }
       .series-blue { fill: #3987e5; }
     }</style>""" % {"travel": TRAVEL})
-    out.append('<rect x="8" y="8" width="624" height="528" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>')
-    out.append(text(320, 42, "ink", 21, 700, title, "middle", "-0.02em"))
-    out.append(text(320, 61, "muted", 10.5, 600,
-                    "100 MiB FILE · BEST OF 3 RUNS · DOT SPEED IS PROPORTIONAL TO THROUGHPUT",
-                    "middle", "0.09em"))
+    out.append(f'<rect x="{MARGIN}" y="{MARGIN}" width="{WIDTH - 2 * MARGIN}" height="{HEIGHT - 2 * MARGIN}" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>')
+    mid = WIDTH / 2
+    out.append(text(mid, 42, "ink", 21, 700, title, "middle", "-0.02em"))
+    out.append(text(mid, 61, "muted", 10.5, 600, "100 MiB FILE · BEST OF 3 RUNS", "middle", "0.09em"))
+    out.append(text(mid, 76, "muted", 10.5, 600, f"1 ROUND TRIP PER SECOND = {ROUND_TRIP_MIB_PER_SECOND} MiB/s", "middle", "0.09em"))
 
     for i, (name, rate, delta, secs, series) in enumerate(rows):
-        y = 108 + i * 104
-        out.append(text(32, f"{y:.2f}", "secondary", 11, 700, name, spacing="0.07em"))
-        out.append(text(608, f"{y + 1:.2f}", "ink", 17, 700, rate, "end", "-0.01em"))
+        y = ROW_TOP + i * ROW_PITCH
+        out.append(text(LEFT, f"{y:.2f}", "secondary", 11, 700, name, spacing="0.07em"))
+        out.append(text(LEFT, f"{y + 24:.2f}", "ink", 17, 700, rate, spacing="-0.01em"))
         if delta:
-            out.append(text(608, f"{y + 18:.2f}", "good", 12, 700, delta, "end"))
+            out.append(text(RIGHT, f"{y + 24:.2f}", "good", 12, 700, delta, "end"))
         else:
-            out.append(text(608, f"{y + 18:.2f}", "muted", 11, 700, "BASELINE", "end", "0.06em"))
-        ty = y + 32
+            out.append(text(RIGHT, f"{y + 24:.2f}", "muted", 11, 700, "BASELINE", "end", "0.06em"))
+        ty = y + 36
         out.append(f'<rect x="{TRACK_X}" y="{ty:.2f}" width="{TRACK_W}" height="{TRACK_H}" '
                    f'rx="{TRACK_H // 2}" ry="{TRACK_H // 2}" class="track"/>')
+        # The animation alternates direction, so its duration is one crossing: half a round trip.
+        crossing = ROUND_TRIP_MIB_PER_SECOND / (FILE_MIB / secs) / 2
         cx = TRACK_X + TRACK_H // 2
         cy = ty + TRACK_H / 2
         out.append(f'<circle cx="{cx}" cy="{cy:.2f}" r="{DOT_R}" class="dot series-{series}" '
-                   f'style="animation-duration:{secs * scale:.3f}s"/>')
-        out.append(text(32, f"{ty + 40:.2f}", "muted", 11.5, 500, f"{secs:.3f} s per run"))
+                   f'style="animation-duration:{crossing:.3f}s"/>')
+        out.append(text(LEFT, f"{ty + 40:.2f}", "muted", 11.5, 500, f"{secs:.3f} s per run"))
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
