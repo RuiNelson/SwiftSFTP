@@ -1105,7 +1105,7 @@ For more formats, file-based validation, public keys, and algorithm-specific che
 
 ### Configuration errors (`SFTPClientInvalidConfig`)
 
-Thrown by `SFTPClient.preflightConfigurationCheck` and by `SFTPClient.init` before it connects, except where noted:
+Thrown by `SFTPClient.preflightConfigurationCheck` and by `SFTPClient.init` before it connects:
 
 | Case | Cause |
 |------|-------|
@@ -1116,7 +1116,16 @@ Thrown by `SFTPClient.preflightConfigurationCheck` and by `SFTPClient.init` befo
 | `.couldNotCreateSession(Error)` | libssh2 session allocation failed |
 | `.invalidHostKeyFormat(Error)` | Malformed known_hosts file or string |
 | `.invalidPrivateKey(Error)` | A private key of a type SSH cannot authenticate with |
-| `.authenticationFailed(Error)` | Thrown by `SFTPClient.init` only: the server rejected credentials (including all multi-key candidates failed or none matched `server-sig-algs`) |
+
+### Authentication errors (`UserAuthenticationError`)
+
+Thrown by `SFTPClient.init` after the handshake and host key verification, when the server does not accept the
+configured authentication:
+
+| Case | Cause |
+|------|-------|
+| `.rejected(Error)` | The server rejected the credentials; for several private keys, the last key's error |
+| `.noKeyMatchesServerAlgorithms(serverAlgorithms:)` | No private key can produce a signature algorithm the server lists in `server-sig-algs`, so none was tried |
 
 ### Host key verification errors (`HostKeyVerificationError`)
 

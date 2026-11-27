@@ -349,14 +349,21 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("login rejects wrong password")
+    @Test("login rejects wrong password with UserAuthenticationError.rejected")
     func loginRejectsWrongPassword() async throws {
         try await withClient { _ in
-            await #expect(throws: (any Error).self) {
-                try await makeClient(
-                    auth: UserAuthentication(name: TS.testUser, auth: .password("wrong-password"))
-                )
+            let error = await #expect(throws: UserAuthenticationError.self) {
+                try await loginWithRetry {
+                    try await makeClient(
+                        auth: UserAuthentication(name: TS.testUser, auth: .password("wrong-password"))
+                    )
+                }
             }
+            guard case let .rejected(underlying) = error else {
+                Issue.record("expected .rejected, got \(String(describing: error))")
+                return
+            }
+            #expect(underlying is LibSSH2Error)
         }
     }
 

@@ -173,11 +173,17 @@ struct SFTPClientMultiKeyAuth {
 
     private func expectLoginFails(user: String, auth: UserAuthenticationMode) async throws {
         try await withClient { _ in
-            await #expect(throws: (any Error).self) {
-                try await makeClient(
-                    user: user,
-                    auth: UserAuthentication(name: user, auth: auth)
-                )
+            let error = await #expect(throws: UserAuthenticationError.self) {
+                try await loginWithRetry {
+                    try await makeClient(
+                        user: user,
+                        auth: UserAuthentication(name: user, auth: auth)
+                    )
+                }
+            }
+            guard case .rejected = error else {
+                Issue.record("expected .rejected, got \(String(describing: error))")
+                return
             }
         }
     }

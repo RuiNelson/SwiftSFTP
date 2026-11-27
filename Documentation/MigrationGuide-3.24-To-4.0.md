@@ -24,6 +24,7 @@ in runtime behaviour, with what to do about each.
 | `TraceSetToLogger(session:options:)` | Removed; use `TraceSetHandler` and `Trace` |
 | `ReferenceCache.close()` | Removed; release the cache, or call `removeAll()` |
 | Deprecated `SwiftSFTP_Curve25519`, `OpenSSHKeyPair` | Removed; use `AsymmetricCryptography.EdDSA.Ed25519` with `PrivateKey` and `PublicKey` |
+| `SFTPClientInvalidConfig.authenticationFailed(_:)` | `UserAuthenticationError` |
 
 ## Updating the dependency
 
@@ -186,6 +187,28 @@ let worker = try await client.fork()
 A call to `initAndLogin` becomes a call to the initializer with the same arguments, with `loginTimeOut` and
 `operationsTimeOut`, in that order, moved after `compressionPreference`.
 
+### Authentication failures have their own error
+
+The server rejecting the credentials is a runtime condition, not an invalid configuration, so it is no longer a case of
+`SFTPClientInvalidConfig`: `SFTPClientInvalidConfig.authenticationFailed(_:)` is removed, and the initializer throws
+`UserAuthenticationError` instead, as it throws `HostKeyVerificationError` for the host key.
+
+| 3.24 | 4.0 |
+|------|-----|
+| `.authenticationFailed(error)`, the server rejected the password or every private key | `UserAuthenticationError.rejected(error)`, with the same underlying error |
+| `.authenticationFailed(LibSSH2Error.methodNotSupported(…))`, no private key matches `server-sig-algs` | `UserAuthenticationError.noKeyMatchesServerAlgorithms(serverAlgorithms:)` |
+
+```swift
+// Before
+catch SFTPClientInvalidConfig.authenticationFailed(let error) { … }
+
+// After
+catch UserAuthenticationError.rejected(let error) { … }
+catch UserAuthenticationError.noKeyMatchesServerAlgorithms(let serverAlgorithms) { … }
+```
+
+`SFTPClientInvalidConfig` now holds only what `preflightConfigurationCheck` can find without connecting.
+
 ### Checking a configuration without connecting
 
 Code that created a client only to validate its configuration, without logging in, calls
@@ -342,7 +365,8 @@ let auth = try UserAuthentication(name: "alice", auth: .privateKey(PrivateKey(fi
 Keys are read, decrypted, and checked when you create the `PrivateKey`, not at login:
 
 - A missing file, malformed key, or wrong passphrase throws from the `PrivateKey` initializer, instead of
-  `SFTPClientInvalidConfig.invalidPrivateKey` (missing file) or `.authenticationFailed` (the rest) from the client.
+  `SFTPClientInvalidConfig.invalidPrivateKey` (missing file) or `SFTPClientInvalidConfig.authenticationFailed` (the
+  rest) from the client.
 - A key file is read once; changing it on disk afterwards does not affect a client that already has the key.
 - A valid key of a type SSH cannot authenticate with (Ed448, ML-DSA, SLH-DSA, RSA under 1024 bits) makes the client
   initializer throw `SFTPClientInvalidConfig.invalidPrivateKey`; 3.24 skipped it at login.
@@ -412,7 +436,7 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
 7. Rename `contentsOfDirectory` to `listDirectory`.
 8. Remove `await cache.close()`; call `removeAll()` where you want the bytes gone at once.
 9. Remove `catch` and `switch` cases for `AlreadyClosed`, `NotLoggedIn`, and the removed enum cases; fix any race they
-   were hiding.
+   were hiding. Catch `UserAuthenticationError` where you caught `SFTPClientInvalidConfig.authenticationFailed`.
 10. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key arrays, and shell agent
     inputs before passing them, since invalid values now stop the process.
 11. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.

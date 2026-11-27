@@ -46,8 +46,8 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// opened from it, when they are released without `close()`. The default prints them in a debug build and ignores
     /// them in a release build.
     /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created;
-    /// ``HostKeyVerificationError`` when the server's host key is not accepted; libssh2, socket, and authentication
-    /// errors from connecting.
+    /// ``HostKeyVerificationError`` when the server's host key is not accepted; ``UserAuthenticationError`` when the
+    /// server does not accept the authentication; libssh2 and socket errors from connecting.
     init(
         openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance,

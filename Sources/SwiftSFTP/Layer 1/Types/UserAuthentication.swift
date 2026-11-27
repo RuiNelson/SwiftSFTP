@@ -115,8 +115,8 @@ extension SFTPClient {
     /// - ``UserAuthenticationMode/privateKey(_:)`` / ``UserAuthenticationMode/privateKeys(_:)`` → plan, then try
     /// candidates in order.
     ///
-    /// Failures map to ``SFTPClientInvalidConfig/authenticationFailed(_:)``.
-    func authenticate() throws {
+    /// Failures map to ``UserAuthenticationError``.
+    func authenticate() throws(UserAuthenticationError) {
         let username = authentication.name
 
         switch authentication.auth {
@@ -125,7 +125,7 @@ extension SFTPClient {
                 try UserAuthPassword(session: session, username: username, password: pass)
             }
             catch {
-                throw SFTPClientInvalidConfig.authenticationFailed(error)
+                throw .rejected(error)
             }
 
         case let .privateKey(key):
@@ -140,7 +140,7 @@ extension SFTPClient {
     ///
     /// Retryable per-key failures (unverified public key, auth rejected, bad key material) advance to the next
     /// candidate. Non-retryable session errors abort immediately.
-    private func authenticate(with keys: [PrivateKey], username: String) throws {
+    private func authenticate(with keys: [PrivateKey], username: String) throws(UserAuthenticationError) {
         // `SFTPClient.init` stops the process for an empty array and rejects keys SSH cannot use.
         let serverAlgs = SessionServerSignAlgorithms(session: session)
         let planned = PrivateKeyAuthPlanner.plan(
@@ -149,12 +149,8 @@ extension SFTPClient {
         )
 
         guard !planned.isEmpty else {
-            throw SFTPClientInvalidConfig.authenticationFailed(
-                LibSSH2Error.methodNotSupported(
-                    "No private keys match the server signature algorithms"
-                        + (serverAlgs.map { " (\($0.joined(separator: ",")))" } ?? "")
-                )
-            )
+            // The planner drops keys only when the server sent `server-sig-algs`.
+            throw .noKeyMatchesServerAlgorithms(serverAlgorithms: serverAlgs ?? [])
         }
 
         var lastError: Error?
@@ -174,13 +170,11 @@ extension SFTPClient {
                 continue
             }
             catch {
-                throw SFTPClientInvalidConfig.authenticationFailed(error)
+                throw .rejected(error)
             }
         }
 
-        throw SFTPClientInvalidConfig.authenticationFailed(
-            lastError ?? LibSSH2Error.authenticationFailed("All private keys were rejected")
-        )
+        throw .rejected(lastError ?? LibSSH2Error.authenticationFailed("All private keys were rejected"))
     }
 }
 
