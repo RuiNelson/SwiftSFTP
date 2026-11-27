@@ -34,4 +34,10 @@ extension FixedWidthInteger {
         let (quotient, remainder) = quotientAndRemainder(dividingBy: divisor)
         return remainder == 0 ? quotient : quotient + 1
     }
+
+    /// `self + other`, or `Self.max` when the sum overflows upwards.
+    func saturatingAdd(_ other: Self) -> Self {
+        let (sum, overflow) = addingReportingOverflow(other)
+        return overflow ? .max : sum
+    }
 }

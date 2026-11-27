@@ -376,6 +376,49 @@ struct WriteAheadTests {
         }
     }
 
+    /// A seek would drop the request whose packet is half sent, so the pwrite cannot move the handle back when it gives
+    /// up: the position it reports is the old one all the same, and the handle moves there once the packet is out.
+    @Test("a pwrite cancelled with a half-sent packet keeps the position, and the next write starts there")
+    func halfSentPacketKeepsPwritePosition() async throws {
+        let payload = offsetStampedPayload(byteCount: 16 * 1024 * 1024 + 5)
+        let head = Data(repeating: 0x11, count: 100)
+        let start: UInt64 = 4096
+
+        try await withStalledConnection(
+            "pwrite-half-sent",
+            megabytes: 1,
+            stallAfterBytes: .max,
+            operationsTimeOut: nil,
+            gracePeriod: 0.5,
+            receiveBufferSize: 64 * 1024
+        ) { wedged in
+            let client = wedged.client
+            let remotePath = wedged.remotePath + "-written"
+            let (handle, result, _) = try await giveUpOnHalfSentPacket(
+                wedged,
+                writing: payload,
+                to: remotePath,
+                at: start
+            )
+            #expect(throws: CancellationError.self) { try result.get() }
+            #expect(client.withSessionIO { client._interruptedSend != nil })
+            #expect(handle.offset == 0)
+
+            wedged.proxy.resumeUploads()
+
+            #expect(try await handle.write(head) == head.count)
+            #expect(handle.offset == UInt64(head.count))
+            #expect(try await handle.pwrite(payload, at: start) == payload.count)
+            #expect(handle.offset == UInt64(head.count))
+            try await handle.close()
+
+            var expected = Data(count: Int(start))
+            expected.replaceSubrange(0 ..< head.count, with: head)
+            expected.append(payload)
+            #expect(try await remoteContents(remotePath) == expected)
+        }
+    }
+
     /// Each call that cannot send the packet waits for the socket to take data, under the new call's own budget.
     @Test("a call behind a half-sent packet times out while the server takes no data, without spinning")
     func halfSentPacketTimesOutWithoutSpinning() async throws {
@@ -474,17 +517,26 @@ extension WriteAheadTests {
     /// Starts writing `payload` to `remotePath`, stops the server taking data once the client's socket has filled, and
     /// cancels the write, which gives up on the packet it had half sent after the grace period.
     ///
+    /// - Parameter fileOffset: Where a ``SFTPFileProtocol/pwrite(_:at:)`` starts, or `nil` for a sequential write.
     /// - Returns: The open handle, the write's outcome, and how long the cancellation took in milliseconds.
     func giveUpOnHalfSentPacket(
         _ wedged: StalledConnection,
         writing payload: Data,
-        to remotePath: String
+        to remotePath: String,
+        at fileOffset: UInt64? = nil
     ) async throws -> (handle: any SFTPFileProtocol, result: Result<Int, any Error>, elapsed: Int) {
         shrinkSendBuffer(of: wedged.client)
         let handle = try await wedged.client.openFile([.create, .write], path: remotePath, permissions: .serverDefault)
 
         let baseline = wedged.proxy.relayedToServer
-        let write = Task { try await handle.write(payload) }
+        let write = Task {
+            if let fileOffset {
+                try await handle.pwrite(payload, at: fileOffset)
+            }
+            else {
+                try await handle.write(payload)
+            }
+        }
         try await waitUntil { wedged.proxy.relayedToServer > baseline + 1024 * 1024 }
         wedged.proxy.stallUploads()
         try await Task.sleep(nanoseconds: 500_000_000)

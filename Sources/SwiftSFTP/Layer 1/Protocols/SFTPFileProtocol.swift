@@ -72,6 +72,54 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
     @discardableResult func write(_ data: Data) async throws -> Int
 
+    /// Reads up to `upTo` bytes starting at `fileOffset`, leaving ``offset`` where it was, like POSIX `pread`.
+    ///
+    /// Otherwise behaves like ``read(upTo:readAheadLimit:)`` with the read moved to `fileOffset` and `readAheadLimit`
+    /// at the end of the range: the concrete implementation keeps the round trips of a large read overlapping, and
+    /// requests nothing past `fileOffset + upTo`. It moves to `fileOffset`, reads, and moves back without letting
+    /// another call on the client run in between, so no other task sees or moves the position meanwhile. Moving back
+    /// discards what earlier sequential reads had requested ahead: interleaving `pread` with ``read(upTo:)`` costs
+    /// those reads their read-ahead each time.
+    ///
+    /// A cancelled `pread` returns the bytes already read as a short read, and throws `CancellationError` only when
+    /// nothing was read. ``offset`` stays where it was in every case, failures included.
+    ///
+    /// The default implementation moves ``offset``, calls ``read(upTo:readAheadLimit:)`` and moves it back: another
+    /// task using the same file can see the position move.
+    ///
+    /// - Parameters:
+    ///   - upTo: Maximum number of bytes to read. A value below one stops the process.
+    ///   - fileOffset: Where in the file the read starts.
+    /// - Returns: Data read from the file, or `nil` when `fileOffset` is at or past EOF.
+    /// - Throws: `CancellationError`, or libssh2/SFTP errors.
+    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data?
+
+    /// Writes `data` starting at `fileOffset`, leaving ``offset`` where it was, like POSIX `pwrite`.
+    ///
+    /// Otherwise behaves like ``write(_:)`` with the write moved to `fileOffset`: the concrete implementation keeps up
+    /// to ``SFTPClientProtocol/writeAhead`` bytes in flight, returns once the server has acknowledged every byte, and
+    /// throws ``FileTransferErrors/shortWrite(expected:actual:)`` when it stops making progress. It moves to
+    /// `fileOffset`, writes, and moves back without letting another call on the client run in between. Moving back
+    /// discards what earlier sequential reads had requested ahead.
+    ///
+    /// A file opened with ``OpenFlags/append`` leaves the server to decide where the bytes land, whatever `fileOffset`
+    /// says; OpenSSH puts them at the end of the file, as POSIX `pwrite` does on Linux.
+    ///
+    /// A cancelled or failed `pwrite` leaves whatever requests it already sent on their way to the remote file, so part
+    /// of `data` may land; ``offset`` stays where it was. When a half-sent packet keeps the handle from moving back, as
+    /// described for ``write(_:)``, ``offset`` already reports the old position, and the handle returns there with the
+    /// next read or write.
+    ///
+    /// The default implementation moves ``offset``, calls ``write(_:)`` and moves it back: another task using the same
+    /// file can see the position move.
+    ///
+    /// - Parameters:
+    ///   - data: Bytes to write.
+    ///   - fileOffset: Where in the file the write starts.
+    /// - Returns: Number of bytes accepted by libssh2.
+    /// - Throws: `CancellationError`, or libssh2/SFTP errors.
+    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int
+
     /// Requests that the server synchronize the remote file to stable storage.
     ///
     /// This is backed by the OpenSSH `fsync@openssh.com` SFTP extension.
@@ -162,5 +210,23 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 public extension SFTPFileProtocol {
     func read(upTo: Int, readAheadLimit _: UInt64?) async throws -> Data? {
         try await read(upTo: upTo)
+    }
+
+    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
+        precondition(upTo > 0, "upTo must be greater than zero")
+
+        let saved = offset
+        defer { offset = saved }
+
+        offset = fileOffset
+        return try await read(upTo: upTo, readAheadLimit: fileOffset.saturatingAdd(UInt64(upTo)))
+    }
+
+    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
+        let saved = offset
+        defer { offset = saved }
+
+        offset = fileOffset
+        return try await write(data)
     }
 }

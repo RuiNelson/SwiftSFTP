@@ -175,6 +175,14 @@ private extension SFTPFileCore {
         }
     }
 
+    /// The position ``offset`` reports: where a half-sent packet keeps the handle from moving to, or else the handle's
+    /// own. Callers must hold the parent's session I/O lock.
+    func currentPosition() -> UInt64 {
+        requestedOffset ?? internalStateQueue.sync {
+            SFTPTell(handle: handle)
+        }
+    }
+
     /// Moves the position to `newOffset`, or notes it for when a half-sent packet is out. Callers must hold the
     /// parent's session I/O lock.
     func moveOffset(to newOffset: UInt64) {
@@ -331,9 +339,7 @@ extension SFTPFileCore {
                 guard !closed, !parent.closed else {
                     return 0
                 }
-                return requestedOffset ?? internalStateQueue.sync {
-                    SFTPTell(handle: handle)
-                }
+                return currentPosition()
             }
         }
         set {
@@ -353,10 +359,31 @@ extension SFTPFileCore {
 
     func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data? {
         precondition(upTo > 0, "upTo must be greater than zero")
+        return try await read(upTo: upTo, readAheadLimit: readAheadLimit, at: nil)
+    }
+
+    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
+        precondition(upTo > 0, "upTo must be greater than zero")
+        return try await read(upTo: upTo, readAheadLimit: fileOffset.saturatingAdd(UInt64(upTo)), at: fileOffset)
+    }
+
+    /// Reads up to `upTo` bytes, through the cache when the file has one.
+    ///
+    /// - Parameter position: Where a positional read starts, leaving the position where it was, or `nil` to read at the
+    /// position and move it past the bytes read.
+    private func read(upTo: Int, readAheadLimit: UInt64?, at position: UInt64?) async throws -> Data? {
+        let fromServer = { [self] in
+            try await readFromServer(
+                upTo: upTo,
+                readAheadLimit: readAheadLimit,
+                from: position,
+                keepingPosition: position != nil
+            )?.data
+        }
 
         // A file not opened for reading fails its reads at the server, whatever the cache holds.
         guard flags.contains(.read), let cache, let openFiles, let registration else {
-            return try await readFromServer(upTo: upTo, readAheadLimit: readAheadLimit, from: nil)?.data
+            return try await fromServer()
         }
 
         try checkClosed()
@@ -367,7 +394,7 @@ extension SFTPFileCore {
 
         // A rename or a delete of the file while the read is on its way can leave its bytes under a path it has left.
         guard let ticket = openFiles.beginReport(registration, .read, since: nil) else {
-            return try await readFromServer(upTo: upTo, readAheadLimit: readAheadLimit, from: nil)?.data
+            return try await fromServer()
         }
 
         let result: Result<Data?, any Error>
@@ -376,6 +403,7 @@ extension SFTPFileCore {
                 try await read(
                     upTo: upTo,
                     readAheadLimit: readAheadLimit,
+                    at: position,
                     through: cache,
                     ticket: ticket,
                     request: request
@@ -390,16 +418,18 @@ extension SFTPFileCore {
         return try result.get()
     }
 
-    /// Reads what `cache` has from the position on, then the rest from the server, handing those bytes to the cache.
+    /// Reads what `cache` has from the position, or from `position` when given, on, then the rest from the server,
+    /// handing those bytes to the cache.
     private func read(
         upTo: Int,
         readAheadLimit: UInt64?,
+        at position: UInt64?,
         through cache: any SFTPBlockLevelReadCache,
         ticket: OpenFileRegistry.ReportTicket,
         request: CacheRequestID
     ) async throws -> Data? {
         let path = ticket.path
-        let start = offset
+        let start = position ?? offset
         var cached = await cache.retrieveBlock(path: path, offset: start, upTo: upTo, request: request)
             .map { Data($0.prefix(upTo)) } ?? Data()
 
@@ -414,8 +444,11 @@ extension SFTPFileCore {
         let counts = isCurrent ? changeSnapshot : nil
         let resume = start + UInt64(cached.count)
 
+        // A positional read leaves the position alone.
         guard cached.count < upTo else {
-            offset = resume
+            if position == nil {
+                offset = resume
+            }
             return cached
         }
 
@@ -424,14 +457,17 @@ extension SFTPFileCore {
             fetched = try await readFromServer(
                 upTo: upTo - cached.count,
                 readAheadLimit: readAheadLimit,
-                from: cached.isEmpty ? nil : resume,
+                from: position != nil || !cached.isEmpty ? resume : nil,
+                keepingPosition: position != nil,
                 changeCounts: counts,
                 restoringOnError: start
             )
         }
         catch is CancellationError where !cached.isEmpty {
             // The cached bytes count as read: hand them back as a short read, like bytes read before cancellation.
-            offset = resume
+            if position == nil {
+                offset = resume
+            }
             return cached
         }
 
@@ -454,15 +490,19 @@ extension SFTPFileCore {
     /// Reads up to `upTo` bytes from the server at the position, after moving it to `from` when given.
     ///
     /// - Parameters:
+    ///   - keepingPosition: Whether to put the position back where it was before the read, whatever its outcome, all
+    /// under one hold of the session I/O lock, as a positional read does.
     ///   - changeCounts: For bytes that go to the cache, the changes counted against the file once the cache was asked
     /// for them. Reads requested ahead before a change counted since carry bytes from before it, so they are dropped
     /// first.
     ///   - restore: Where to put the position back when the read fails, or `nil` to leave it where the failure left it.
+    /// Ignored when `keepingPosition` is set.
     /// - Returns: Where the bytes start in the file and the bytes, or `nil` at EOF or when `upTo` is zero.
     private func readFromServer(
         upTo: Int,
         readAheadLimit: UInt64?,
         from: UInt64?,
+        keepingPosition: Bool = false,
         changeCounts: OpenFileRegistry.ChangeCounts? = nil,
         restoringOnError restore: UInt64? = nil
     ) async throws -> (offset: UInt64, data: Data)? {
@@ -471,6 +511,13 @@ extension SFTPFileCore {
 
             guard upTo > 0 else {
                 return nil
+            }
+
+            let saved = keepingPosition ? currentPosition() : nil
+            defer {
+                if let saved {
+                    moveOffset(to: saved)
+                }
             }
 
             do {
@@ -483,7 +530,7 @@ extension SFTPFileCore {
                 )
             }
             catch {
-                if let restore {
+                if saved == nil, let restore {
                     moveOffset(to: restore)
                 }
                 throw error
@@ -491,8 +538,8 @@ extension SFTPFileCore {
         }
     }
 
-    /// The body of ``readFromServer(upTo:readAheadLimit:from:restoringOnError:)``. Callers must hold the parent's
-    /// session I/O lock.
+    /// The body of ``readFromServer(upTo:readAheadLimit:from:keepingPosition:changeCounts:restoringOnError:)``. Callers
+    /// must hold the parent's session I/O lock.
     private func readFromServer(
         upTo: Int,
         readAheadLimit: UInt64?,
@@ -558,6 +605,18 @@ extension SFTPFileCore {
     }
 
     @discardableResult func write(_ data: Data) async throws -> Int {
+        try await write(data, at: nil)
+    }
+
+    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
+        try await write(data, at: fileOffset)
+    }
+
+    /// Writes `data` and reports it to the cache.
+    ///
+    /// - Parameter position: Where a positional write starts, leaving the position where it was, or `nil` to write at
+    /// the position and move it past the bytes written.
+    private func write(_ data: Data, at position: UInt64?) async throws -> Int {
         if !data.isEmpty {
             internalStateQueue.sync {
                 _wroteToFile = true
@@ -568,7 +627,7 @@ extension SFTPFileCore {
         let progress = WriteProgress()
         let result: Result<Int, any Error>
         do {
-            result = try await .success(writeToServer(data, progress: progress))
+            result = try await .success(writeToServer(data, at: position, progress: progress))
         }
         catch {
             result = .failure(error)
@@ -622,9 +681,24 @@ extension SFTPFileCore {
     }
 
     /// Writes `data` to the server at the position, keeping `progress` up to date as the server acknowledges it.
-    private func writeToServer(_ data: Data, progress: WriteProgress) async throws -> Int {
+    ///
+    /// - Parameter position: Where to move the position before writing, and to put it back from afterwards, whatever
+    /// the outcome, all under one hold of the session I/O lock; or `nil` to write at the position.
+    private func writeToServer(_ data: Data, at position: UInt64?, progress: WriteProgress) async throws -> Int {
         try await parent.withCancellableSessionIO { [self] slice in
             try checkClosed()
+
+            // Moving back also drops whatever a failed write left in flight, and while a half-sent packet keeps the
+            // handle from moving, it is noted for the next read or write.
+            let saved = position.map { _ in currentPosition() }
+            defer {
+                if let saved {
+                    moveOffset(to: saved)
+                }
+            }
+            if let position {
+                moveOffset(to: position)
+            }
 
             // libssh2 counts `offset_sent - offset` as its own unacknowledged writes, so requests a read, or a write
             // that did not run to completion, left in flight would make it skip that many bytes of `data`. Seeking to
