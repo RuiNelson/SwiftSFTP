@@ -10,6 +10,91 @@ public struct TCPLocation: Codable, Sendable, Equatable {
     }
 }
 
+extension TCPLocation: LosslessStringConvertible {
+    /// Parses `host`, `host:port`, `[host]` or `[host]:port`; the port defaults to 22.
+    ///
+    /// IPv6 addresses may be bare (`::1`, default port only) or bracketed (`[::1]:2222`). Returns `nil` when the
+    /// hostname is not a valid hostname or IP address, or when the port is not in `1...65535`.
+    public init?(_ description: String) {
+        let host: String
+        let portString: Substring?
+
+        if description.first == "[" {
+            guard let closeBracket = description.firstIndex(of: "]") else {
+                return nil
+            }
+
+            host = String(description[description.index(after: description.startIndex) ..< closeBracket])
+
+            let remainder = description[description.index(after: closeBracket)...]
+
+            if remainder.isEmpty {
+                portString = nil
+            }
+            else if remainder.first == ":" {
+                portString = remainder.dropFirst()
+            }
+            else {
+                return nil
+            }
+        }
+        else {
+            let colonCount = description.reduce(into: 0) { count, character in
+                if character == ":" {
+                    count += 1
+                }
+            }
+
+            if colonCount == 1, let colon = description.firstIndex(of: ":") {
+                host = String(description[..<colon])
+                portString = description[description.index(after: colon)...]
+            }
+            else {
+                // No colon, or several: a bare hostname or a bare IPv6 address, validated below.
+                host = description
+                portString = nil
+            }
+        }
+
+        let port: Int
+
+        if let portString {
+            guard !portString.isEmpty, portString.allSatisfy(\.isASCII), portString.allSatisfy(\.isNumber),
+                  let parsedPort = Int(portString) else {
+                return nil
+            }
+
+            port = parsedPort
+        }
+        else {
+            port = 22
+        }
+
+        self.init(hostname: host, port: port)
+
+        guard validPort, trimmedHostname == hostname, hostnameCheckup != .invalid else {
+            return nil
+        }
+    }
+
+    /// `host` or `[ipv6]` for the default port 22 (bare IPv6), otherwise `host:port` or `[ipv6]:port`.
+    ///
+    /// Round-trips through `init?(_:)` for locations whose hostname and port are valid.
+    public var description: String {
+        let isIPv6 = hostnameCheckup == .validIPv6
+
+        if port == 22 {
+            return hostname
+        }
+        else if isIPv6 {
+            return "[\(hostname)]:\(port)"
+        }
+        else {
+            return "\(hostname):\(port)"
+        }
+    }
+}
+
 extension TCPLocation {
     var trimmedHostname: String {
         hostname.trimmingCharacters(in: .whitespacesAndNewlines)
