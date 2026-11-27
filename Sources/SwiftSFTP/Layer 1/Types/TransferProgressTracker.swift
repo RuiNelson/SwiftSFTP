@@ -6,9 +6,9 @@ import Foundation
 /// still leaves its loop and settles its in-flight I/O before ``throwIfCancelled()`` throws.
 struct TransferProgressTracker {
     /// Bytes the transfer moves at most: what the source holds past the start offset, capped at the caller's limit.
-    let totalBytes: Int64
+    let totalBytes: FileSize
     /// Bytes reported so far.
-    private(set) var completedBytes = Int64()
+    private(set) var completedBytes = FileSize()
     /// Whether the callback asked to stop.
     private(set) var cancelled = false
 
@@ -20,9 +20,9 @@ struct TransferProgressTracker {
     ///   - offset: Where in the source the transfer starts.
     ///   - limit: The most bytes to transfer, or `nil` for everything past `offset`.
     ///   - callback: The caller's progress callback.
-    init(sourceSize: UInt64, offset: UInt64, limit: UInt64?, callback: @escaping TransferProgress) {
+    init(sourceSize: FileSize, offset: FileOffset, limit: FileSize?, callback: @escaping TransferProgress) {
         let availableBytes = sourceSize > offset ? sourceSize - offset : 0
-        totalBytes = Int64(clamping: min(limit ?? .max, availableBytes))
+        totalBytes = min(limit ?? .max, availableBytes)
         self.callback = callback
     }
 
@@ -30,7 +30,7 @@ struct TransferProgressTracker {
     ///
     /// - Returns: `false` when the callback asked to stop.
     mutating func report(_ size: Int) async -> Bool {
-        completedBytes += Int64(size)
+        completedBytes += FileSize(size)
         let now = Date()
         let shouldContinue = await callback(completedBytes, totalBytes, size, now.timeIntervalSince(lastReport))
         lastReport = now

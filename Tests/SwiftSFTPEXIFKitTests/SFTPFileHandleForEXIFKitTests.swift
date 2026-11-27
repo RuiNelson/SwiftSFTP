@@ -437,7 +437,7 @@
 
         func set(_ attributes: FileAttributes) async throws {
             try await set(
-                size: attributes.flags.contains(.size) ? Int64(attributes.fileSize) : nil,
+                size: attributes.flags.contains(.size) ? attributes.fileSize : nil,
                 owner: nil,
                 date: nil,
                 permissions: nil
@@ -445,7 +445,7 @@
         }
 
         func set(
-            size: Int64?,
+            size: FileSize?,
             owner _: (uid: Int, gid: Int)?,
             date _: (modification: Date, access: Date)?,
             permissions _: POSIXPermissions?

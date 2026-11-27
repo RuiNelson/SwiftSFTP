@@ -13,7 +13,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// The current client-side read/write offset within the remote file.
     ///
     /// Setting this property seeks the libssh2 SFTP handle locally; no packet is sent until a later read or write.
-    var offset: UInt64 { get set }
+    var offset: FileOffset { get set }
 
     /// Reads up to `upTo` bytes from the current file position.
     ///
@@ -48,7 +48,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     /// no limit.
     /// - Returns: Data read from the file, or `nil` at EOF.
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
-    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data?
+    func read(upTo: Int, readAheadLimit: FileOffset?) async throws -> Data?
 
     /// Writes data at the current file position.
     ///
@@ -138,7 +138,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
     ///   - permissions: New POSIX permission bits.
     /// - Throws: libssh2/SFTP errors.
     func set(
-        size: Int64?,
+        size: FileSize?,
         owner: (uid: Int, gid: Int)?,
         date: (modification: Date, access: Date)?,
         permissions: POSIXPermissions?
@@ -160,7 +160,7 @@ public protocol SFTPFileProtocol: Sendable, Identifiable, AnyObject {
 }
 
 public extension SFTPFileProtocol {
-    func read(upTo: Int, readAheadLimit _: UInt64?) async throws -> Data? {
+    func read(upTo: Int, readAheadLimit _: FileOffset?) async throws -> Data? {
         try await read(upTo: upTo)
     }
 }

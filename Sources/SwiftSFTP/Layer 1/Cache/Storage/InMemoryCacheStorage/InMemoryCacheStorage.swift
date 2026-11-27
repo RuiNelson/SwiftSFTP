@@ -16,7 +16,7 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
     ///
     /// The cache learns sizes from stats and directory listings, so a file whose size it has not seen yet is kept until
     /// it does.
-    public let maximumFileSize: UInt64?
+    public let maximumFileSize: FileSize?
 
     private let lock = NSLock()
 
@@ -38,7 +38,7 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
     /// - Parameters:
     ///   - byteBudget: Most bytes of file contents kept, across all files. 256 MiB by default.
     ///   - maximumFileSize: Size above which a file is not kept; no limit by default.
-    public init(byteBudget: Int = 256 * 1024 * 1024, maximumFileSize: UInt64? = nil) {
+    public init(byteBudget: Int = 256 * 1024 * 1024, maximumFileSize: FileSize? = nil) {
         precondition(byteBudget >= 0, "byteBudget must not be negative")
         self.byteBudget = byteBudget
         self.maximumFileSize = maximumFileSize
@@ -58,7 +58,7 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
     // MARK: CacheStorage
 
     /// Accepts files no larger than ``maximumFileSize`` and ``byteBudget``.
-    public func accepts(fileSize: UInt64) -> Bool {
+    public func accepts(fileSize: FileSize) -> Bool {
         fileSize <= min(maximumFileSize ?? .max, UInt64(byteBudget))
     }
 
@@ -66,7 +66,7 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
     ///
     /// Drops `file` instead, and returns `false`, when its bytes alone go over the budget.
     @discardableResult
-    public func write(_ data: Data, at offset: UInt64, of file: CacheFileID) -> Bool {
+    public func write(_ data: Data, at offset: FileOffset, of file: CacheFileID) -> Bool {
         guard !data.isEmpty else {
             return true
         }
@@ -89,7 +89,7 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
         }
     }
 
-    public func read(_ file: CacheFileID, at offset: UInt64, upTo: Int) -> Data? {
+    public func read(_ file: CacheFileID, at offset: FileOffset, upTo: Int) -> Data? {
         lock.withLock {
             guard let run = files[file]?.blocks.run(at: offset, upTo: upTo) else {
                 return nil
@@ -100,13 +100,13 @@ public final class InMemoryCacheStorage: CacheStorage, @unchecked Sendable {
         }
     }
 
-    public func ranges(of file: CacheFileID) -> [Range<UInt64>] {
+    public func ranges(of file: CacheFileID) -> [Range<FileOffset>] {
         lock.withLock {
             files[file]?.blocks.ranges ?? []
         }
     }
 
-    public func retain(_ ranges: [Range<UInt64>], of file: CacheFileID) {
+    public func retain(_ ranges: [Range<FileOffset>], of file: CacheFileID) {
         lock.withLock {
             update(file, creating: false) { stored in
                 stored.blocks.retain(ranges)

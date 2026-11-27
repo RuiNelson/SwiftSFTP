@@ -7,7 +7,7 @@ public struct MultiTuneRound: Sendable, Equatable {
     /// How many workers transferred the test file in parallel.
     public let workers: Int
     /// Bytes transferred.
-    public let bytes: UInt64
+    public let bytes: FileSize
     /// How long the transfer took, in seconds.
     public let duration: TimeInterval
 

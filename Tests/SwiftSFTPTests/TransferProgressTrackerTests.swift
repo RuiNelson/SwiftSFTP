@@ -6,7 +6,7 @@ import Testing
 struct TransferProgressTrackerTests {
     @Test("the total covers what lies past the offset, capped at the limit")
     func totalBytes() {
-        let cases: [(size: UInt64, offset: UInt64, limit: UInt64?, total: Int64)] = [
+        let cases: [(size: FileSize, offset: FileOffset, limit: FileSize?, total: FileSize)] = [
             (100, 0, nil, 100),
             (100, 30, nil, 70),
             (100, 30, 50, 50),
@@ -70,16 +70,16 @@ struct TransferProgressTrackerTests {
 /// Records every progress report and answers each one with `answer(completed)`.
 private final class Recorder {
     struct Report {
-        var completed: Int64
-        var total: Int64
+        var completed: FileSize
+        var total: FileSize
         var chunk: Int
         var interval: TimeInterval
     }
 
     private(set) var reports: [Report] = []
-    private let answer: (Int64) -> Bool
+    private let answer: (FileSize) -> Bool
 
-    init(answer: @escaping (Int64) -> Bool) {
+    init(answer: @escaping (FileSize) -> Bool) {
         self.answer = answer
     }
 

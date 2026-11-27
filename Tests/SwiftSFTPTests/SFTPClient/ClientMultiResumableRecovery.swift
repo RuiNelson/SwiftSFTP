@@ -24,7 +24,7 @@ struct SFTPClientResumableRecovery {
             do {
                 // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
                 // breaks every time the rule is tuned instead of when the behaviour under test breaks.
-                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
+                let firstBlock = FileSize(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiUploadResumable(
                         from: sourceURL,
@@ -139,14 +139,14 @@ struct SFTPClientResumableRecovery {
                     to: "\(directory)/\("payload.bin".resumableTemporaryFileName)"
                 ) { _, _, _, _ in true }
 
-                var resent = Int64()
+                var resent = FileSize()
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
                     workers: 4,
                     bufferSize: 256 * 1024
                 ) { _, _, bytes, _ in
-                    resent += Int64(bytes)
+                    resent += FileSize(bytes)
                     return true
                 }
 
@@ -155,7 +155,7 @@ struct SFTPClientResumableRecovery {
                 // recorded ones were not touched, and that the resume paid for the lag and for nothing more.
                 #expect(uploaded == payload)
                 #expect(resent == byteCount(ofBlocks: [2, 3], in: trailer))
-                #expect(resent < Int64(payload.count))
+                #expect(resent < FileSize(payload.count))
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
             }
             catch {
@@ -198,20 +198,20 @@ struct SFTPClientResumableRecovery {
                     to: localDirectory.appendingPathComponent("payload.bin".resumableTemporaryFileName)
                 )
 
-                var refetched = Int64()
+                var refetched = FileSize()
                 try await client.multiDownloadResumable(
                     from: remotePath,
                     to: destinationURL,
                     workers: 4,
                     bufferSize: 256 * 1024
                 ) { _, _, bytes, _ in
-                    refetched += Int64(bytes)
+                    refetched += FileSize(bytes)
                     return true
                 }
 
                 #expect(try Data(contentsOf: destinationURL) == payload)
                 #expect(refetched == byteCount(ofBlocks: [2, 3], in: trailer))
-                #expect(refetched < Int64(payload.count))
+                #expect(refetched < FileSize(payload.count))
                 #expect(localTemporaries(in: localDirectory).isEmpty)
             }
             catch {
@@ -397,15 +397,15 @@ struct SFTPClientResumableRecovery {
                 #expect(geometry.blockCount == 8)
                 #expect(geometry.byteRange(ofBlock: 7).length < geometry.blockScale)
 
-                var uploaded = Int64()
-                var uploadedTotals = Set<Int64>()
+                var uploaded = FileSize()
+                var uploadedTotals = Set<FileSize>()
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
                     workers: 8,
                     bufferSize: 512 * 1024
                 ) { _, total, bytes, _ in
-                    uploaded += Int64(bytes)
+                    uploaded += FileSize(bytes)
                     uploadedTotals.insert(total)
                     return true
                 }
@@ -415,23 +415,23 @@ struct SFTPClientResumableRecovery {
                 #expect(try await client.rawBytes(of: remotePath, from: 0) == payload)
                 // Every byte reported exactly once is every block delivered exactly once: a block handed out twice
                 // would push the sum past the payload, one never handed out would leave it short.
-                #expect(uploaded == Int64(payload.count))
-                #expect(uploadedTotals == [Int64(payload.count)])
+                #expect(uploaded == FileSize(payload.count))
+                #expect(uploadedTotals == [FileSize(payload.count)])
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
 
-                var downloaded = Int64()
+                var downloaded = FileSize()
                 try await client.multiDownloadResumable(
                     from: remotePath,
                     to: destinationURL,
                     workers: 8,
                     bufferSize: 512 * 1024
                 ) { _, _, bytes, _ in
-                    downloaded += Int64(bytes)
+                    downloaded += FileSize(bytes)
                     return true
                 }
 
                 #expect(try Data(contentsOf: destinationURL) == payload)
-                #expect(downloaded == Int64(payload.count))
+                #expect(downloaded == FileSize(payload.count))
                 #expect(localTemporaries(in: localDirectory).isEmpty)
             }
             catch {
@@ -485,12 +485,12 @@ struct SFTPClientResumableRecovery {
                 let first = try #require(completed.first)
                 let last = try #require(completed.last)
 
-                #expect(reports.totals == [Int64(payload.count)], "the total is the payload, trailer excluded")
+                #expect(reports.totals == [FileSize(payload.count)], "the total is the payload, trailer excluded")
                 #expect(first > alreadyThere, "progress starts at the bytes the partial file already holds")
-                #expect(first == alreadyThere + Int64(bufferSize), "and grows from there by one chunk at a time")
+                #expect(first == alreadyThere + FileSize(bufferSize), "and grows from there by one chunk at a time")
                 #expect(completed == completed.sorted(), "progress never goes backwards")
-                #expect(completed.allSatisfy { $0 <= Int64(payload.count) }, "and never overshoots the payload")
-                #expect(last == Int64(payload.count))
+                #expect(completed.allSatisfy { $0 <= FileSize(payload.count) }, "and never overshoots the payload")
+                #expect(last == FileSize(payload.count))
                 #expect(try await client.rawBytes(of: remotePath, from: 0) == payload)
             }
             catch {
@@ -606,8 +606,8 @@ struct SFTPClientResumableRecovery {
     }
 
     /// The payload bytes the blocks in `blocks` cover, which is what a resume over them has to move.
-    private func byteCount(ofBlocks blocks: [Int], in trailer: ResumableTrailer) -> Int64 {
-        blocks.reduce(Int64.zero) { $0 + Int64(trailer.byteRange(ofBlock: $1).length) }
+    private func byteCount(ofBlocks blocks: [Int], in trailer: ResumableTrailer) -> FileSize {
+        blocks.reduce(FileSize.zero) { $0 + FileSize(trailer.byteRange(ofBlock: $1).length) }
     }
 
     /// A local file's modification time in whole seconds, the resolution a trailer records.
@@ -742,22 +742,22 @@ private struct SpecReadFailure: Error {
 /// Every progress report one transfer made, in order.
 private final class Reports: @unchecked Sendable {
     private let lock = NSLock()
-    private var completedBytes = [Int64]()
-    private var totalBytes = Set<Int64>()
+    private var completedBytes = [FileSize]()
+    private var totalBytes = Set<FileSize>()
 
-    var completed: [Int64] {
+    var completed: [FileSize] {
         lock.withLock {
             completedBytes
         }
     }
 
-    var totals: Set<Int64> {
+    var totals: Set<FileSize> {
         lock.withLock {
             totalBytes
         }
     }
 
-    func record(completed: Int64, total: Int64) {
+    func record(completed: FileSize, total: FileSize) {
         lock.withLock {
             completedBytes.append(completed)
             totalBytes.insert(total)
@@ -770,7 +770,7 @@ private final class FirstPass: @unchecked Sendable {
     private let lock = NSLock()
     private var passed = false
 
-    func first(_ value: Int64, past threshold: Int64) -> Bool {
+    func first(_ value: FileSize, past threshold: FileSize) -> Bool {
         lock.withLock {
             guard value >= threshold, !passed else {
                 return false

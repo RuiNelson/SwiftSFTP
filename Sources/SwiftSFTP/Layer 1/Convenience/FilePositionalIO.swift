@@ -21,7 +21,7 @@ public extension SFTPFileProtocol {
     ///   - fileOffset: Where in the file the read starts.
     /// - Returns: Data read from the file, or `nil` when `fileOffset` is at or past EOF.
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
-    func pread(upTo: Int, at fileOffset: UInt64) async throws -> Data? {
+    func pread(upTo: Int, at fileOffset: FileOffset) async throws -> Data? {
         precondition(upTo > 0, "upTo must be greater than zero")
 
         if let file = self as? SFTPFile {
@@ -59,7 +59,7 @@ public extension SFTPFileProtocol {
     ///   - fileOffset: Where in the file the write starts.
     /// - Returns: Number of bytes accepted by libssh2.
     /// - Throws: `CancellationError`, or libssh2/SFTP errors.
-    @discardableResult func pwrite(_ data: Data, at fileOffset: UInt64) async throws -> Int {
+    @discardableResult func pwrite(_ data: Data, at fileOffset: FileOffset) async throws -> Int {
         if let file = self as? SFTPFile {
             return try await file.core.positionalWrite(data, at: fileOffset)
         }

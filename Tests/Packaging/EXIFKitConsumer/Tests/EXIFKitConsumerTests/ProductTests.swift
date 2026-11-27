@@ -79,7 +79,7 @@
         }
 
         func set(
-            size _: Int64?,
+            size _: FileSize?,
             owner _: (uid: Int, gid: Int)?,
             date _: (modification: Date, access: Date)?,
             permissions _: POSIXPermissions?

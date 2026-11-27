@@ -117,7 +117,7 @@ public extension SFTPClientProtocol {
 
         do {
             if resume, localFileExists {
-                handle.offset = try UInt64(clamping: FileManager.default.localFileSize(atPath: localURL.path))
+                handle.offset = try FileManager.default.localFileSize(atPath: localURL.path)
                 try await handle.read(to: localURL, append: true, bufferSize: bufferSize, continuation: continuation)
             }
             else {

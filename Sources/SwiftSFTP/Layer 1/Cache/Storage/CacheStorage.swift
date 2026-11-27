@@ -21,7 +21,7 @@ public protocol CacheStorage: AnyObject, Sendable {
     ///
     /// - Parameter fileSize: Size of the file.
     /// - Returns: `false` when the storage would not keep the file whole.
-    func accepts(fileSize: UInt64) -> Bool
+    func accepts(fileSize: FileSize) -> Bool
 
     /// Stores `data` at `offset` of `file`, over any bytes already stored there.
     ///
@@ -32,7 +32,7 @@ public protocol CacheStorage: AnyObject, Sendable {
     /// - Returns: `false` when the storage cannot hold what it would hold of `file` with these bytes. It then holds no
     /// byte of `file`, and the cache stops storing the file until its version changes.
     @discardableResult
-    func write(_ data: Data, at offset: UInt64, of file: CacheFileID) -> Bool
+    func write(_ data: Data, at offset: FileOffset, of file: CacheFileID) -> Bool
 
     /// The stored bytes of `file` starting exactly at `offset`, at most `upTo` of them, counting as a use of the file.
     ///
@@ -41,20 +41,20 @@ public protocol CacheStorage: AnyObject, Sendable {
     ///   - offset: Position of the first byte wanted.
     ///   - upTo: Most bytes wanted.
     /// - Returns: The stored run of bytes starting at `offset`, or `nil` when the byte at `offset` is not stored.
-    func read(_ file: CacheFileID, at offset: UInt64, upTo: Int) -> Data?
+    func read(_ file: CacheFileID, at offset: FileOffset, upTo: Int) -> Data?
 
     /// The ranges of `file` the storage holds, sorted, neither overlapping nor touching.
     ///
     /// - Parameter file: The file.
     /// - Returns: The ranges, or an empty array when the storage holds nothing of `file`.
-    func ranges(of file: CacheFileID) -> [Range<UInt64>]
+    func ranges(of file: CacheFileID) -> [Range<FileOffset>]
 
     /// Drops every byte of `file` outside `ranges`.
     ///
     /// - Parameters:
     ///   - ranges: The ranges to keep, sorted, neither overlapping nor touching.
     ///   - file: The file.
-    func retain(_ ranges: [Range<UInt64>], of file: CacheFileID)
+    func retain(_ ranges: [Range<FileOffset>], of file: CacheFileID)
 
     /// Drops every byte of `file`.
     ///

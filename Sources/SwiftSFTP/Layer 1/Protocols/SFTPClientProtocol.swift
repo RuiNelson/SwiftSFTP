@@ -331,7 +331,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Throws: libssh2/SFTP errors.
     func setAttributes(
         path: String,
-        size: Int64?,
+        size: FileSize?,
         owner: (uid: Int, gid: Int)?,
         date: (modification: Date, access: Date)?,
         permissions: POSIXPermissions?

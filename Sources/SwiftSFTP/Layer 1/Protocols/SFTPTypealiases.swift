@@ -12,3 +12,6 @@ public typealias RenameOptions = LibSSH2SFTPRenameFlags
 public typealias FilesystemStat = LibSSH2SFTPStatVFS
 /// Flags used when opening a remote SFTP file.
 public typealias OpenFlags = LibSSH2SFTPFileOpenFlags
+
+public typealias FileOffset = UInt64
+public typealias FileSize = UInt64

@@ -152,7 +152,7 @@ public extension SFTPClientProtocol {
             throw FileTransferErrors.remoteFileAlreadyExists(path: destinationPath)
         }
 
-        let fileSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
+        let fileSize = try FileManager.default.localFileSize(atPath: localPath)
         let temporaryPath = destinationPath.removingLastPathComponent.appendingPathComponent(
             "\(Foundation.UUID().uuidString).tmp"
         )
@@ -598,9 +598,9 @@ func runMultiTransferWorkers<Worker: Sendable>(
 /// themselves.
 final class MultiTransferProgressReporter: @unchecked Sendable {
     private let lock = NSLock()
-    private let totalBytes: Int64
+    private let totalBytes: FileSize
     private let continuation: TransferProgress
-    private var completedBytes: Int64
+    private var completedBytes: FileSize
     private var lastUpdate = Date()
     private var stopped = false
     private var failure: any Error?
@@ -615,9 +615,9 @@ final class MultiTransferProgressReporter: @unchecked Sendable {
     /// skipped.
     ///   - totalBytes: The payload's size. For a resumable transfer this excludes the trailer.
     ///   - continuation: The caller's progress callback.
-    init(completedBytes: UInt64 = 0, totalBytes: UInt64, continuation: @escaping TransferProgress) {
-        self.completedBytes = Int64(clamping: completedBytes)
-        self.totalBytes = Int64(clamping: totalBytes)
+    init(completedBytes: FileSize = 0, totalBytes: FileSize, continuation: @escaping TransferProgress) {
+        self.completedBytes = completedBytes
+        self.totalBytes = totalBytes
         self.continuation = continuation
     }
 
@@ -641,7 +641,7 @@ final class MultiTransferProgressReporter: @unchecked Sendable {
             }
 
             let now = Date()
-            let (newCompletedBytes, overflow) = completedBytes.addingReportingOverflow(Int64(bytes))
+            let (newCompletedBytes, overflow) = completedBytes.addingReportingOverflow(FileSize(bytes))
             completedBytes = overflow ? .max : min(newCompletedBytes, totalBytes)
             let completed = completedBytes
             let interval = now.timeIntervalSince(lastUpdate)

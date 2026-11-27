@@ -21,8 +21,8 @@ struct SFTPClientResumableTransfers {
             }
 
             do {
-                var uploaded = [Int64]()
-                var totals = [Int64]()
+                var uploaded = [FileSize]()
+                var totals = [FileSize]()
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
@@ -39,11 +39,11 @@ struct SFTPClientResumableTransfers {
                 try await handle.close()
 
                 #expect(onServer == payload)
-                #expect(uploaded.last == Int64(payload.count))
-                #expect(totals.allSatisfy { $0 == Int64(payload.count) })
+                #expect(uploaded.last == FileSize(payload.count))
+                #expect(totals.allSatisfy { $0 == FileSize(payload.count) })
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
 
-                var downloaded = Int64()
+                var downloaded = FileSize()
                 try await client.multiDownloadResumable(
                     from: remotePath,
                     to: destinationURL,
@@ -55,7 +55,7 @@ struct SFTPClientResumableTransfers {
                 }
 
                 #expect(try Data(contentsOf: destinationURL) == payload)
-                #expect(downloaded == Int64(payload.count))
+                #expect(downloaded == FileSize(payload.count))
                 #expect(localTemporaries(in: localDirectory).isEmpty)
             }
             catch {
@@ -131,7 +131,7 @@ struct SFTPClientResumableTransfers {
             do {
                 // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
                 // breaks every time the rule is tuned instead of when the behaviour under test breaks.
-                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
+                let firstBlock = FileSize(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiUploadResumable(
                         from: sourceURL,
@@ -144,8 +144,8 @@ struct SFTPClientResumableTransfers {
                 #expect(try await client.stat(path: remotePath, followLink: true) == nil)
                 #expect(try await temporaries(of: client, in: directory).count == 1)
 
-                var resent = Int64()
-                var firstCompleted: Int64?
+                var resent = FileSize()
+                var firstCompleted: FileSize?
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
@@ -153,7 +153,7 @@ struct SFTPClientResumableTransfers {
                     bufferSize: 1024 * 1024
                 ) { completed, _, bytes, _ in
                     firstCompleted = firstCompleted ?? completed
-                    resent += Int64(bytes)
+                    resent += FileSize(bytes)
                     return true
                 }
 
@@ -162,8 +162,8 @@ struct SFTPClientResumableTransfers {
                 try await handle.close()
 
                 #expect(onServer == payload)
-                #expect(resent == Int64(payload.count) - firstBlock)
-                #expect(resent < Int64(payload.count))
+                #expect(resent == FileSize(payload.count) - firstBlock)
+                #expect(resent < FileSize(payload.count))
                 // Progress picks up where the partial file left off instead of restarting at zero.
                 #expect(firstCompleted ?? 0 > firstBlock)
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
@@ -196,7 +196,7 @@ struct SFTPClientResumableTransfers {
 
                 // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
                 // breaks every time the rule is tuned instead of when the behaviour under test breaks.
-                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
+                let firstBlock = FileSize(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 await #expect(throws: FileTransferErrors.self) {
                     try await client.multiDownloadResumable(
                         from: remotePath,
@@ -209,19 +209,19 @@ struct SFTPClientResumableTransfers {
                 #expect(!FileManager.default.fileExists(atPath: destinationURL.path))
                 #expect(localTemporaries(in: localDirectory).count == 1)
 
-                var refetched = Int64()
+                var refetched = FileSize()
                 try await client.multiDownloadResumable(
                     from: remotePath,
                     to: destinationURL,
                     workers: 1,
                     bufferSize: 1024 * 1024
                 ) { _, _, bytes, _ in
-                    refetched += Int64(bytes)
+                    refetched += FileSize(bytes)
                     return true
                 }
 
                 #expect(try Data(contentsOf: destinationURL) == payload)
-                #expect(refetched == Int64(payload.count) - firstBlock)
+                #expect(refetched == FileSize(payload.count) - firstBlock)
                 #expect(localTemporaries(in: localDirectory).isEmpty)
             }
             catch {
@@ -249,7 +249,7 @@ struct SFTPClientResumableTransfers {
             do {
                 // Derived rather than written down: the block-scale rule owns this number, and a test that hardcodes it
                 // breaks every time the rule is tuned instead of when the behaviour under test breaks.
-                let firstBlock = Int64(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
+                let firstBlock = FileSize(ResumableTrailer.blockScale(fileSize: UInt64(payload.count), workers: 1))
                 let reached = ProgressWatch()
                 let transfer = Task {
                     try await client.multiUploadResumable(
@@ -280,14 +280,14 @@ struct SFTPClientResumableTransfers {
                 #expect(try await client.stat(path: remotePath, followLink: true) == nil)
                 #expect(try await temporaries(of: client, in: directory).count == 1)
 
-                var resent = Int64()
+                var resent = FileSize()
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
                     workers: 1,
                     bufferSize: 1024 * 1024
                 ) { _, _, bytes, _ in
-                    resent += Int64(bytes)
+                    resent += FileSize(bytes)
                     return true
                 }
 
@@ -297,7 +297,7 @@ struct SFTPClientResumableTransfers {
 
                 #expect(onServer == payload)
                 // The proof the teardown flush wrote in a cancelled task: without it the whole file would travel again.
-                #expect(resent == Int64(payload.count) - firstBlock)
+                #expect(resent == FileSize(payload.count) - firstBlock)
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
             }
             catch {
@@ -352,11 +352,11 @@ struct SFTPClientResumableTransfers {
             let payload = patternedData(count: 3 * 1024 * 1024)
 
             let resumed = try await uploadOverPartial(payload: payload, doNotResume: false) { _ in }
-            #expect(resumed.transferred == Int64(payload.count) - resumed.firstBlockLength)
+            #expect(resumed.transferred == FileSize(payload.count) - resumed.firstBlockLength)
             #expect(resumed.uploaded == payload)
 
             let restarted = try await uploadOverPartial(payload: payload, doNotResume: true) { _ in }
-            #expect(restarted.transferred == Int64(payload.count))
+            #expect(restarted.transferred == FileSize(payload.count))
             #expect(restarted.uploaded == payload)
         }
     }
@@ -371,7 +371,7 @@ struct SFTPClientResumableTransfers {
                 partial.replaceSubrange(partial.count - 4 ..< partial.count, with: Data([0, 0, 0, 0]))
             }
 
-            #expect(result.transferred == Int64(payload.count))
+            #expect(result.transferred == FileSize(payload.count))
             #expect(result.uploaded == payload)
         }
     }
@@ -384,7 +384,7 @@ struct SFTPClientResumableTransfers {
             // The trailer describes a payload one byte shorter than the source now is.
             let result = try await uploadOverPartial(payload: payload, trailerPayload: payload.dropLast()) { _ in }
 
-            #expect(result.transferred == Int64(payload.count))
+            #expect(result.transferred == FileSize(payload.count))
             #expect(result.uploaded == payload)
         }
     }
@@ -396,7 +396,7 @@ struct SFTPClientResumableTransfers {
 
             let result = try await uploadOverPartial(payload: payload, modificationTimeOffset: 3600) { _ in }
 
-            #expect(result.transferred == Int64(payload.count))
+            #expect(result.transferred == FileSize(payload.count))
             #expect(result.uploaded == payload)
         }
     }
@@ -505,8 +505,8 @@ struct SFTPClientResumableTransfers {
 
     /// What one upload over a handcrafted partial file did.
     private struct PartialUploadResult {
-        let transferred: Int64
-        let firstBlockLength: Int64
+        let transferred: FileSize
+        let firstBlockLength: FileSize
         let uploaded: Data
     }
 
@@ -565,7 +565,7 @@ struct SFTPClientResumableTransfers {
                     to: "\(directory)/\("payload.bin".resumableTemporaryFileName)"
                 ) { _, _, _, _ in true }
 
-                var transferred = Int64()
+                var transferred = FileSize()
                 try await client.multiUploadResumable(
                     from: sourceURL,
                     to: remotePath,
@@ -573,7 +573,7 @@ struct SFTPClientResumableTransfers {
                     bufferSize: 256 * 1024,
                     doNotResume: doNotResume
                 ) { _, _, bytes, _ in
-                    transferred += Int64(bytes)
+                    transferred += FileSize(bytes)
                     return true
                 }
 
@@ -584,7 +584,7 @@ struct SFTPClientResumableTransfers {
                 #expect(try await temporaries(of: client, in: directory).isEmpty)
                 result = PartialUploadResult(
                     transferred: transferred,
-                    firstBlockLength: Int64(firstBlock.length),
+                    firstBlockLength: FileSize(firstBlock.length),
                     uploaded: uploaded
                 )
             }
@@ -649,17 +649,17 @@ struct SFTPClientResumableTransfers {
 /// The highest completed byte count a transfer has reported, so a test can wait for a block boundary.
 private final class ProgressWatch: @unchecked Sendable {
     private let lock = NSLock()
-    private var highest = Int64()
+    private var highest = FileSize()
     private var held = false
 
-    var completed: Int64 {
+    var completed: FileSize {
         lock.withLock {
             highest
         }
     }
 
     /// Records a report, and answers whether it is the first one past `threshold`, the one a test holds still.
-    func record(_ bytes: Int64, reaching threshold: Int64) -> Bool {
+    func record(_ bytes: FileSize, reaching threshold: FileSize) -> Bool {
         lock.withLock {
             highest = max(highest, bytes)
             guard bytes >= threshold, !held else {

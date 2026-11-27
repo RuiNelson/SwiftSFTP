@@ -36,7 +36,7 @@ public final class SFTPFile: SFTPFileProtocol {
 // MARK: SFTPFileProtocol
 
 public extension SFTPFile {
-    var offset: UInt64 {
+    var offset: FileOffset {
         get { core.offset }
         set { core.offset = newValue }
     }
@@ -45,7 +45,7 @@ public extension SFTPFile {
         try await core.read(upTo: upTo)
     }
 
-    func read(upTo: Int, readAheadLimit: UInt64?) async throws -> Data? {
+    func read(upTo: Int, readAheadLimit: FileOffset?) async throws -> Data? {
         try await core.read(upTo: upTo, readAheadLimit: readAheadLimit)
     }
 

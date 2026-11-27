@@ -100,10 +100,8 @@ extension ShellAgentSupport {
     static func createZerosCommand(
         shellType: ShellType,
         file: String,
-        length: Int64
+        length: FileSize
     ) throws -> String {
-        precondition(length >= 0, "createZeros length must be non-negative")
-
         let pathNative = pathForRemoteShell(file, shellType: shellType)
         let ensureParent = ensureParentPrefix(of: file, shellType: shellType)
 
@@ -129,10 +127,8 @@ extension ShellAgentSupport {
     static func createRandomDataCommand(
         shellType: ShellType,
         file: String,
-        length: Int64
+        length: FileSize
     ) throws -> String {
-        precondition(length >= 0, "createRandomData length must be non-negative")
-
         let pathNative = pathForRemoteShell(file, shellType: shellType)
 
         switch shellType {

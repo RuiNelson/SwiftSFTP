@@ -12,7 +12,7 @@ struct SFTPClientResumeBehavior {
     @Test("ifPossible adopts a partial file and moves only what is missing")
     func ifPossibleAdoptsPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, recordedBytes in
-            var moved = Int64()
+            var moved = FileSize()
             try await client.multiUpload(
                 from: sourceURL,
                 to: remotePath,
@@ -20,13 +20,13 @@ struct SFTPClientResumeBehavior {
                 bufferSize: 256 * 1024,
                 resume: .ifPossible
             ) { _, _, bytes, _ in
-                moved += Int64(bytes)
+                moved += FileSize(bytes)
                 return true
             }
 
             #expect(try await client.rawBytes(of: remotePath) == payload)
             #expect(
-                moved == Int64(payload.count) - recordedBytes,
+                moved == FileSize(payload.count) - recordedBytes,
                 "a resume pays for the missing blocks and for nothing else"
             )
         }
@@ -35,7 +35,7 @@ struct SFTPClientResumeBehavior {
     @Test("discardingProgress discards a partial file and moves the whole payload")
     func discardingProgressDiscardsPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, _ in
-            var moved = Int64()
+            var moved = FileSize()
             try await client.multiUpload(
                 from: sourceURL,
                 to: remotePath,
@@ -43,19 +43,19 @@ struct SFTPClientResumeBehavior {
                 bufferSize: 256 * 1024,
                 resume: .discardingProgress
             ) { _, _, bytes, _ in
-                moved += Int64(bytes)
+                moved += FileSize(bytes)
                 return true
             }
 
             #expect(try await client.rawBytes(of: remotePath) == payload)
-            #expect(moved == Int64(payload.count), "the partial file was thrown away unread")
+            #expect(moved == FileSize(payload.count), "the partial file was thrown away unread")
         }
     }
 
     @Test("never ignores a partial file and leaves it where it was")
     func neverIgnoresPartial() async throws {
         try await withPlantedPartial { client, sourceURL, remotePath, payload, _ in
-            var moved = Int64()
+            var moved = FileSize()
             try await client.multiUpload(
                 from: sourceURL,
                 to: remotePath,
@@ -63,12 +63,12 @@ struct SFTPClientResumeBehavior {
                 bufferSize: 256 * 1024,
                 resume: .never
             ) { _, _, bytes, _ in
-                moved += Int64(bytes)
+                moved += FileSize(bytes)
                 return true
             }
 
             #expect(try await client.rawBytes(of: remotePath) == payload)
-            #expect(moved == Int64(payload.count))
+            #expect(moved == FileSize(payload.count))
 
             // A non-resumable transfer names its temporary after a UUID, so it neither reads nor removes this one.
             let directory = remotePath.replacingOccurrences(of: "/payload.bin", with: "")
@@ -85,7 +85,7 @@ struct SFTPClientResumeBehavior {
     /// Hands over the payload and the byte count those recorded blocks cover, which is what separates a resume from a
     /// restart in the assertions above.
     private func withPlantedPartial(
-        _ body: (any SFTPClientProtocol, URL, String, Data, Int64) async throws -> Void
+        _ body: (any SFTPClientProtocol, URL, String, Data, FileSize) async throws -> Void
     ) async throws {
         try await withClient { client in
             let directory = uniqueRemotePath("resumable-argument")
@@ -113,13 +113,13 @@ struct SFTPClientResumeBehavior {
 
             let recorded = [0, 1]
             var partial = Data(count: payload.count)
-            var recordedBytes = Int64()
+            var recordedBytes = FileSize()
             for index in recorded {
                 trailer.bitmap.set(block: index)
                 let range = trailer.byteRange(ofBlock: index)
                 let span = Int(range.offset) ..< Int(range.offset + range.length)
                 partial.replaceSubrange(span, with: payload[span])
-                recordedBytes += Int64(range.length)
+                recordedBytes += FileSize(range.length)
             }
 
             let stagingURL = localDirectory.appendingPathComponent("staging.bin")

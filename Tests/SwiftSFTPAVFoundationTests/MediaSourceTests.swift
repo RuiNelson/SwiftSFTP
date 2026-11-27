@@ -59,7 +59,7 @@
             }
             try await Task.sleep(nanoseconds: 50_000_000)
             #expect(files.map(\.bytesRead).reduce(0, +) == expected)
-            #expect(await source.reservedByteCount <= Int64(readAheadSize + stripeBytes))
+            #expect(await source.reservedByteCount <= FileSize(readAheadSize + stripeBytes))
             await source.close()
         }
 
@@ -82,7 +82,7 @@
 
             var offset = 0
             while offset < data.count {
-                let received = try await source.read(at: Int64(offset), upTo: pieceBytes, reader: 1)
+                let received = try await source.read(at: FileSize(offset), upTo: pieceBytes, reader: 1)
                 #expect(received == data[offset ..< offset + received.count])
                 offset += received.count
                 try await waitForMedia("the window did not settle") { await source.busyWorkerCount == 0 }
@@ -102,7 +102,7 @@
             #expect(try await readAll(source, count: data.count, reader: 1) == data)
             // A stripe fetched from mid-way still stops at its own end.
             let offset = 3 * stripeBytes + 100
-            #expect(try await source.read(at: Int64(offset), upTo: 10, reader: 2) == data[offset ..< offset + 10])
+            #expect(try await source.read(at: FileSize(offset), upTo: 10, reader: 2) == data[offset ..< offset + 10])
             try await waitForMedia("the fetches did not finish") { await source.busyWorkerCount == 0 }
             await source.close()
 
@@ -121,14 +121,14 @@
             let source = makeSource(files.map { StubOpener($0) }, readAheadSize: 0)
 
             let offset = stripeBytes + 100
-            #expect(try await source.read(at: Int64(offset), upTo: 10, reader: 1) == data[offset ..< offset + 10])
+            #expect(try await source.read(at: FileSize(offset), upTo: 10, reader: 1) == data[offset ..< offset + 10])
             try await waitForMedia("the stripe was not fetched") { await source.busyWorkerCount == 0 }
             let starts = files.flatMap(\.readStarts)
             #expect(starts.first == offset)
             #expect(!starts.contains(stripeBytes))
 
             // Reading before that byte fetches the stripe again from there.
-            let earlier = try await source.read(at: Int64(stripeBytes), upTo: 10, reader: 2)
+            let earlier = try await source.read(at: FileSize(stripeBytes), upTo: 10, reader: 2)
             #expect(earlier == data[stripeBytes ..< stripeBytes + 10])
             await source.close()
         }
@@ -148,7 +148,7 @@
 
             let started = Date()
             let offset = 12 * stripeBytes
-            #expect(try await source.read(at: Int64(offset), upTo: 2, reader: 2) == data[offset ..< offset + 2])
+            #expect(try await source.read(at: FileSize(offset), upTo: 2, reader: 2) == data[offset ..< offset + 2])
             #expect(Date().timeIntervalSince(started) < 5, "Blocked prefetches must not hold the clients")
             try await waitForMedia("the prefetches were not cancelled") {
                 files.map(\.cancelledReadCount).reduce(0, +) == 4
@@ -187,7 +187,7 @@
             let source = makeSource(openers, readAheadSize: 2 * stripeBytes)
 
             #expect(try await readAll(source, count: stripeBytes, reader: 1) == data.prefix(stripeBytes))
-            let pending = Task { try await source.read(at: Int64(2 * stripeBytes), upTo: 2, reader: 2) }
+            let pending = Task { try await source.read(at: FileSize(2 * stripeBytes), upTo: 2, reader: 2) }
             try await waitForMedia("no read was blocked") { files.map(\.blockedReadCount).reduce(0, +) > 0 }
 
             await source.close()
@@ -221,7 +221,7 @@
                 }
                 try await group.waitForAll()
             }
-            #expect(try await source.size() == Int64(data.count))
+            #expect(try await source.size() == FileSize(data.count))
             await source.close()
             await source.close()
             for (file, opener) in zip(files, openers) {
@@ -265,7 +265,7 @@
             }
 
             let offset = 12 * stripeBytes
-            let distant = Task { try await source.read(at: Int64(offset), upTo: 2, reader: 2) }
+            let distant = Task { try await source.read(at: FileSize(offset), upTo: 2, reader: 2) }
             do {
                 try await waitForMedia("the cancelled demand still owns the worker") {
                     file.readStarts.contains(offset)
@@ -303,10 +303,10 @@
             for index in 0 ..< 12 {
                 // Stop inside each stripe: crossing its end would also schedule the next stripe's prefetch.
                 let offset = index * stripeBytes + 1
-                let received = try await source.read(at: Int64(offset), upTo: 2, reader: UInt64(index + 1))
+                let received = try await source.read(at: FileSize(offset), upTo: 2, reader: UInt64(index + 1))
                 #expect(received == data[offset ..< offset + 2])
                 try await waitForMedia("the source did not settle") { await source.busyWorkerCount == 0 }
-                #expect(await source.reservedByteCount <= Int64(stripeBytes))
+                #expect(await source.reservedByteCount <= FileSize(stripeBytes))
             }
             await source.close()
         }
@@ -446,7 +446,7 @@
         var result = Data()
         while result.count < count {
             try await result.append(source.read(
-                at: Int64(offset + result.count),
+                at: FileSize(offset + result.count),
                 upTo: count - result.count,
                 reader: reader
             ))
@@ -701,7 +701,7 @@
         }
 
         func set(
-            size: Int64?,
+            size: FileSize?,
             owner: (uid: Int, gid: Int)?,
             date: (modification: Date, access: Date)?,
             permissions: POSIXPermissions?

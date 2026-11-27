@@ -37,7 +37,7 @@ extension SFTPFileProtocol {
     ///
     /// - Parameter newSize: Desired file size in bytes.
     /// - Throws: libssh2/SFTP errors.
-    func truncate(toSize newSize: UInt64) async throws {
+    func truncate(toSize newSize: FileSize) async throws {
         if offset > newSize {
             offset = newSize
         }
@@ -49,7 +49,7 @@ extension SFTPFileProtocol {
     }
 
     public func set(
-        size: Int64? = nil,
+        size: FileSize? = nil,
         owner: (uid: Int, gid: Int)? = nil,
         date: (modification: Date, access: Date)? = nil,
         permissions: POSIXPermissions? = nil
@@ -58,8 +58,8 @@ extension SFTPFileProtocol {
             return
         }
 
-        if let size, size >= 0, offset > UInt64(size) {
-            offset = UInt64(size)
+        if let size, offset > size {
+            offset = size
         }
 
         var attrs = FileAttributes()
@@ -73,15 +73,15 @@ extension SFTPFileProtocol {
 
 extension FileAttributes {
     mutating func apply(
-        size: Int64?,
+        size: FileSize?,
         owner: (uid: Int, gid: Int)?,
         date: (modification: Date, access: Date)?,
         permissions: POSIXPermissions?
     ) -> Bool {
         var changed = false
 
-        if let size, size >= 0 {
-            fileSize = UInt64(size)
+        if let size {
+            fileSize = size
             flags.insert(.size)
             changed = true
         }

@@ -513,19 +513,6 @@ struct ShellAgentUnitTests {
         )
         #expect(random.contains("head -c 2048 /dev/urandom > '/tmp/r.bin'"))
 
-        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
-            // createZeros length must be non-negative
-            await #expect(processExitsWith: .failure) {
-                _ = try? ShellAgentSupport.createZerosCommand(shellType: .linux, file: "/t", length: -1)
-            }
-        #endif
-        #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
-            // createRandomData length must be non-negative
-            await #expect(processExitsWith: .failure) {
-                _ = try? ShellAgentSupport.createRandomDataCommand(shellType: .linux, file: "/t", length: -1)
-            }
-        #endif
-
         let winZeros = try ShellAgentSupport.createZerosCommand(
             shellType: .windowsCommandPrompt,
             file: "/C:/data/z.bin",

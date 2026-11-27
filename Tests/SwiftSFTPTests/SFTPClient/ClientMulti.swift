@@ -38,7 +38,7 @@ struct SFTPClientMultiTransfers {
     @Test("aggregate progress saturates instead of overflowing")
     func progressReporterSaturates() async {
         let reported = ReportedProgress()
-        let reporter = MultiTransferProgressReporter(completedBytes: UInt64(Int64.max), totalBytes: .max) {
+        let reporter = MultiTransferProgressReporter(completedBytes: .max, totalBytes: .max) {
             completed, _, _, _ in
             reported.append(completed)
             return true
@@ -62,8 +62,8 @@ struct SFTPClientMultiTransfers {
             }
 
             do {
-                var completedValues = [Int64]()
-                var totalValues = [Int64]()
+                var completedValues = [FileSize]()
+                var totalValues = [FileSize]()
                 try await client.multiUpload(
                     from: localURL,
                     to: remotePath,
@@ -80,9 +80,9 @@ struct SFTPClientMultiTransfers {
                 try await handle.close()
 
                 #expect(uploaded == payload)
-                #expect(completedValues.last == Int64(payload.count))
+                #expect(completedValues.last == FileSize(payload.count))
                 #expect(zip(completedValues, completedValues.dropFirst()).allSatisfy(<))
-                #expect(totalValues.allSatisfy { $0 == Int64(payload.count) })
+                #expect(totalValues.allSatisfy { $0 == FileSize(payload.count) })
             }
             catch {
                 try? await client.delete(path: directory)
@@ -111,8 +111,8 @@ struct SFTPClientMultiTransfers {
             do {
                 try await client.upload(from: sourceURL, to: remotePath) { _, _, _, _ in true }
 
-                var completedValues = [Int64]()
-                var totalValues = [Int64]()
+                var completedValues = [FileSize]()
+                var totalValues = [FileSize]()
                 try await client.multiDownload(
                     from: remotePath,
                     to: destinationURL,
@@ -126,9 +126,9 @@ struct SFTPClientMultiTransfers {
 
                 let downloaded = try Data(contentsOf: destinationURL)
                 #expect(downloaded == payload)
-                #expect(completedValues.last == Int64(payload.count))
+                #expect(completedValues.last == FileSize(payload.count))
                 #expect(zip(completedValues, completedValues.dropFirst()).allSatisfy(<))
-                #expect(totalValues.allSatisfy { $0 == Int64(payload.count) })
+                #expect(totalValues.allSatisfy { $0 == FileSize(payload.count) })
             }
             catch {
                 try? await client.delete(path: directory)
@@ -292,13 +292,13 @@ private final class OverlapDetector: @unchecked Sendable {
 /// The completed byte counts a progress callback received, in order.
 private final class ReportedProgress: @unchecked Sendable {
     private let lock = NSLock()
-    private var reported = [Int64]()
+    private var reported = [FileSize]()
 
-    var values: [Int64] {
+    var values: [FileSize] {
         lock.withLock { reported }
     }
 
-    func append(_ value: Int64) {
+    func append(_ value: FileSize) {
         lock.withLock { reported.append(value) }
     }
 }

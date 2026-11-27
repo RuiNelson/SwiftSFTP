@@ -29,23 +29,23 @@
         static let minimumStripeSize = 32 * 1024
 
         private struct Waiter {
-            let offset: Int64
+            let offset: FileOffset
             let count: Int
             let stripe: Int
             let reader: MediaReaderID
             let continuation: CheckedContinuation<Data, any Error>
         }
 
-        private let stripeSize: Int64
-        private let readAheadSize: Int64
+        private let stripeSize: FileSize
+        private let readAheadSize: FileSize
         private let chunkSize: Int
         private var workers: [MediaWorker]
         private var stripes: [Int: MediaStripe] = [:]
         private var waiters: [UInt64: Waiter] = [:]
-        private var fileSize: Int64?
-        private var preparation: Task<Int64, any Error>?
+        private var fileSize: FileSize?
+        private var preparation: Task<FileSize, any Error>?
         /// Where the newest reader's last read ended. The read-ahead window starts here.
-        private var anchor: Int64?
+        private var anchor: FileOffset?
         private var anchorReader: MediaReaderID = 0
         /// The newest reader's current stripe finishes even when read-ahead is disabled. Older stripes only keep their
         /// workers while a read still waits on them or they remain in the window.
@@ -68,8 +68,8 @@
             precondition(!openers.isEmpty, "A media source needs at least one client")
             precondition(stripeSize > 0 && chunkSize > 0, "Stripes and chunks need at least one byte")
             workers = openers.map(MediaWorker.init(open:))
-            self.readAheadSize = Int64(max(readAheadSize, 0))
-            self.stripeSize = Int64(stripeSize)
+            self.readAheadSize = FileSize(max(readAheadSize, 0))
+            self.stripeSize = FileSize(stripeSize)
             self.chunkSize = chunkSize
         }
 
@@ -88,13 +88,13 @@
         }
 
         /// Bytes reserved by cached and in-flight stripes.
-        var reservedByteCount: Int64 {
+        var reservedByteCount: FileSize {
             stripes.values.reduce(0) { $0 + $1.length }
         }
 
         /// The remote file's size, opening the first worker's handle on first use. A failed attempt closes its handle,
         /// and the next call tries again.
-        func size() async throws -> Int64 {
+        func size() async throws -> FileSize {
             if let fileSize {
                 return fileSize
             }
@@ -119,13 +119,13 @@
         /// `offset`. Waits only while none of them has arrived.
         ///
         /// - Parameter reader: The loading request asking. The read-ahead window follows the newest one.
-        func read(at offset: Int64, upTo count: Int, reader: MediaReaderID) async throws -> Data {
+        func read(at offset: FileOffset, upTo count: Int, reader: MediaReaderID) async throws -> Data {
             let size = try await size()
             try Task.checkCancellation()
             guard !closed else {
                 throw CancellationError()
             }
-            guard offset >= 0, offset < size, count > 0 else {
+            guard offset < size, count > 0 else {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(EINVAL))
             }
 
@@ -135,7 +135,7 @@
                 demandedStripe = stripeIndex(of: offset)
             }
             let data = try await bytes(at: offset, upTo: count, reader: reader)
-            follow(reader, to: offset + Int64(data.count))
+            follow(reader, to: offset + FileSize(data.count))
             schedule()
             return data
         }
@@ -186,7 +186,7 @@
     // MARK: - Reading
 
     private extension MediaSource {
-        func bytes(at offset: Int64, upTo count: Int, reader: MediaReaderID) async throws -> Data {
+        func bytes(at offset: FileOffset, upTo count: Int, reader: MediaReaderID) async throws -> Data {
             let index = stripeIndex(of: offset)
             if let stripe = stripes[index], stripe.start <= offset, offset < stripe.received {
                 touch(index)
@@ -221,7 +221,7 @@
         }
 
         /// Moves the window to `position` when `reader` is the newest reader so far.
-        func follow(_ reader: MediaReaderID, to position: Int64) {
+        func follow(_ reader: MediaReaderID, to position: FileOffset) {
             guard reader >= anchorReader else {
                 return
             }
@@ -230,7 +230,7 @@
         }
 
         /// Starts stripe `index` over from `offset`, keeping the reads already waiting on it.
-        func replaceStripe(_ index: Int, from offset: Int64) {
+        func replaceStripe(_ index: Int, from offset: FileOffset) {
             let old = stripes[index]
             if let fetch = old?.fetch {
                 cancel(fetch: fetch)
@@ -317,7 +317,7 @@
                         continue
                     }
                     // The anchor's own stripe starts at the anchor: nothing before it is wanted.
-                    let start = max(Int64(index) * stripeSize, anchor ?? 0)
+                    let start = max(FileSize(index) * stripeSize, anchor ?? 0)
                     let end = stripeEnd(of: index)
                     guard makeRoom(for: end - start, keeping: window) else {
                         break
@@ -331,7 +331,7 @@
 
         /// The stripes from the anchor's to the last one `readAheadSize` reaches, or `nil` when read-ahead is disabled,
         /// before the first read, and once the anchor reaches the end of the file.
-        func readAheadWindow(size: Int64) -> ClosedRange<Int>? {
+        func readAheadWindow(size: FileSize) -> ClosedRange<Int>? {
             guard readAheadSize > 0, let anchor, anchor < size else {
                 return nil
             }
@@ -340,10 +340,11 @@
         }
 
         /// Evicts the least recently used idle stripes outside `window` until `length` more bytes fit the budget.
-        func makeRoom(for length: Int64, keeping window: ClosedRange<Int>?) -> Bool {
+        func makeRoom(for length: FileSize, keeping window: ClosedRange<Int>?) -> Bool {
             let budget = readAheadSize > .max - stripeSize ? .max : readAheadSize + stripeSize
             var reserved = reservedByteCount
-            while reserved > budget - length {
+            // `length` can exceed the budget, in which case nothing fits and every idle stripe goes.
+            while length > budget || reserved > budget - length {
                 let victim = stripes
                     .filter { $0.value.fetch == nil && $0.value.waiters.isEmpty && window?.contains($0.key) != true }
                     .min { $0.value.lastUse < $1.value.lastUse }
@@ -377,7 +378,7 @@
             }
         }
 
-        func startFetch(stripe index: Int, from: Int64, worker: Int) {
+        func startFetch(stripe index: Int, from: FileOffset, worker: Int) {
             guard let end = stripes[index]?.end else {
                 return
             }
@@ -431,7 +432,7 @@
         @concurrent
         static func prepare(
             _ open: @Sendable () async throws -> any SFTPFileProtocol
-        ) async throws -> (handle: any SFTPFileProtocol, size: Int64) {
+        ) async throws -> (handle: any SFTPFileProtocol, size: FileSize) {
             let handle = try await open()
             do {
                 let attributes = try await handle.stat
@@ -439,10 +440,10 @@
                 guard attributes.flags.contains(.size) else {
                     throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
                 }
-                guard let size = Int64(exactly: attributes.fileSize) else {
+                guard attributes.fileSize <= FileSize(Int64.max) else {
                     throw NSError(domain: NSPOSIXErrorDomain, code: Int(EOVERFLOW))
                 }
-                return (handle, size)
+                return (handle, attributes.fileSize)
             }
             catch {
                 try? await handle.close()
@@ -456,10 +457,10 @@
         static func fetch(
             _ id: UInt64,
             stripe: Int,
-            range: Range<Int64>,
+            range: Range<FileOffset>,
             worker: Int,
             handle: any SFTPFileProtocol?,
-            cursor: Int64?,
+            cursor: FileOffset?,
             open: @Sendable () async throws -> any SFTPFileProtocol,
             chunkSize: Int,
             source: MediaSource
@@ -482,18 +483,18 @@
 
                 try Task.checkCancellation()
                 if cursor != position {
-                    file.offset = UInt64(position)
+                    file.offset = position
                 }
                 while position < range.upperBound {
                     try Task.checkCancellation()
-                    let count = Int(min(Int64(chunkSize), range.upperBound - position))
+                    let count = Int(min(FileSize(chunkSize), range.upperBound - position))
                     // Requests past the stripe would be dropped by the seek to this worker's next stripe.
-                    let read = try await file.read(upTo: count, readAheadLimit: UInt64(range.upperBound))
+                    let read = try await file.read(upTo: count, readAheadLimit: range.upperBound)
                     guard let data = read, !data.isEmpty else {
                         // The file ended before the size it had when the asset opened it.
                         throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
                     }
-                    position += Int64(data.count)
+                    position += FileSize(data.count)
                     guard await source.receive(data, into: stripe, from: id) else {
                         break
                     }
@@ -505,7 +506,7 @@
             }
         }
 
-        func startPreparation() -> Task<Int64, any Error> {
+        func startPreparation() -> Task<FileSize, any Error> {
             let open = workers[0].open
             let task = Task {
                 try await install(Self.prepare(open))
@@ -515,7 +516,7 @@
         }
 
         /// Hands the prepared handle to the first worker, unless the source closed while it was being opened.
-        func install(_ prepared: (handle: any SFTPFileProtocol, size: Int64)) async throws -> Int64 {
+        func install(_ prepared: (handle: any SFTPFileProtocol, size: FileSize)) async throws -> FileSize {
             guard !closed else {
                 try? await prepared.handle.close()
                 throw CancellationError()
@@ -546,7 +547,7 @@
         }
 
         /// Frees a worker whose fetch ended without an error, remembering where its cursor stands.
-        func finish(_ fetch: UInt64, of worker: Int, cursor: Int64) {
+        func finish(_ fetch: UInt64, of worker: Int, cursor: FileOffset) {
             guard let current = workers[worker].fetch, current.id == fetch else {
                 return
             }
@@ -614,13 +615,13 @@
     // MARK: - Bookkeeping
 
     private extension MediaSource {
-        func stripeIndex(of offset: Int64) -> Int {
+        func stripeIndex(of offset: FileOffset) -> Int {
             Int(offset / stripeSize)
         }
 
-        func stripeEnd(of index: Int) -> Int64 {
+        func stripeEnd(of index: Int) -> FileOffset {
             let size = fileSize ?? 0
-            let (end, overflow) = Int64(index + 1).multipliedReportingOverflow(by: stripeSize)
+            let (end, overflow) = FileSize(index + 1).multipliedReportingOverflow(by: stripeSize)
             return overflow ? size : min(end, size)
         }
 

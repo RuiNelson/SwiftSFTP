@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reports transfer progress as completed bytes, total bytes, last chunk size, and elapsed time since the last update.
-public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) async -> Bool
+public typealias TransferProgress = (FileSize, FileSize, Int, TimeInterval) async -> Bool
 
 /// Serializes blocking `FileHandle` operations on a dedicated dispatch queue so local disk I/O can run concurrently
 /// with in-flight SFTP network calls instead of blocking the calling task.
@@ -25,7 +25,7 @@ final class LocalFileIO: @unchecked Sendable {
     }
 
     /// Moves the file offset to `offset` without blocking the caller's thread.
-    func seek(toOffset offset: UInt64) async throws {
+    func seek(toOffset offset: FileOffset) async throws {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result { try self.handle.seek(toOffset: offset) })
@@ -34,7 +34,7 @@ final class LocalFileIO: @unchecked Sendable {
     }
 
     /// Moves the file offset to the end of the file without blocking the caller's thread.
-    @discardableResult func seekToEnd() async throws -> UInt64 {
+    @discardableResult func seekToEnd() async throws -> FileOffset {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result { try self.handle.seekToEnd() })
@@ -43,7 +43,7 @@ final class LocalFileIO: @unchecked Sendable {
     }
 
     /// Truncates or extends the file without blocking the caller's thread.
-    func truncate(atOffset offset: UInt64) async throws {
+    func truncate(atOffset offset: FileOffset) async throws {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result { try self.handle.truncate(atOffset: offset) })
@@ -92,11 +92,11 @@ public extension SFTPFileProtocol {
     /// `FileHandle` and SFTP write errors.
     @discardableResult func write(
         from file: URL,
-        startFromFileOffset: UInt64 = 0,
-        upTo: UInt64? = nil,
+        startFromFileOffset: FileOffset = 0,
+        upTo: FileSize? = nil,
         bufferSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
-    ) async throws -> UInt64 {
+    ) async throws -> FileSize {
         precondition(file.isFileURL, "file must be a file URL")
         precondition(bufferSize > 0, "bufferSize must be greater than zero")
 
@@ -114,7 +114,7 @@ public extension SFTPFileProtocol {
             try await localIO.seek(toOffset: startFromFileOffset)
         }
 
-        let localFileSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
+        let localFileSize = try FileManager.default.localFileSize(atPath: localPath)
         var progress = TransferProgressTracker(
             sourceSize: localFileSize,
             offset: startFromFileOffset,
@@ -125,7 +125,7 @@ public extension SFTPFileProtocol {
         var remainingBytes = progress.totalBytes
 
         func nextChunkSize() -> Int {
-            remainingBytes > 0 ? Int(min(Int64(bufferSize), remainingBytes)) : 0
+            remainingBytes > 0 ? Int(min(FileSize(bufferSize), remainingBytes)) : 0
         }
 
         try await withThrowingTaskGroup(of: Data?.self) { group in
@@ -133,7 +133,7 @@ public extension SFTPFileProtocol {
             while let data = pendingChunk, data.isEmpty == false {
                 try Task.checkCancellation()
 
-                remainingBytes -= Int64(data.count)
+                remainingBytes -= FileSize(data.count)
 
                 // The group waits for this read on every exit path before `localIO` is closed.
                 let nextSize = nextChunkSize()
@@ -155,7 +155,7 @@ public extension SFTPFileProtocol {
         }
 
         try progress.throwIfCancelled()
-        return UInt64(progress.completedBytes)
+        return progress.completedBytes
     }
 
     /// Downloads this remote SFTP file handle into a local file.
@@ -183,10 +183,10 @@ public extension SFTPFileProtocol {
     @discardableResult func read(
         to file: URL,
         append: Bool = false,
-        upTo: UInt64? = nil,
+        upTo: FileSize? = nil,
         bufferSize: Int = 512 * 1024,
         continuation: @escaping TransferProgress
-    ) async throws -> UInt64 {
+    ) async throws -> FileSize {
         precondition(file.isFileURL, "file must be a file URL")
         precondition(bufferSize > 0, "bufferSize must be greater than zero")
 
@@ -228,13 +228,13 @@ public extension SFTPFileProtocol {
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
-        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
+        let readAheadLimit = startingPosition + progress.totalBytes
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             while remainingBytes > 0 {
                 try Task.checkCancellation()
 
-                let chunkSize = Int(min(Int64(bufferSize), remainingBytes))
+                let chunkSize = Int(min(FileSize(bufferSize), remainingBytes))
                 let data = try await read(upTo: chunkSize, readAheadLimit: readAheadLimit)
                 guard let data, data.isEmpty == false else {
                     break
@@ -247,7 +247,7 @@ public extension SFTPFileProtocol {
                     try await localIO.write(contentsOf: data)
                 }
 
-                remainingBytes -= Int64(data.count)
+                remainingBytes -= FileSize(data.count)
 
                 guard await progress.report(data.count) else {
                     break
@@ -258,7 +258,7 @@ public extension SFTPFileProtocol {
         }
 
         try progress.throwIfCancelled()
-        return UInt64(progress.completedBytes)
+        return progress.completedBytes
     }
 
     /// Reads data from another SFTP file handle into this handle.
@@ -278,7 +278,7 @@ public extension SFTPFileProtocol {
     /// that returned `false`, invalid chunk sizes, or short writes; otherwise forwards SFTP read and write errors.
     func read(
         from source: any SFTPFileProtocol,
-        upTo: Int64? = nil,
+        upTo: FileSize? = nil,
         chunkSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
@@ -308,7 +308,7 @@ public extension SFTPFileProtocol {
     /// that returned `false`, invalid chunk sizes, or short writes; otherwise forwards SFTP read and write errors.
     func write(
         to destination: any SFTPFileProtocol,
-        upTo: Int64? = nil,
+        upTo: FileSize? = nil,
         chunkSize: Int = 8 * 1024 * 1024,
         continuation: @escaping TransferProgress
     ) async throws {
@@ -324,7 +324,7 @@ public extension SFTPFileProtocol {
     private static func transfer(
         from source: any SFTPFileProtocol,
         to destination: any SFTPFileProtocol,
-        upTo: Int64?,
+        upTo: FileSize?,
         chunkSize: Int,
         continuation: @escaping TransferProgress
     ) async throws {
@@ -338,16 +338,16 @@ public extension SFTPFileProtocol {
         var progress = try await TransferProgressTracker(
             sourceSize: source.stat.fileSize,
             offset: startingPosition,
-            limit: upTo.map { UInt64(clamping: $0) },
+            limit: upTo,
             callback: continuation
         )
         var remainingBytes = progress.totalBytes
-        let readAheadLimit = startingPosition + UInt64(progress.totalBytes)
+        let readAheadLimit = startingPosition + progress.totalBytes
 
         while remainingBytes > 0 {
             try Task.checkCancellation()
 
-            let bytesToRead = Int(min(UInt64(chunkSize), UInt64(clamping: remainingBytes)))
+            let bytesToRead = Int(min(FileSize(chunkSize), remainingBytes))
 
             let data = try await source.read(upTo: bytesToRead, readAheadLimit: readAheadLimit)
             guard let data, data.isEmpty == false else {
@@ -359,7 +359,7 @@ public extension SFTPFileProtocol {
                 throw FileTransferErrors.shortWrite(expected: data.count, actual: size)
             }
 
-            remainingBytes -= Int64(size)
+            remainingBytes -= FileSize(size)
 
             guard await progress.report(size) else {
                 break

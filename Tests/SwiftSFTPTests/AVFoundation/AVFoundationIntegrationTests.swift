@@ -55,7 +55,7 @@
                 #expect(frames == TestMovie.frameCount)
                 // The read-ahead window covers the whole movie, so each stripe goes to its own connection at once.
                 let source = try #require(asset as? SFTPMediaAsset).loader.source
-                let stripes = try await Int((source.size() + Int64(Self.stripeSize) - 1) / Int64(Self.stripeSize))
+                let stripes = try await Int((source.size() + FileSize(Self.stripeSize) - 1) / FileSize(Self.stripeSize))
                 try #require(stripes > 1, "The movie must span several stripes")
                 #expect(await source.openWorkerCount == min(connections, stripes))
             }

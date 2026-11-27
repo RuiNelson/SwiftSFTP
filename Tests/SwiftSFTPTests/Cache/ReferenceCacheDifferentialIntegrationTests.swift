@@ -221,7 +221,7 @@ struct ReferenceCacheDifferentialIntegrationTests {
             return "appended \(data.count) bytes to \(path)"
 
         default:
-            let size = Int64(generator.int(0 ... 12000))
+            let size = FileSize(generator.int(0 ... 12000))
             try? await client.setAttributes(path: path, size: size)
             return "set the size of \(path) to \(size)"
         }

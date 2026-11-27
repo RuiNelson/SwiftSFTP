@@ -386,7 +386,7 @@ actor LocalResumableTemporaryFile: ResumableTemporaryFile {
             return nil
         }
 
-        let totalSize = try UInt64(clamping: FileManager.default.localFileSize(at: url))
+        let totalSize = try FileManager.default.localFileSize(at: url)
         let windowByteCount = Int(min(UInt64(max(byteCount, 0)), totalSize))
         guard windowByteCount > 0 else {
             return (Data(), totalSize)
@@ -457,7 +457,7 @@ actor LocalResumableTemporaryFile: ResumableTemporaryFile {
 
         // Local truncation does not fail the way a server's can, but the check is free and keeps both sides of the
         // transfer under the same contract.
-        guard try UInt64(clamping: FileManager.default.localFileSize(at: url)) == payloadSize else {
+        guard try FileManager.default.localFileSize(at: url) == payloadSize else {
             throw FileTransferErrors.resumableTruncateUnsupported(path: path)
         }
     }

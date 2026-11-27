@@ -1,27 +1,27 @@
 import Foundation
 
 extension FileManager {
-    func localFileSize(at url: URL) throws -> Int64 {
+    func localFileSize(at url: URL) throws -> FileSize {
         try localFileSize(atPath: url.path)
     }
 
-    func localFileSize(atPath path: String) throws -> Int64 {
+    func localFileSize(atPath path: String) throws -> FileSize {
         let size = try FileManager.default.attributesOfItem(atPath: path)[.size]
 
         if let size = size as? NSNumber {
-            return size.int64Value
+            return size.uint64Value
         }
 
         if let size = size as? UInt64 {
-            return Int64(clamping: size)
-        }
-
-        if let size = size as? Int64 {
             return size
         }
 
+        if let size = size as? Int64 {
+            return FileSize(clamping: size)
+        }
+
         if let size = size as? Int {
-            return Int64(size)
+            return FileSize(clamping: size)
         }
 
         return 0

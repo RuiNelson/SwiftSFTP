@@ -9,7 +9,7 @@ extension SFTPClientProtocol {
     /// - Returns: The total size in bytes.
     /// - Throws: ``FileTransferErrors/remoteDirectoryNotFound(path:)`` when the path is missing or is not a directory;
     /// otherwise libssh2/SFTP errors.
-    public func directorySize(_ directory: String) async throws -> Int64 {
+    public func directorySize(_ directory: String) async throws -> FileSize {
         guard try await statDirectory(path: directory, followLink: false) != nil else {
             throw FileTransferErrors.remoteDirectoryNotFound(path: directory)
         }
@@ -17,17 +17,17 @@ extension SFTPClientProtocol {
         return try await directoryContentsSize(directory)
     }
 
-    private func directoryContentsSize(_ directory: String) async throws -> Int64 {
+    private func directoryContentsSize(_ directory: String) async throws -> FileSize {
         let entries = try await listDirectory(path: directory, recursive: false)
-        var total: Int64 = 0
+        var total: FileSize = 0
 
         for entry in entries {
-            let entrySize: Int64
+            let entrySize: FileSize
             if entry.isDirectory {
                 entrySize = try await directoryContentsSize(entry.fullPath)
             }
             else if entry.isRegularFile {
-                entrySize = Int64(clamping: entry.attributes.fileSize)
+                entrySize = entry.attributes.fileSize
             }
             else {
                 continue

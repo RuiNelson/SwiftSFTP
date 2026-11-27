@@ -246,7 +246,7 @@ struct ShellAgentIntegrationTests {
                 let dir = uniqueRemotePath("shell-zeros")
                 try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
                 let path = "\(dir)/nested/zeros.bin"
-                let length: Int64 = 4096
+                let length: FileSize = 4096
 
                 try await agent.createZeros(file: path, length: length)
 
@@ -269,7 +269,7 @@ struct ShellAgentIntegrationTests {
                 let dir = uniqueRemotePath("shell-random")
                 try await client.createDirectory(path: dir, makePath: true, mode: .serverDefault)
                 let path = "\(dir)/rnd.bin"
-                let length: Int64 = 2048
+                let length: FileSize = 2048
 
                 try await agent.createRandomData(file: path, length: length)
 

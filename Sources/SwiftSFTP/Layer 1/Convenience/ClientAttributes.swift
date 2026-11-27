@@ -3,7 +3,7 @@ import Foundation
 public extension SFTPClientProtocol {
     func setAttributes(
         path: String,
-        size: Int64? = nil,
+        size: FileSize? = nil,
         owner: (uid: Int, gid: Int)? = nil,
         date: (modification: Date, access: Date)? = nil,
         permissions: POSIXPermissions? = nil

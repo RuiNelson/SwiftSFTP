@@ -103,7 +103,7 @@ struct CancellationTests {
             wedged.proxy.stall()
             try await progress.waitUntilStalled()
             try await Task.sleep(nanoseconds: 2_000_000_000)
-            #expect(progress.completed < Int64(wedged.payload.count), "the upload finished without stalling")
+            #expect(progress.completed < FileSize(wedged.payload.count), "the upload finished without stalling")
             wedged.proxy.resume()
 
             try await upload.value
@@ -214,11 +214,11 @@ struct CancellationTests {
 /// Watches a transfer's progress callback so a test can act once the transfer is really moving, or really stuck.
 final class TransferProgressProbe: @unchecked Sendable {
     private let lock = NSLock()
-    private var _completed: Int64 = 0
+    private var _completed: FileSize = 0
     private var _lastUpdate = DispatchTime.now()
     private var _heldFirstReport = false
 
-    func record(_ completed: Int64) {
+    func record(_ completed: FileSize) {
         lock.lock()
         _completed = completed
         _lastUpdate = DispatchTime.now()
@@ -227,7 +227,7 @@ final class TransferProgressProbe: @unchecked Sendable {
 
     /// Records progress and holds the very first report, so a test can cancel while the transfer is provably still
     /// running instead of racing a transfer that may already have finished.
-    func recordHoldingFirstReport(_ completed: Int64, milliseconds: Int = 500) async {
+    func recordHoldingFirstReport(_ completed: FileSize, milliseconds: Int = 500) async {
         record(completed)
 
         if claimFirstReport() {
@@ -255,18 +255,18 @@ final class TransferProgressProbe: @unchecked Sendable {
     }
 
     /// Bytes reported so far.
-    var completed: Int64 {
+    var completed: FileSize {
         snapshot.completed
     }
 
     /// Current progress and how long ago it last moved.
-    private var snapshot: (completed: Int64, idleMilliseconds: Int) {
+    private var snapshot: (completed: FileSize, idleMilliseconds: Int) {
         lock.lock()
         defer { lock.unlock() }
         return (_completed, _lastUpdate.millisecondsUntilNow)
     }
 
-    private func wait(timeoutMilliseconds: Int, until predicate: (Int64, Int) -> Bool) async throws {
+    private func wait(timeoutMilliseconds: Int, until predicate: (FileSize, Int) -> Bool) async throws {
         let deadline = DispatchTime.now() + .milliseconds(timeoutMilliseconds)
 
         while DispatchTime.now() < deadline {

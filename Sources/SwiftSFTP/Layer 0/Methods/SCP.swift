@@ -22,7 +22,7 @@ public func SCPSend64(
     session: LibSSH2Session,
     path: String,
     mode: LibSSH2SFTPPOSIXPermissions,
-    size: Int64,
+    size: UInt64,
     modificationTime: Int = 0,
     accessTime: Int = 0
 ) throws -> LibSSH2Channel {
@@ -31,7 +31,7 @@ public func SCPSend64(
             session.rawValue,
             $0,
             Int32(mode.rawValue),
-            libssh2_int64_t(size),
+            libssh2_int64_t(clamping: size),
             time_t(modificationTime),
             time_t(accessTime)
         )

@@ -197,7 +197,7 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         }
     }
 
-    public func createZeros(file: String, length: Int64) async throws {
+    public func createZeros(file: String, length: FileSize) async throws {
         let command = try ShellAgentSupport.createZerosCommand(
             shellType: shellType,
             file: file,
@@ -208,7 +208,7 @@ extension SSHShellAgent: SSHShellAgentProtocol {
         }
     }
 
-    public func createRandomData(file: String, length: Int64) async throws {
+    public func createRandomData(file: String, length: FileSize) async throws {
         let command = try ShellAgentSupport.createRandomDataCommand(
             shellType: shellType,
             file: file,

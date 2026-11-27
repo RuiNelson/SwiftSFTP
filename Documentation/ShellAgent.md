@@ -149,8 +149,7 @@ try await agent.createZeros(file: "/data/blank-1GiB.bin", length: 1_073_741_824)
 try await agent.createRandomData(file: "/data/random-64MiB.bin", length: 64 * 1024 * 1024)
 ```
 
-`length` must be non-negative (`0` creates an empty file). Parent directories of `file` are created when supported.
-A negative length stops the process with a precondition failure.
+`length` is a `FileSize` (`UInt64`); `0` creates an empty file. Parent directories of `file` are created when supported.
 
 ---
 

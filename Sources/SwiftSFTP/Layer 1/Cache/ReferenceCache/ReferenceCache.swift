@@ -266,7 +266,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
 
     /// Hands back the cached run starting at `offset`, when it is at least ``Configuration/minimumHitLength`` long or
     /// reaches the end of the file, after checking the file against the server if the trust policy says it is due.
-    public func retrieveBlock(path: String, offset: UInt64, upTo: Int, request: CacheRequestID) async -> Data? {
+    public func retrieveBlock(path: String, offset: FileOffset, upTo: Int, request: CacheRequestID) async -> Data? {
         guard upTo > 0 else {
             return nil
         }
@@ -532,7 +532,7 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
     /// Drops the stored stats and listings of the file at `path`, and keeps its cached bytes: appending left them as
     /// they were. The next stat that shows the size those bytes and the appended ones add up to keeps them as part of
     /// the new version.
-    public func didAppend(path: String, byteCount: UInt64) async {
+    public func didAppend(path: String, byteCount: FileSize) async {
         let normalized = normalize(path)
         let (key, safety) = await keyAndSafety(for: path)
         guard safety.isSafe else {

@@ -81,9 +81,9 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///
     /// - Parameters:
     ///   - file: Remote destination path.
-    ///   - length: Exact size in bytes (`0` creates an empty file). A negative length stops the process.
+    ///   - length: Exact size in bytes (`0` creates an empty file).
     /// - Throws: ``ShellAgentError`` or libssh2 errors.
-    func createZeros(file: String, length: Int64) async throws
+    func createZeros(file: String, length: FileSize) async throws
 
     /// Creates (or overwrites) a remote file filled with random bytes from the host CSPRNG.
     ///
@@ -91,9 +91,9 @@ public protocol SSHShellAgentProtocol: Sendable {
     ///
     /// - Parameters:
     ///   - file: Remote destination path.
-    ///   - length: Exact size in bytes (`0` creates an empty file). A negative length stops the process.
+    ///   - length: Exact size in bytes (`0` creates an empty file).
     /// - Throws: ``ShellAgentError`` or libssh2 errors.
-    func createRandomData(file: String, length: Int64) async throws
+    func createRandomData(file: String, length: FileSize) async throws
 
     /// Creates a tar archive on the server from remote paths.
     ///

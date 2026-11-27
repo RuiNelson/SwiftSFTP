@@ -22,7 +22,7 @@ public struct ShellFileStatus: Sendable, Equatable {
     public var kind: Kind
 
     /// Size in bytes (`0` for a Windows directory).
-    public var size: UInt64
+    public var size: FileSize
 
     /// Last content modification.
     public var modificationDate: Date
@@ -52,7 +52,7 @@ public struct ShellFileStatus: Sendable, Equatable {
 
     public init(
         kind: Kind,
-        size: UInt64,
+        size: FileSize,
         modificationDate: Date,
         accessDate: Date? = nil,
         changeDate: Date? = nil,

@@ -25,7 +25,7 @@ struct SFTPClientFileConvenience {
                 permissions: .serverDefault
             )
 
-            var totals = [Int64]()
+            var totals = [FileSize]()
             try await destination.write(from: localFile, bufferSize: 128) { _, total, _, _ in
                 totals.append(total)
                 return true
@@ -38,7 +38,7 @@ struct SFTPClientFileConvenience {
 
             let data = try #require(uploaded)
             #expect(data == payload)
-            #expect(totals.allSatisfy { $0 == Int64(payload.count) })
+            #expect(totals.allSatisfy { $0 == FileSize(payload.count) })
 
             try await client.delete(path: dir)
         }
@@ -216,7 +216,7 @@ struct SFTPClientFileConvenience {
             let source = try await client.openFile(.read, path: "\(TS.fixturesPath)/SMALL.bin", permissions: [])
             source.offset = 128
 
-            var totals = [Int64]()
+            var totals = [FileSize]()
             try await source.read(to: localFile, bufferSize: 200) { _, total, _, _ in
                 totals.append(total)
                 return true
@@ -369,7 +369,7 @@ struct SFTPClientFileConvenience {
                 permissions: .serverDefault
             )
 
-            var totals = [Int64]()
+            var totals = [FileSize]()
             try await destination.read(from: source, chunkSize: 200) { _, total, _, _ in
                 totals.append(total)
                 return true
@@ -404,7 +404,7 @@ struct SFTPClientFileConvenience {
                 permissions: .serverDefault
             )
 
-            var totals = [Int64]()
+            var totals = [FileSize]()
             try await source.write(to: destination, upTo: 256, chunkSize: 128) { _, total, _, _ in
                 totals.append(total)
                 return true
@@ -432,7 +432,7 @@ struct SFTPClientFileConvenience {
             let sourcePath = "\(TS.fixturesPath)/SMALL.bin"
             let destinationPath = "\(dir)/copied.bin"
 
-            var totals = [Int64]()
+            var totals = [FileSize]()
             try await client.copyClientSide(
                 from: sourcePath,
                 to: destinationPath,

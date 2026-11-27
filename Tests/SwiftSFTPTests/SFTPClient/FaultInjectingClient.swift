@@ -177,7 +177,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
 
     func setAttributes(
         path: String,
-        size: Int64?,
+        size: FileSize?,
         owner: (uid: Int, gid: Int)?,
         date: (modification: Date, access: Date)?,
         permissions: POSIXPermissions?
@@ -272,7 +272,7 @@ final class FaultInjectingFile: SFTPFileProtocol {
     }
 
     func set(
-        size: Int64?,
+        size: FileSize?,
         owner: (uid: Int, gid: Int)?,
         date: (modification: Date, access: Date)?,
         permissions: POSIXPermissions?

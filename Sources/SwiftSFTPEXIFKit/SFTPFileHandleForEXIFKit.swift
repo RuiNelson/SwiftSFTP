@@ -57,7 +57,7 @@
         /// The remote file's current length, from the server's attributes for the open handle.
         ///
         /// - Throws: ``SFTPFileHandleForEXIFKitError/sizeUnavailable`` when the server omits the size, or SFTP errors.
-        var size: UInt64 {
+        var size: FileSize {
             get async throws {
                 try await operations.run { [file] in
                     try await Self.size(of: file)
@@ -70,7 +70,7 @@
         /// - Throws: `FileAccessError.invalidRange(offset:count:size:)` for a negative count or a range that extends
         /// past the end, `FileAccessError.shortRead(expected:actual:)` when the file ends early, `CancellationError`,
         /// or SFTP errors.
-        func read(at offset: UInt64, count: Int) async throws -> Data {
+        func read(at offset: FileOffset, count: Int) async throws -> Data {
             try await operations.run { [file] in
                 guard count > 0 else {
                     let size = try await Self.size(of: file)
@@ -116,12 +116,12 @@
         ///
         /// - Throws: `FileAccessError.invalidRange(offset:count:size:)` when the file would grow past `Int64.max`
         /// bytes, `CancellationError`, or SFTP errors.
-        func write(_ data: Data, at offset: UInt64) async throws {
+        func write(_ data: Data, at offset: FileOffset) async throws {
             try await operations.run { [file] in
                 guard !data.isEmpty else {
                     return
                 }
-                guard offset <= UInt64(Int64.max), UInt64(data.count) <= UInt64(Int64.max) - offset else {
+                guard offset <= FileSize(Int64.max), FileSize(data.count) <= FileSize(Int64.max) - offset else {
                     throw try await FileAccessError.invalidRange(
                         offset: offset,
                         count: data.count,
@@ -138,12 +138,12 @@
         ///
         /// - Throws: `FileAccessError.invalidRange(offset:count:size:)` when `size` exceeds `Int64.max`,
         /// `CancellationError`, or SFTP errors.
-        func truncate(to size: UInt64) async throws {
+        func truncate(to size: FileSize) async throws {
             try await operations.run { [file] in
-                guard let length = Int64(exactly: size) else {
+                guard size <= FileSize(Int64.max) else {
                     throw try await FileAccessError.invalidRange(offset: size, count: 0, size: Self.size(of: file))
                 }
-                try await file.set(size: length, owner: nil, date: nil, permissions: nil)
+                try await file.set(size: size, owner: nil, date: nil, permissions: nil)
             }
         }
 
@@ -163,7 +163,7 @@
     }
 
     private extension SFTPFileHandleForEXIFKit {
-        static func size(of file: any SFTPFileProtocol) async throws -> UInt64 {
+        static func size(of file: any SFTPFileProtocol) async throws -> FileSize {
             let attributes = try await file.stat
             guard attributes.flags.contains(.size) else {
                 throw SFTPFileHandleForEXIFKitError.sizeUnavailable
@@ -172,7 +172,7 @@
         }
 
         /// Moves the cursor only when it stands elsewhere: every seek discards what libssh2 has read ahead.
-        static func seek(_ file: any SFTPFileProtocol, to offset: UInt64) {
+        static func seek(_ file: any SFTPFileProtocol, to offset: FileOffset) {
             if file.offset != offset {
                 file.offset = offset
             }

@@ -103,7 +103,7 @@
                 guard await onQueue(request, { loadingRequest in
                     if let info = loadingRequest.contentInformationRequest {
                         info.contentType = contentType.identifier
-                        info.contentLength = size
+                        info.contentLength = Int64(clamping: size)
                         info.isByteRangeAccessSupported = true
                     }
                 }) else { return }
@@ -116,7 +116,7 @@
                         // Hands over whatever has arrived, so playback can start before a whole stripe is in.
                         let data = try await source.read(at: offset, upTo: Int(clamping: end - offset), reader: reader)
                         guard await onQueue(request, { $0.dataRequest?.respond(with: data) }) else { return }
-                        offset += Int64(data.count)
+                        offset += FileSize(data.count)
                     }
                 }
 
@@ -154,14 +154,15 @@
 
     /// Snapshots the data request on its delegate queue.
     private struct RequestedRange: Sendable {
-        let start: Int64
-        let end: Int64
+        let start: FileOffset
+        let end: FileOffset
         let toEnd: Bool
 
         init(_ dataRequest: AVAssetResourceLoadingDataRequest) {
-            start = dataRequest.currentOffset
-            let (end, overflow) = dataRequest.requestedOffset
-                .addingReportingOverflow(Int64(dataRequest.requestedLength))
+            // AVFoundation counts in `Int64`; a negative value is no position in the file.
+            start = FileOffset(clamping: dataRequest.currentOffset)
+            let (end, overflow) = FileOffset(clamping: dataRequest.requestedOffset)
+                .addingReportingOverflow(FileSize(clamping: dataRequest.requestedLength))
             self.end = overflow ? .max : end
             toEnd = dataRequest.requestsAllDataToEndOfResource
         }

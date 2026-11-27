@@ -150,7 +150,7 @@ These values stop the process in every build:
 | `setKeepAlive(every:)` | Zero, negative, NaN, or infinite (`nil` disables keepalives) |
 | Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL |
 | `UserAuthentication` | An empty `.privateKeys([])` array |
-| Shell agent | An empty input list (`tar`, `zip`, `sevenZip`, `concat`), a `compressionLevel` outside `0...9`, a negative length (`createZeros`, `createRandomData`) |
+| Shell agent | An empty input list (`tar`, `zip`, `sevenZip`, `concat`), a `compressionLevel` outside `0...9` |
 | `ReferenceCache` and `InMemoryCacheStorage` configuration, `compareFiles` | Negative sizes and intervals, and the other out-of-range values their documentation names |
 
 ### SSH compression
@@ -808,7 +808,7 @@ rather than before every transfer.
 ### Progress callback type
 
 ```swift
-public typealias TransferProgress = (Int64, Int64, Int, TimeInterval) async -> Bool
+public typealias TransferProgress = (FileSize, FileSize, Int, TimeInterval) async -> Bool
 // (bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval) — return false to cancel
 ```
 

@@ -25,6 +25,7 @@ in runtime behaviour, with what to do about each.
 | `ReferenceCache.close()` | Removed; release the cache, or call `removeAll()` |
 | Deprecated `SwiftSFTP_Curve25519`, `OpenSSHKeyPair` | Removed; use `AsymmetricCryptography.EdDSA.Ed25519` with `PrivateKey` and `PublicKey` |
 | `SFTPClientInvalidConfig.authenticationFailed(_:)` | `UserAuthenticationError` |
+| File sizes, byte counts, and offsets as `Int64` (`TransferProgress`, `directorySize`, `set(size:)`, `upTo:`, `createZeros(length:)`) | `FileSize` and `FileOffset`, both `UInt64` |
 
 ## Updating the dependency
 
@@ -327,7 +328,6 @@ thrown or silently ignored. Validate them before calling SwiftSFTP if they come 
 | `UserAuthentication` | Empty `PrivateKeySet` (now an empty `.privateKeys([])`) | Threw `SFTPClientInvalidConfig.invalidPrivateKey` at login | Precondition failure in `SFTPClient.init` |
 | Shell agent | Empty input list to `tar`, `zip`, `sevenZip`, `concat` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
 | Shell agent | `compressionLevel` outside `0...9` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
-| Shell agent | Negative length to `createZeros`, `createRandomData` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
 
 As a result these enum cases are removed, and a `switch` or `catch` naming them no longer compiles:
 
@@ -394,6 +394,61 @@ which is why the `Set` form was deprecated:
 let set = Set(try await client.listDirectory(path: "uploads"))
 ```
 
+## File sizes and offsets are `UInt64`
+
+Every file size, byte count, and offset is now an unsigned 64-bit integer, which is what the SFTP protocol sends on the
+wire. 3.24 mixed `Int64` and `UInt64` for the same quantities, so callers converted at the seams, and a negative size
+was a value that the API had to accept and then ignore or reject. The public aliases `FileSize` and `FileOffset` name
+the two roles; both are `UInt64`, so the aliases never need a conversion between them.
+
+The offsets, `FileAttributes.fileSize`, `SFTPFileProtocol.offset`, and the cache and `ReferenceCache` APIs were already
+`UInt64`; their signatures now spell the alias, which changes nothing for callers. The following were `Int64` and are
+now `FileSize`:
+
+| API | 3.24 | 4.0 |
+|-----|------|-----|
+| `TransferProgress` (the callback of `write(from:)`, `read(to:)`, `multiUpload`, `multiDownload`, and the file-to-file `read(from:)`/`write(to:)`) | `(Int64, Int64, Int, TimeInterval) async -> Bool` | `(FileSize, FileSize, Int, TimeInterval) async -> Bool` |
+| `directorySize(_:)` | Returned `Int64` | Returns `FileSize` |
+| `set(size:owner:date:permissions:)` on a file, `setAttributes(path:size:owner:date:permissions:)` | `size: Int64?`; a negative size was ignored | `size: FileSize?` |
+| `read(from:upTo:chunkSize:continuation:)`, `write(to:upTo:chunkSize:continuation:)` between handles | `upTo: Int64?`; any value of zero or below copied nothing | `upTo: FileSize?`; zero copies nothing |
+| `SSHShellAgent.createZeros(file:length:)`, `createRandomData(file:length:)` | `length: Int64`; a negative length stopped the process | `length: FileSize` |
+| Layer 0 `SCPSend64(session:path:mode:size:…)` | `size: Int64` | `size: UInt64` |
+
+The compiler finds every caller that names `Int64` explicitly. Closures that only do arithmetic on the progress values
+need no change, apart from places that mixed them with signed values:
+
+```swift
+// Before
+try await file.write(from: url) { (completed: Int64, total: Int64, _, _) in
+    progress.update(Double(completed) / Double(total))
+    return true
+}
+let size: Int64 = try await client.directorySize("photos")
+
+// After
+try await file.write(from: url) { (completed: FileSize, total: FileSize, _, _) in
+    progress.update(Double(completed) / Double(total))
+    return true
+}
+let size: FileSize = try await client.directorySize("photos")
+```
+
+Things to watch:
+
+- **Subtraction can trap.** `total - completed` was safe to compute in any order with `Int64`; with `UInt64` it stops the
+  process when `completed` is larger. Progress callbacks never report more than the total, but arithmetic with your own
+  values needs the same care as any unsigned arithmetic (`total.subtractingReportingOverflow(completed)`, or compare
+  first).
+- **Converting from signed values.** A size that comes from `Int` or `Int64` (`Data.count`, `FileManager` attributes
+  outside SwiftSFTP) needs `FileSize(x)`, or `FileSize(clamping: x)` when it can be negative.
+- **Negative inputs no longer compile.** `set(size: -1)` was silently ignored and `createZeros(length: -1)` stopped the
+  process; neither can be written now. Code that computed such a value at runtime must reject it before converting.
+- **Overflow.** Aggregate progress of a multi-worker transfer saturates at `UInt64.max` instead of `Int64.max`.
+- **Sizes above `Int64.max`.** `FileSize` can hold them, but no filesystem does, and the EXIFKit file handle still
+  rejects a write that would end past `Int64.max` and a truncation to more than `Int64.max`, as in 3.24. The
+  AVFoundation integration refuses to open a file larger than `Int64.max` (`EOVERFLOW`), because AVFoundation counts in
+  `Int64`.
+
 ## Custom `SFTPClientProtocol` conformers
 
 Mocks and other types conforming to `SFTPClientProtocol` must:
@@ -405,9 +460,12 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
   throws(SFTPClientInvalidConfig)`;
 - remove `login(timeOut:)`, and replace `fork(loggedIn:)` with `fork()`;
 - rename `contentsOfDirectory(path:recursive:)` to `listDirectory(path:recursive:)`;
+- take `size: FileSize?` instead of `size: Int64?` in `setAttributes(path:size:owner:date:permissions:)`;
 - drop any `import Logging` they had only for the protocol.
 
-`SFTPFileProtocol` and `SSHShellAgentProtocol` keep their requirements; only their documented errors changed.
+`SFTPFileProtocol` and `SSHShellAgentProtocol` keep their requirements; only their documented errors changed, and the
+sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `createRandomData(file:length:)` are
+`FileSize` (see [File sizes and offsets are `UInt64`](#file-sizes-and-offsets-are-uint64)).
 
 ## Smaller behaviour changes
 
@@ -440,4 +498,6 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
 10. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key arrays, and shell agent
     inputs before passing them, since invalid values now stop the process.
 11. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
-12. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.
+12. Replace `Int64` with `FileSize` in progress callbacks, `directorySize` results, `set(size:)`, `upTo:`, and shell
+    agent `length:` arguments, and check unsigned subtraction in your own progress arithmetic.
+13. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.

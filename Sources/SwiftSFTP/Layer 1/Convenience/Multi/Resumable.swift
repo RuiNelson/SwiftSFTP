@@ -222,7 +222,7 @@ extension SFTPClientProtocol {
 
         let temporaryPath = destinationPath.removingLastPathComponent
             .appendingPathComponent(destinationName.resumableTemporaryFileName)
-        let sourceSize = try UInt64(clamping: FileManager.default.localFileSize(atPath: localPath))
+        let sourceSize = try FileManager.default.localFileSize(atPath: localPath)
         let sourceModificationTime = try FileManager.default.localModificationSeconds(atPath: localPath)
 
         // The trailer travels on this client, the same one that also carries the first worker. A connection of its own
