@@ -178,6 +178,34 @@ jobs:
       - name: Test EXIFKit product consumer
         run: swift test --package-path Tests/Packaging/EXIFKitConsumer --scratch-path /tmp/swift-exifkit-consumer
 
+  linux-musl:
+    name: Linux (musl, ${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    container:
+      image: swift:6.4-noble
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      # The Static Linux SDK bundles musl and a static zlib, so nothing else is installed for the build.
+      - name: Install Static Linux SDK
+        run: |
+          swift sdk install https://download.swift.org/swift-6.4.3-release/static-sdk/swift-6.4.3-RELEASE/swift-6.4.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz \
+            --checksum "$STATIC_SDK_CHECKSUM"
+        env:
+          STATIC_SDK_CHECKSUM: "529e6982974de78793c8348c1459105a772f54b464a51edf074e5b9c4bfe7c73"
+
+      # The static SDK cannot link the dynamic products, so only the static one is built.
+      - name: Build
+        run: swift build --swift-sdk ${{ matrix.arch }}-swift-linux-musl --product SwiftSFTPStatic --scratch-path /tmp/swift-musl-build
+
   android:
     name: Android (aarch64)
     # Swift 6.4 toolchains are available for Ubuntu 24.04; ubuntu-latest can move beyond it.

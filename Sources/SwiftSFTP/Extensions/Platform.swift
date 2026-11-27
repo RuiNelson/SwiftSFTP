@@ -4,6 +4,8 @@
     @_exported import Android
 #elseif canImport(Glibc)
     @_exported import Glibc
+#elseif canImport(Musl)
+    @_exported import Musl
 #elseif os(Windows)
     @_exported import WinSDK
 #endif
@@ -16,7 +18,8 @@ func tcpAddrInfoHints() -> addrinfo {
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
         hints.ai_protocol = IPPROTO_TCP
-    #elseif canImport(Android)
+    #elseif canImport(Android) || canImport(Musl)
+        // Bionic and musl define SOCK_STREAM as a plain Int32 constant; only glibc makes it an enum.
         hints.ai_family = AF_UNSPEC
         hints.ai_socktype = SOCK_STREAM
         hints.ai_protocol = Int32(IPPROTO_TCP)

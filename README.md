@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 [![Apple](https://img.shields.io/badge/Apple-macOS%2012%2B%20%7C%20Mac%20Catalyst%2015%2B%20%7C%20iOS%2015%2B%20%7C%20visionOS%201%2B%20%7C%20watchOS%209%2B%20%7C%20tvOS%2015%2B-lightgrey?logo=apple&logoColor=white)](Package.swift)
-[![Linux](https://img.shields.io/badge/Linux-glibc-lightgrey?logo=linux&logoColor=white)](Scripts/LinuxBuild/build.sh)
+[![Linux](https://img.shields.io/badge/Linux-glibc%20%7C%20musl-lightgrey?logo=linux&logoColor=white)](Scripts/LinuxBuild/build.sh)
 [![Android](https://img.shields.io/badge/Android-28+-lightgrey?logo=android&logoColor=white)](Scripts/AndroidBuild/build.sh)
 [![Windows](https://img.shields.io/badge/Windows-supported-lightgrey?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuNHYxMS40SDB6TTEyLjYgMEgyNHYxMS40SDEyLjZ6TTAgMTIuNmgxMS40VjI0SDB6TTEyLjYgMTIuNkgyNFYyNEgxMi42eiIvPjwvc3ZnPg%3D%3D)](.github/workflows/ci.yml)
 
@@ -278,7 +278,7 @@ certificate. Xcode signs the built product as part of the application's normal s
 The first build compiles OpenSSL; subsequent builds are incremental.
 
 Libssh2 is built with SSH zlib compression support and links the platform's `libz`.
-Apple SDKs and the Android NDK provide it; Linux builds require the zlib development
+Apple SDKs, the Android NDK and Swift's Static Linux SDK (musl) provide it; glibc Linux builds require the zlib development
 package (for example, `sudo apt-get install zlib1g-dev` on Debian/Ubuntu). Windows has no system zlib,
 so SwiftPM compiles the pinned [zlib](https://github.com/madler/zlib) source (`Vendor/zlib`, under the zlib license)
 into SwiftSFTP, and Windows consumers need nothing installed.
