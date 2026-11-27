@@ -26,6 +26,9 @@ in runtime behaviour, with what to do about each.
 | Deprecated `SwiftSFTP_Curve25519`, `OpenSSHKeyPair` | Removed; use `AsymmetricCryptography.EdDSA.Ed25519` with `PrivateKey` and `PublicKey` |
 | `SFTPClientInvalidConfig.authenticationFailed(_:)` | `UserAuthenticationError` |
 | File sizes, byte counts, and offsets as `Int64` (`TransferProgress`, `directorySize`, `set(size:)`, `upTo:`, `createZeros(length:)`) | `FileSize` and `FileOffset`, both `UInt64` |
+| `getServerHostKey(openSocketIn:timeOut:shortHandForm:)` | `getServerHostKey(_:timeOut:)`, always a `known_hosts` line |
+| `HostKeyAcceptance.shortHandAcceptedKeys(_:)` | `.loadKnownHostsString(_:)` with lines built from `TCPLocation.knownHostsFormat` |
+| `.loadFromFile(file:)`, `.loadFromFileString(file:)` | `.loadKnownHostsFile(_:)`, `.loadKnownHostsString(_:)` |
 
 ## Updating the dependency
 
@@ -177,7 +180,7 @@ let worker = try await client.fork(loggedIn: true)
 ```swift
 let client = try await SFTPClient(
     location,
-    hostKeyAcceptance: .loadFromFile(file: knownHosts),
+    hostKeyAcceptance: .loadKnownHostsFile(knownHosts),
     authentication: auth,
     loginTimeOut: 15,
     operationsTimeOut: 30
@@ -373,6 +376,49 @@ Keys are read, decrypted, and checked when you create the `PrivateKey`, not at l
   initializer throw `SFTPClientInvalidConfig.invalidPrivateKey`; 3.24 skipped it at login.
 - `UserAuthentication` encodes a key as its DER bytes, unencrypted. Data encoded by 3.24 does not decode.
 
+## Host keys are `known_hosts` lines
+
+The shorthand host key form, `algorithm base64` without a host, is gone, and the `HostKeyAcceptance` cases are
+renamed:
+
+| 3.24 | 4.0 |
+|------|-----|
+| `getServerHostKey(openSocketIn:timeOut:shortHandForm:)` | `getServerHostKey(_:timeOut:)`, always a `known_hosts` line |
+| `.shortHandAcceptedKeys(keys)` | `.loadKnownHostsString(_:)`, with each key prefixed by `TCPLocation.knownHostsFormat` |
+| `.loadFromFile(file:)` | `.loadKnownHostsFile(_:)` |
+| `.loadFromFileString(file:)` | `.loadKnownHostsString(_:)` |
+| `String.isValid_ShortHandHostKey` | Removed; check the line you build with `isValid_HostKey` |
+
+- `getServerHostKey` takes the location without a label and loses `shortHandForm`. It always returns the full
+  `known_hosts` line, `host algorithm base64`, as `shortHandForm: false` did. 3.24 defaulted to `true`, so a call that
+  omitted the argument now gets the host field too.
+- `TCPLocation.knownHostsFormat` is public: the host field of the line, the bare host for port 22 and `[host]:port`
+  otherwise. It was the internal `knownHostsHost`.
+
+Keys you stored in the shorthand form keep working once you prefix each with the host field of the location it belongs
+to:
+
+```swift
+// Before
+let storedKey = try await SFTPClient.getServerHostKey(openSocketIn: location)    // "ssh-ed25519 AAAA…"
+hostKeyAcceptance: .shortHandAcceptedKeys([storedKey])
+
+// After
+let storedLine = try await SFTPClient.getServerHostKey(location)                 // "[host]:2222 ssh-ed25519 AAAA…"
+hostKeyAcceptance: .loadKnownHostsString(storedLine)
+
+// Keys stored by 3.24
+let lines = storedKeys.map { "\(location.knownHostsFormat) \($0)" }
+hostKeyAcceptance: .loadKnownHostsString(lines.joined(separator: "\n"))
+```
+
+Rewrite stored keys once, at the first launch of the new version, rather than at every connection, and use the
+location they were saved for: a key accepted for port 22 does not match the same host on port 2222. Check each
+rewritten line with `isValid_HostKey`.
+
+`HostKeyAcceptance` is `Codable`, and its encoding names the case. A value encoded by 3.24 does not decode, unless it
+is `.acceptAny`; decode it yourself, or store the keys apart from it.
+
 ## The `KeyValidation` `String` checks are removed
 
 The `KeyValidation` protocol and its `String` conformance are gone, with every `isValid_…` and `isValidForSSH_…` check
@@ -388,7 +434,8 @@ on key text. Parse the key instead: a key that parses is valid, and the error sa
 | `s.isValid_P256_PrivateKey`, `s.isValid_RSA_PublicKey`, … | Compare `.type` with `.ecdsaP256`, `.rsa`, … |
 | the `password:` variants | The `passphrase:` initializers |
 
-`String.isValid_HostKey` and `isValid_ShortHandHostKey` stay.
+`String.isValid_HostKey` stays; `isValid_ShortHandHostKey` is removed (see
+[Host keys are `known_hosts` lines](#host-keys-are-known_hosts-lines)).
 
 ## `contentsOfDirectory` is now `listDirectory`
 
@@ -479,6 +526,9 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
 - remove `login(timeOut:)`, and replace `fork(loggedIn:)` with `fork()`;
 - rename `contentsOfDirectory(path:recursive:)` to `listDirectory(path:recursive:)`;
 - take `size: FileSize?` instead of `size: Int64?` in `setAttributes(path:size:owner:date:permissions:)`;
+- declare `static func getServerHostKey(_:timeOut:)`, without the `openSocketIn` label and the `shortHandForm`
+  parameter, and return the
+  `known_hosts` line;
 - drop any `import Logging` they had only for the protocol.
 
 `SFTPFileProtocol` and `SSHShellAgentProtocol` keep their requirements; only their documented errors changed, and the
@@ -519,4 +569,7 @@ sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `
 12. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
 13. Replace `Int64` with `FileSize` in progress callbacks, `directorySize` results, `set(size:)`, `upTo:`, and shell
     agent `length:` arguments, and check unsigned subtraction in your own progress arithmetic.
-14. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.
+14. Remove `openSocketIn:` and `shortHandForm:` from `getServerHostKey` calls; rename `.loadFromFile` to
+    `.loadKnownHostsFile` and `.loadFromFileString` to `.loadKnownHostsString`, and replace `.shortHandAcceptedKeys`
+    with `.loadKnownHostsString`, prefixing keys you stored in the shorthand form with `TCPLocation.knownHostsFormat`.
+15. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.

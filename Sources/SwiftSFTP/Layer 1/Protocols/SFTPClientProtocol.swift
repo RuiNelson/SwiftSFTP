@@ -84,14 +84,12 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - openSocketIn: Hostname and port for the SSH server.
     ///   - timeOut: Positive timeout for this one-shot connection, or `.infinity` for none. Any other value stops the
     /// process.
-    ///   - shortHandForm: When `true`, return `{algorithm} {base64}`. When `false`, prefix the known-hosts host field,
-    /// returning `{host} {algorithm} {base64}` where the host uses the OpenSSH known-hosts port form.
-    /// - Returns: The server host key in shorthand or known-hosts line form.
+    /// - Returns: The server host key as an OpenSSH `known_hosts` line, `{host} {algorithm} {base64}`, whose host field
+    /// is ``TCPLocation/knownHostsFormat``.
     /// - Throws: libssh2/socket errors from connection and key exchange.
     static func getServerHostKey(
-        openSocketIn: TCPLocation,
-        timeOut: TimeInterval,
-        shortHandForm: Bool
+        _ openSocketIn: TCPLocation,
+        timeOut: TimeInterval
     ) async throws -> String
 
     // MARK: Connection

@@ -71,14 +71,12 @@ final class FaultInjectingClient: SFTPClientProtocol {
     }
 
     static func getServerHostKey(
-        openSocketIn: TCPLocation,
-        timeOut: TimeInterval,
-        shortHandForm: Bool
+        _ openSocketIn: TCPLocation,
+        timeOut: TimeInterval
     ) async throws -> String {
         try await SFTPClient.getServerHostKey(
-            openSocketIn: openSocketIn,
-            timeOut: timeOut,
-            shortHandForm: shortHandForm
+            openSocketIn,
+            timeOut: timeOut
         )
     }
 

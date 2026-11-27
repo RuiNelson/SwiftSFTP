@@ -53,7 +53,7 @@ let serverHostkey = "[::1]:5022 ecdsa-sha2-nistp256 AAAAE2VjZ(...)lPM=" // same 
 
 let myClient = try await SFTPClient(
     TCPLocation(hostname: "::1", port: 5022),
-    hostKeyAcceptance: .loadFromFileString(file: serverHostkey),
+    hostKeyAcceptance: .loadKnownHostsString(serverHostkey),
     authentication: UserAuthentication(
         name: "susana",
         auth: .privateKeys(
@@ -77,7 +77,7 @@ authentication material, and host-key acceptance data, loaded into a libssh2 ses
 ```swift
 try SFTPClient.preflightConfigurationCheck(
     TCPLocation(hostname: "sftp.example.com", port: 22),
-    hostKeyAcceptance: .shortHandAcceptedKeys([savedHostKey]),
+    hostKeyAcceptance: .loadKnownHostsString(savedHostKeyLine),
     authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t"))
 )
 ```
@@ -357,40 +357,39 @@ hostKeyAcceptance: .acceptAny
 ### Pin against a known_hosts file
 
 ```swift
-hostKeyAcceptance: .loadFromFile(file: URL(filePath: "/Users/alice/.ssh/known_hosts"))
+hostKeyAcceptance: .loadKnownHostsFile(URL(filePath: "/Users/alice/.ssh/known_hosts"))
 ```
 
 ### Pin against a known_hosts string you manage yourself
 
 ```swift
 let knownHostsContent: String = // … loaded from secure storage
-hostKeyAcceptance: .loadFromFileString(file: knownHostsContent)
+hostKeyAcceptance: .loadKnownHostsString(knownHostsContent)
 ```
 
-### Pin against explicit fingerprints
+### Obtaining a server's host key
 
-Accepts a `Set<String>` in `algorithm base64` form (same format returned by `getServerHostKey(shortHandForm: true)`):
-
-```swift
-hostKeyAcceptance: .shortHandAcceptedKeys([
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB...",
-])
-```
-
-### Obtaining a server's fingerprint
-
-Use the static helper before you establish a full connection:
+Use the static helper before you establish a full connection. It returns a `known_hosts` line, ready for
+`.loadKnownHostsString`:
 
 ```swift
-let fingerprint = try await SFTPClient.getServerHostKey(
-    openSocketIn: TCPLocation(hostname: "sftp.example.com"),
-    shortHandForm: true     // "algorithm base64" — ready to paste into shortHandAcceptedKeys
+let hostKeyLine = try await SFTPClient.getServerHostKey(
+    TCPLocation(hostname: "sftp.example.com", port: 2222)
 )
-print(fingerprint)
-// ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB...
+print(hostKeyLine)
+// [sftp.example.com]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB...
 ```
 
-Store the fingerprint securely and supply it via `.shortHandAcceptedKeys` on subsequent connections.
+Store the line securely and supply it via `.loadKnownHostsString(_:)` on subsequent connections. Several lines, one
+per host, can share one string.
+
+The host field is `TCPLocation.knownHostsFormat`: the bare host for port 22, `[host]:port` otherwise. To turn a key
+stored without its host (`algorithm base64`, as SwiftSFTP 3 returned it) into a line, prefix it with that field:
+
+```swift
+let location = TCPLocation(hostname: "sftp.example.com", port: 2222)
+hostKeyAcceptance: .loadKnownHostsString("\(location.knownHostsFormat) \(storedKey)")
+```
 
 ---
 

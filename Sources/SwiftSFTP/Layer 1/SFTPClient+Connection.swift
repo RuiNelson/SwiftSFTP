@@ -4,9 +4,8 @@ import Foundation
 
 public extension SFTPClient {
     static func getServerHostKey(
-        openSocketIn: TCPLocation,
-        timeOut: TimeInterval = 10.0,
-        shortHandForm: Bool = true
+        _ openSocketIn: TCPLocation,
+        timeOut: TimeInterval = 10.0
     ) async throws -> String {
         timeOut.requireValidTimeout("timeOut")
 
@@ -30,14 +29,9 @@ public extension SFTPClient {
         defer { try? CloseSocket(socket) }
         defer { try? SessionDisconnect(session: session, description: "Goodbye") }
 
-        let shortHand = try SessionHostKeyString(session: session)
+        let hostKey = try SessionHostKeyString(session: session)
 
-        if shortHandForm {
-            return shortHand
-        }
-        else {
-            return "\(openSocketIn.knownHostsHost) \(shortHand)"
-        }
+        return "\(openSocketIn.knownHostsFormat) \(hostKey)"
     }
 }
 
@@ -174,8 +168,7 @@ extension SFTPClient {
         do {
             let knownHosts = try loadHostKeyAcceptanceSettings(
                 to: session,
-                with: hostKeyAcceptance,
-                location: openSocketIn
+                with: hostKeyAcceptance
             )
             return (session, knownHosts)
         }

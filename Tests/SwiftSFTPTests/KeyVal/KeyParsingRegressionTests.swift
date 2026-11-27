@@ -39,7 +39,7 @@ struct KeyParsingRegressionTests {
 
         #expect(throws: AsymmetricCryptographyError.invalidKeyData) { try PublicKey(string: line) }
         #expect(PublicKey(line) == nil)
-        #expect(!line.isValid_ShortHandHostKey)
+        #expect(!"127.0.0.1 \(line)".isValid_HostKey)
     }
 
     @Test("an RSA modulus encoded as a negative mpint is rejected")
@@ -53,7 +53,7 @@ struct KeyParsingRegressionTests {
         let line = "ssh-rsa \(writer.data.base64EncodedString())"
 
         #expect(throws: AsymmetricCryptographyError.invalidKeyData) { try PublicKey(string: line) }
-        #expect(!line.isValid_ShortHandHostKey)
+        #expect(!"127.0.0.1 \(line)".isValid_HostKey)
     }
 
     @Test("RSA keys under 1024 bits are valid keys but not valid for SSH")
@@ -64,7 +64,7 @@ struct KeyParsingRegressionTests {
 
         #expect(try PublicKey(string: publicLine).type == .rsa)
         #expect(try !PublicKey(string: publicLine).validForSSHAuth)
-        #expect(!publicLine.isValid_ShortHandHostKey)
+        #expect(!"127.0.0.1 \(publicLine)".isValid_HostKey)
         #expect(try PrivateKey(string: privatePEM).type == .rsa)
         #expect(try !PrivateKey(string: privatePEM).validForSSHAuth)
         #expect(!key.validForSSHAuth)
@@ -75,7 +75,8 @@ struct KeyParsingRegressionTests {
     @Test("a 512-bit RSA host key is rejected even with a large public exponent")
     func tinyRSAHostKey() throws {
         let key = try PrivateKey(key: OpenSSLKey.generate(.rsa, rsaBits: 512), type: .rsa)
-        #expect(try !key.publicKey.encode(format: .openSSH).isValid_ShortHandHostKey)
+        let hostKey = try key.publicKey.encode(format: .openSSH)
+        #expect(!"127.0.0.1 \(hostKey)".isValid_HostKey)
     }
 
     // MARK: - Private keys
@@ -210,12 +211,11 @@ struct KeyParsingRegressionTests {
 
     @Test("ssh-dss host keys are validated, including the public value's subgroup")
     func dsaHostKey() {
-        #expect(Self.dsaHostKey.isValid_ShortHandHostKey)
         #expect("127.0.0.1 \(Self.dsaHostKey) comment".isValid_HostKey)
 
         // The same key with the public value incremented, which takes it out of the order-q subgroup.
         let tampered = String(Self.dsaHostKey.dropLast(2)) + "Q="
-        #expect(!tampered.isValid_ShortHandHostKey)
+        #expect(!"127.0.0.1 \(tampered)".isValid_HostKey)
 
         // DSA is not an AsymmetricKeyType.
         #expect(throws: AsymmetricCryptographyError.unsupportedAlgorithm("ssh-dss")) {

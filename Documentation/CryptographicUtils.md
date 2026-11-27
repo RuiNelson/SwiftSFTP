@@ -7,7 +7,7 @@ SwiftSFTP includes OpenSSL-backed key utilities under `Sources/SwiftSFTP/Cryptog
    `ssh-keygen -y`.
 3. [Validating existing key pairs](#validating-existing-key-pairs) — check user authentication keys, and whether a
    private and a public key belong together.
-4. [Validating host key entries](#validating-host-key-entries) — check `known_hosts` lines and shorthand host keys.
+4. [Validating host key entries](#validating-host-key-entries) — check `known_hosts` lines.
 
 Everything here runs offline: no API contacts a server. A [reference](#reference) of algorithms, formats, and errors
 follows the four tasks.
@@ -21,7 +21,7 @@ The main types are:
 | `PublicKey` | A public key of any supported algorithm. |
 | `AsymmetricKeyPair` | A `privateKey` and its `publicKey`, as returned by key generation. |
 | `AsymmetricKeyType` | The algorithm and parameters of a key (`.ed25519`, `.ecdsaP256`, `.rsa`, …). |
-| `String.isValid_HostKey` / `isValid_ShortHandHostKey` | `Bool` checks for host key entries. |
+| `String.isValid_HostKey` | `Bool` check for `known_hosts` lines. |
 
 ---
 
@@ -302,15 +302,9 @@ The key types `SFTPClient` authenticates with apply the same checks:
 
 ## Validating Host Key Entries
 
-A host key entry pairs a server's public host key with the hosts it belongs to. Validate entries before storing them
-or passing them to `HostKeyAcceptance`, so that a malformed entry is caught early instead of failing at login.
-
-There are two shapes of entry, each with its own check on `String`:
-
-| Shape | Example | Check | Used by |
-|-------|---------|-------|---------|
-| Full `known_hosts` line | `example.com ssh-ed25519 AAAA… [comment]` | `isValid_HostKey` | `known_hosts` files, `.loadFromFile`, `.loadFromFileString` |
-| Shorthand host key | `ssh-ed25519 AAAA…` | `isValid_ShortHandHostKey` | `.shortHandAcceptedKeys` |
+A host key entry is a `known_hosts` line: the hosts it belongs to, then the server's public host key, then an optional
+comment. Check entries with `String.isValid_HostKey` before storing them or passing them to
+`.loadKnownHostsFile` or `.loadKnownHostsString`, so that a malformed entry is caught early instead of failing at login.
 
 ```swift
 import SwiftSFTP
@@ -318,12 +312,12 @@ import SwiftSFTP
 let line = "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
 line.isValid_HostKey // true
 
-let shorthand = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
-shorthand.isValid_ShortHandHostKey // true
+let keyWithoutHost = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s"
+keyWithoutHost.isValid_HostKey // false
+"\(TCPLocation(hostname: "example.com").knownHostsFormat) \(keyWithoutHost)".isValid_HostKey // true
 ```
 
-A full line may end with a comment. A shorthand key must be exactly two fields, so remove any comment before
-checking it.
+A key stored without its host becomes a line once prefixed with `TCPLocation.knownHostsFormat`.
 
 ### Host key algorithms
 

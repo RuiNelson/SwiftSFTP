@@ -5,15 +5,6 @@ import Foundation
 /// A host key is valid when its blob names the line's algorithm, carries exactly that algorithm's components, holds a
 /// valid key (for example an EC point on its curve), and meets OpenSSH's rules (see ``PublicKey/validForSSHAuth``).
 public extension String {
-    /// Returns whether the string is a valid shorthand host key (`algorithm base64-key`) for RSA, ECDSA, Ed25519, or
-    /// DSA.
-    var isValid_ShortHandHostKey: Bool {
-        let fields = knownHostsFields
-        guard fields.count == 2,
-              let algorithm = SSHHostKeyAlgorithm(rawValue: fields[0]) else { return false }
-        return algorithm.validates(base64: fields[1])
-    }
-
     /// Returns whether the string is a valid full OpenSSH `known_hosts` line (`host algorithm base64-key [comment]`)
     /// for RSA, ECDSA, Ed25519, or DSA. Marker lines (`@cert-authority`, `@revoked`) are not accepted.
     var isValid_HostKey: Bool {

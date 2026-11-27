@@ -84,7 +84,7 @@ struct SFTPClientHostkeyAndAuth {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
                 TCPLocation(hostname: "localhost"),
-                hostKeyAcceptance: .shortHandAcceptedKeys(["not a host key"]),
+                hostKeyAcceptance: .loadKnownHostsString("not a host key"),
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
         }
@@ -191,32 +191,18 @@ struct SFTPClientHostkeyAndAuth {
 
     // MARK: - getServerHostKey
 
-    @Test("getServerHostKey returns shorthand form")
-    func getServerHostKeyShorthand() async throws {
-        let key = try await retryingTransientConnectionFailure {
-            try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: true
-            )
-        }
-        let parts = key.split(separator: " ")
-        #expect(parts.count == 2)
-        #expect(parts.allSatisfy { !$0.isEmpty })
-    }
-
-    @Test("getServerHostKey returns known-hosts line form")
+    @Test("getServerHostKey returns a known-hosts line")
     func getServerHostKeyKnownHostsLine() async throws {
+        let location = TCPLocation(hostname: TS.hostname, port: TS.port)
         let key = try await retryingTransientConnectionFailure {
-            try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: false
-            )
+            try await SFTPClient.getServerHostKey(location, timeOut: 10.0)
         }
         #expect(key.hasPrefix("\(TS.host) "))
+        #expect(key.hasPrefix("\(location.knownHostsFormat) "))
         let parts = key.split(separator: " ")
         #expect(parts.count == 3)
+        #expect(parts.allSatisfy { !$0.isEmpty })
+        #expect(key.isValid_HostKey)
     }
 
     #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
@@ -224,9 +210,8 @@ struct SFTPClientHostkeyAndAuth {
         func getServerHostKeyInvalidTimeout() async {
             await #expect(processExitsWith: .failure) {
                 _ = try? await SFTPClient.getServerHostKey(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    timeOut: -1,
-                    shortHandForm: true
+                    TCPLocation(hostname: "localhost", port: 1),
+                    timeOut: -1
                 )
             }
         }
@@ -241,66 +226,64 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("shortHandAcceptedKeys accepts matching key")
-    func shortHandAcceptedKeysAccepts() async throws {
-        let shortKey = try await retryingTransientConnectionFailure {
-            try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: true
-            )
+    @Test("knownHostsFormat turns a stored algorithm-and-key pair into an accepted line")
+    func knownHostsFormatMigratesStoredKey() async throws {
+        let location = TCPLocation(hostname: TS.hostname, port: TS.port)
+        let knownHostsLine = try await retryingTransientConnectionFailure {
+            try await SFTPClient.getServerHostKey(location, timeOut: 10.0)
         }
+        // What a 3.x program stored from `getServerHostKey(shortHandForm: true)`.
+        let storedKey = knownHostsLine.split(separator: " ").dropFirst().joined(separator: " ")
+        let migratedLine = "\(location.knownHostsFormat) \(storedKey)"
+        #expect(migratedLine.isValid_HostKey)
 
         let client = try await loginWithRetry {
-            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([shortKey]))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString(migratedLine))
         }
         #expect(!client.closed)
         try await client.close()
     }
 
-    @Test("loadFromFileString accepts known-hosts line")
-    func loadFromFileStringAccepts() async throws {
+    @Test("loadKnownHostsString accepts known-hosts line")
+    func loadKnownHostsStringAccepts() async throws {
         let knownHostsLine = try await retryingTransientConnectionFailure {
             try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: false
+                TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0
             )
         }
 
         let client = try await loginWithRetry {
-            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: knownHostsLine))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString(knownHostsLine))
         }
         #expect(!client.closed)
         try await client.close()
     }
 
-    @Test("loadFromFileString splits CRLF line endings")
-    func loadFromFileStringSplitsCRLF() async throws {
+    @Test("loadKnownHostsString splits CRLF line endings")
+    func loadKnownHostsStringSplitsCRLF() async throws {
         let knownHostsLine = try await retryingTransientConnectionFailure {
             try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: false
+                TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0
             )
         }
 
         // The matching entry sits on the second line, so it is only found when CRLF splits into lines.
         let content = "# accepted hosts\r\n\(knownHostsLine)\r\n"
         let client = try await loginWithRetry {
-            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: content))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString(content))
         }
         #expect(!client.closed)
         try await client.close()
     }
 
-    @Test("loadFromFile accepts known_hosts file")
-    func loadFromFileAccepts() async throws {
+    @Test("loadKnownHostsFile accepts known_hosts file")
+    func loadKnownHostsFileAccepts() async throws {
         let knownHostsLine = try await retryingTransientConnectionFailure {
             try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: false
+                TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0
             )
         }
 
@@ -310,33 +293,34 @@ struct SFTPClientHostkeyAndAuth {
         defer { try? FileManager.default.removeItem(at: tmpFile) }
 
         let client = try await loginWithRetry {
-            try await makeClient(hostKeyAcceptance: .loadFromFile(file: tmpFile))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsFile(tmpFile))
         }
         #expect(!client.closed)
         try await client.close()
     }
 
-    @Test("shortHandAcceptedKeys rejects a non-matching key")
-    func shortHandAcceptedKeysRejectsWrongKey() async throws {
+    @Test("loadKnownHostsString rejects a non-matching key")
+    func loadKnownHostsStringRejectsWrongKey() async throws {
         let wrongKey = try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair().publicKey.encode(format: .openSSH)
+        let wrongLine = "\(TCPLocation(hostname: TS.hostname, port: TS.port).knownHostsFormat) \(wrongKey)"
 
         try await expectLoginRejects(HostKeyVerificationError.keyMismatch) {
-            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([wrongKey]))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString(wrongLine))
         }
     }
 
-    @Test("loadFromFileString rejects a key stored for another host")
-    func loadFromFileStringRejectsUnknownHost() async throws {
-        let shortKey = try await retryingTransientConnectionFailure {
+    @Test("loadKnownHostsString rejects a key stored for another host")
+    func loadKnownHostsStringRejectsUnknownHost() async throws {
+        let knownHostsLine = try await retryingTransientConnectionFailure {
             try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: true
+                TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0
             )
         }
+        let shortKey = knownHostsLine.split(separator: " ").dropFirst().joined(separator: " ")
 
         try await expectLoginRejects(HostKeyVerificationError.unknownHostKey) {
-            try await makeClient(hostKeyAcceptance: .loadFromFileString(file: "other-host.example.com \(shortKey)"))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString("other-host.example.com \(shortKey)"))
         }
     }
 
@@ -535,18 +519,17 @@ struct SFTPClientHostkeyAndAuth {
 
     @Test("fork preserves host key acceptance policy")
     func forkPreservesHostKeyAcceptancePolicy() async throws {
-        let shortKey = try await retryingTransientConnectionFailure {
+        let knownHostsLine = try await retryingTransientConnectionFailure {
             try await SFTPClient.getServerHostKey(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                timeOut: 10.0,
-                shortHandForm: true
+                TCPLocation(hostname: TS.hostname, port: TS.port),
+                timeOut: 10.0
             )
         }
         let client = try await loginWithRetry {
-            try await makeClient(hostKeyAcceptance: .shortHandAcceptedKeys([shortKey]))
+            try await makeClient(hostKeyAcceptance: .loadKnownHostsString(knownHostsLine))
         }
         defer { try? await client.close() }
-        #expect(client.hostKeyAcceptance == .shortHandAcceptedKeys([shortKey]))
+        #expect(client.hostKeyAcceptance == .loadKnownHostsString(knownHostsLine))
 
         let fork = try await retryingTransientConnectionFailure {
             try await client.fork()

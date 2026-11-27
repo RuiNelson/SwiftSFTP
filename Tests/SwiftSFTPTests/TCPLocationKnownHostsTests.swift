@@ -60,18 +60,18 @@ struct TCPLocationKnownHostsTests {
         #expect(TCPLocation.isValidKnownHostsHostField("[host-a]:22,[host-b]:2222"))
     }
 
-    @Test("knownHostsHost uses OpenSSH format")
-    func knownHostsHostFormat() {
-        #expect(TCPLocation(hostname: "example.com", port: 22).knownHostsHost == "example.com")
-        #expect(TCPLocation(hostname: "example.com", port: 2222).knownHostsHost == "[example.com]:2222")
-        #expect(TCPLocation(hostname: "127.0.0.1", port: 22).knownHostsHost == "127.0.0.1")
-        #expect(TCPLocation(hostname: "127.0.0.1", port: 2222).knownHostsHost == "[127.0.0.1]:2222")
-        #expect(TCPLocation(hostname: "::1", port: 22).knownHostsHost == "::1")
-        #expect(TCPLocation(hostname: "::1", port: 2222).knownHostsHost == "[::1]:2222")
+    @Test("knownHostsFormat uses OpenSSH format")
+    func knownHostsFormatUsesOpenSSHForm() {
+        #expect(TCPLocation(hostname: "example.com", port: 22).knownHostsFormat == "example.com")
+        #expect(TCPLocation(hostname: "example.com", port: 2222).knownHostsFormat == "[example.com]:2222")
+        #expect(TCPLocation(hostname: "127.0.0.1", port: 22).knownHostsFormat == "127.0.0.1")
+        #expect(TCPLocation(hostname: "127.0.0.1", port: 2222).knownHostsFormat == "[127.0.0.1]:2222")
+        #expect(TCPLocation(hostname: "::1", port: 22).knownHostsFormat == "::1")
+        #expect(TCPLocation(hostname: "::1", port: 2222).knownHostsFormat == "[::1]:2222")
     }
 
-    @Test("knownHostsHost produces valid host fields")
-    func knownHostsHostRoundTrip() {
+    @Test("knownHostsFormat produces valid host fields")
+    func knownHostsFormatRoundTrip() {
         let cases: [TCPLocation] = [
             TCPLocation(hostname: "127.0.0.1", port: 22),
             TCPLocation(hostname: "127.0.0.1", port: 2222),
@@ -82,7 +82,7 @@ struct TCPLocationKnownHostsTests {
         ]
 
         for location in cases {
-            #expect(TCPLocation.isValidKnownHostsHostField(location.knownHostsHost))
+            #expect(TCPLocation.isValidKnownHostsHostField(location.knownHostsFormat))
         }
     }
 

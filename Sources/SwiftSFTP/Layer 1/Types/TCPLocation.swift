@@ -162,7 +162,10 @@ extension TCPLocation {
 
     /// The host field for an OpenSSH `known_hosts` line: the bare host for the default port 22, or `[host]:port`
     /// otherwise.
-    var knownHostsHost: String {
+    ///
+    /// Prefix a host key stored as `algorithm base64` with it to get the line that
+    /// ``HostKeyAcceptance/loadKnownHostsString(_:)`` accepts: `"\(location.knownHostsFormat) \(storedKey)"`.
+    public var knownHostsFormat: String {
         let host = trimmedHostname
 
         if port == 22 {
