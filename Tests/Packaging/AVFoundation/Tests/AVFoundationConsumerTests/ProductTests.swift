@@ -11,7 +11,7 @@
     @Test @MainActor func productProvidesCoreAndMediaModules() async throws {
         guard #available(macOS 11, iOS 14, tvOS 14, macCatalyst 14, visionOS 1, *) else { return }
         try SFTPClient.preflightConfigurationCheck(
-            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            TCPLocation(hostname: "localhost", port: 1),
             authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
 

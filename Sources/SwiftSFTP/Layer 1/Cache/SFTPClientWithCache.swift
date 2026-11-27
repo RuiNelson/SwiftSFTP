@@ -16,7 +16,7 @@ import Foundation
 /// that connection does not use the cache:
 ///
 /// ```swift
-/// let client = try await SFTPClient(openSocketIn: location, authentication: authentication)
+/// let client = try await SFTPClient(location, authentication: authentication)
 ///
 /// let control = try await client.fork()
 /// client.attachCache(MySFTPCache(controlConnection: control))

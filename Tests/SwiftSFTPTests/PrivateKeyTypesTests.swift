@@ -83,7 +83,7 @@ struct PrivateKeyTypesTests {
         for mode: UserAuthenticationMode in [.privateKey(ed448), .privateKeys([ed25519, ed448])] {
             #expect(throws: SFTPClientInvalidConfig.self) {
                 try SFTPClient.preflightConfigurationCheck(
-                    openSocketIn: TCPLocation(hostname: "localhost"),
+                    TCPLocation(hostname: "localhost"),
                     authentication: UserAuthentication(name: "x", auth: mode)
                 )
             }

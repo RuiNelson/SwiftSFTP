@@ -22,7 +22,7 @@ struct SFTPClientCompression {
     ) async throws {
         let client = try await retryingTransientConnectionFailure {
             try await SFTPClient(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
+                TCPLocation(hostname: TS.hostname, port: TS.port),
                 authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
                 compressionPreference: (clientToServer: clientToServer, serverToClient: serverToClient),
                 loginTimeOut: 5,

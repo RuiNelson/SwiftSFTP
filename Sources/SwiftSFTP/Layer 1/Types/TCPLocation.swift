@@ -95,6 +95,17 @@ extension TCPLocation: LosslessStringConvertible {
     }
 }
 
+extension TCPLocation: ExpressibleByStringLiteral {
+    /// Creates a location from a literal such as `"example.com:2222"` or `"[::1]:2222"`; the port defaults to 22.
+    ///
+    /// A literal that ``init(_:)`` rejects does not stop the process: the whole text becomes the hostname, with port
+    /// 22, and ``SFTPClient`` reports it as an invalid hostname when it validates the configuration. Parse runtime
+    /// strings with ``init(_:)``, which returns `nil` instead.
+    public init(stringLiteral value: String) {
+        self = TCPLocation(value) ?? .init(hostname: value)
+    }
+}
+
 extension TCPLocation {
     var trimmedHostname: String {
         hostname.trimmingCharacters(in: .whitespacesAndNewlines)

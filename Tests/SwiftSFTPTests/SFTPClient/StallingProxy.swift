@@ -447,7 +447,7 @@ func withStalledConnection(
             let client: SFTPClient
             do {
                 client = try await SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "127.0.0.1", port: proxy.port),
+                    TCPLocation(hostname: "127.0.0.1", port: proxy.port),
                     hostKeyAcceptance: .acceptAny,
                     authentication: UserAuthentication(name: TS.testUser, auth: .password(TS.password)),
                     loginTimeOut: 15,

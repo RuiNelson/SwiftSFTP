@@ -68,7 +68,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     // MARK: Initialization
 
     public convenience init(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication,
         compressionPreference: (
@@ -154,7 +154,7 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     }
 
     public class func preflightConfigurationCheck(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance = .acceptAny,
         authentication: UserAuthentication
     ) throws(SFTPClientInvalidConfig) {

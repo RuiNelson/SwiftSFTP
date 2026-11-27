@@ -10,7 +10,7 @@ struct SFTPClientHostkeyAndAuth {
     func preflightAcceptsValidConfiguration() throws {
         // Port 1 has no server: the check would fail if it connected.
         try SFTPClient.preflightConfigurationCheck(
-            openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+            TCPLocation(hostname: "localhost", port: 1),
             authentication: UserAuthentication(name: "x", auth: .password("x"))
         )
     }
@@ -19,7 +19,7 @@ struct SFTPClientHostkeyAndAuth {
     func preflightThroughProtocol() throws {
         func check<Client: SFTPClientProtocol>(_: Client.Type) throws(SFTPClientInvalidConfig) {
             try Client.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                TCPLocation(hostname: "localhost", port: 1),
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
@@ -31,7 +31,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsEmptyHostname() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: ""),
+                TCPLocation(hostname: ""),
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
         }
@@ -41,7 +41,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsPortZero() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost", port: 0),
+                TCPLocation(hostname: "localhost", port: 0),
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
@@ -52,7 +52,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsNegativePort() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost", port: -1),
+                TCPLocation(hostname: "localhost", port: -1),
                 hostKeyAcceptance: .acceptAny,
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
@@ -63,7 +63,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsEmptyUsername() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost"),
+                TCPLocation(hostname: "localhost"),
                 authentication: UserAuthentication(name: "", auth: .password("pass"))
             )
         }
@@ -73,7 +73,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsEmptyPassword() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost"),
+                TCPLocation(hostname: "localhost"),
                 authentication: UserAuthentication(name: "x", auth: .password(""))
             )
         }
@@ -83,7 +83,7 @@ struct SFTPClientHostkeyAndAuth {
     func rejectsMalformedHostKeys() {
         #expect(throws: SFTPClientInvalidConfig.self) {
             try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost"),
+                TCPLocation(hostname: "localhost"),
                 hostKeyAcceptance: .shortHandAcceptedKeys(["not a host key"]),
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
@@ -94,7 +94,7 @@ struct SFTPClientHostkeyAndAuth {
     func initRejectsInvalidConfiguration() async {
         await #expect(throws: SFTPClientInvalidConfig.self) {
             try await SFTPClient(
-                openSocketIn: TCPLocation(hostname: "localhost", port: 0),
+                TCPLocation(hostname: "localhost", port: 0),
                 authentication: UserAuthentication(name: "x", auth: .password("x"))
             )
         }
@@ -107,21 +107,21 @@ struct SFTPClientHostkeyAndAuth {
         func rejectsInvalidOperationsTimeout() async {
             await #expect(processExitsWith: .failure) {
                 _ = try? await SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "x", auth: .password("x")),
                     operationsTimeOut: -1
                 )
             }
             await #expect(processExitsWith: .failure) {
                 _ = try? await SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "x", auth: .password("x")),
                     operationsTimeOut: 0
                 )
             }
             await #expect(processExitsWith: .failure) {
                 _ = try? await SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "x", auth: .password("x")),
                     operationsTimeOut: .nan
                 )
@@ -132,7 +132,7 @@ struct SFTPClientHostkeyAndAuth {
         func rejectsInvalidTimeouts() async {
             await #expect(processExitsWith: .failure) {
                 _ = try? await SFTPClient(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "x", auth: .password("x")),
                     loginTimeOut: 0
                 )
@@ -182,7 +182,7 @@ struct SFTPClientHostkeyAndAuth {
         // Nothing listens on port 1.
         await #expect(throws: (any Error).self) {
             try await SFTPClient(
-                openSocketIn: TCPLocation(hostname: "127.0.0.1", port: 1),
+                TCPLocation(hostname: "127.0.0.1", port: 1),
                 authentication: UserAuthentication(name: "x", auth: .password("x")),
                 loginTimeOut: 5
             )

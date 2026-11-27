@@ -63,6 +63,25 @@ struct TCPLocationStringConvertibleTests {
     }
 
     @Test
+    func stringLiteralUsesTheParser() {
+        let withPort: TCPLocation = "localhost:6922"
+        let withoutPort: TCPLocation = "example.com"
+        let ipv6: TCPLocation = "[::1]:2222"
+
+        #expect(withPort == TCPLocation(hostname: "localhost", port: 6922))
+        #expect(withoutPort == TCPLocation(hostname: "example.com"))
+        #expect(ipv6 == TCPLocation(hostname: "::1", port: 2222))
+    }
+
+    @Test(arguments: ["host:99999", "my_host", "host:", "[host"])
+    func invalidStringLiteralKeepsTheTextAsHostname(text: String) {
+        let location = TCPLocation(stringLiteral: text)
+
+        #expect(location == TCPLocation(hostname: text))
+        #expect(location.hostnameCheckup == .invalid)
+    }
+
+    @Test
     func descriptionOmitsDefaultPort() {
         #expect(TCPLocation(hostname: "example.com").description == "example.com")
         #expect(TCPLocation(hostname: "example.com", port: 2222).description == "example.com:2222")

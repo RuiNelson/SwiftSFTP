@@ -49,7 +49,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// ``HostKeyVerificationError`` when the server's host key is not accepted; ``UserAuthenticationError`` when the
     /// server does not accept the authentication; libssh2 and socket errors from connecting.
     init(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
@@ -70,7 +70,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     ///   - authentication: Username and authentication material.
     /// - Throws: ``SFTPClientInvalidConfig`` if validation fails or the libssh2 session cannot be created.
     static func preflightConfigurationCheck(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication
     ) throws(SFTPClientInvalidConfig)

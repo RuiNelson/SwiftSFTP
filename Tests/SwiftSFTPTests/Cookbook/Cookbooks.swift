@@ -27,7 +27,7 @@ struct Cookbook {
         // - Instantiate a SFTP client: this connects and logs in
         
         let myClient = try await SFTPClient(
-            openSocketIn: .init(hostname: "localhost", port: 6922),
+            "localhost:6922",
             hostKeyAcceptance: .acceptAny, // configurable
             authentication: .init(name: "bulbasaur", auth: .password("pass123")) // supports private keys
         )

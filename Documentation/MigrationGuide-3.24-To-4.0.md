@@ -14,7 +14,7 @@ in runtime behaviour, with what to do about each.
 | `close()` required on clients, files, and shell agents | `close()` optional: a released object closes itself |
 | `SFTPClient(...)` then `login(timeOut:)`, or `initAndLogin(...)` | `try await SFTPClient(...)`: the initializer logs in |
 | `fork(loggedIn:)` | `fork()`, always logged in |
-| Configuration checked by the synchronous `init` | `preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)` |
+| Configuration checked by the synchronous `init` | `preflightConfigurationCheck(_:hostKeyAcceptance:authentication:)` |
 | `AlreadyClosed`, `NotLoggedIn` thrown | Misuse: assertion failure in debug, `MisuseError` thrown in release; no "not logged in" state |
 | Invalid timeouts, buffer sizes, keepalive intervals, URLs thrown or ignored | Precondition failure in every build |
 | `.privateKeys(PrivateKeySet)`, `.privateKeyFile`, `.privateKeyString` | `.privateKey(PrivateKey)`, `.privateKeys([PrivateKey])` |
@@ -85,7 +85,7 @@ let client = try await SFTPClient.initAndLogin(
 
 ```swift
 let client = try await SFTPClient(
-    openSocketIn: location,
+    location,
     authentication: auth,
     deinitErrorHandler: { error in  // optional
         logger.error("\(error.localizedDescription)")
@@ -150,8 +150,9 @@ logged in. It is `async throws`, and it throws the connection, host-key, and aut
 threw, besides `SFTPClientInvalidConfig`. When it fails, the client closes what it opened before throwing.
 
 - `initAndLogin(...)` and `login(timeOut:)` are removed.
+- The first parameter loses its `openSocketIn:` label: write `SFTPClient(location, ...)`.
 - `loginTimeOut` (default `10.0`) is new, after `compressionPreference`, and `operationsTimeOut` moves after it. The
-  parameter order is now `openSocketIn`, `hostKeyAcceptance`, `authentication`, `compressionPreference`,
+  parameter order is now `_ openSocketIn`, `hostKeyAcceptance`, `authentication`, `compressionPreference`,
   `loginTimeOut`, `operationsTimeOut`, `deinitErrorHandler`.
 - `fork(loggedIn:)` becomes `fork()`, which always returns a logged-in client. A fork also keeps the teardown grace
   period, read-ahead, and write-ahead of the client it came from.
@@ -175,7 +176,7 @@ let worker = try await client.fork(loggedIn: true)
 
 ```swift
 let client = try await SFTPClient(
-    openSocketIn: location,
+    location,
     hostKeyAcceptance: .loadFromFile(file: knownHosts),
     authentication: auth,
     loginTimeOut: 15,
@@ -213,7 +214,7 @@ catch UserAuthenticationError.noKeyMatchesServerAlgorithms(let serverAlgorithms)
 ### Checking a configuration without connecting
 
 Code that created a client only to validate its configuration, without logging in, calls
-`SFTPClient.preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)` instead. It runs the checks the
+`SFTPClient.preflightConfigurationCheck(_:hostKeyAcceptance:authentication:)` instead. It runs the checks the
 initializer runs before connecting — hostname, port, username, authentication material, and host-key acceptance data,
 loaded into a libssh2 session that it then frees — and throws `SFTPClientInvalidConfig`:
 
@@ -222,7 +223,7 @@ loaded into a libssh2 session that it then frees — and throws `SFTPClientInval
 _ = try SFTPClient(openSocketIn: location, hostKeyAcceptance: acceptance, authentication: auth)
 
 // After
-try SFTPClient.preflightConfigurationCheck(openSocketIn: location, hostKeyAcceptance: acceptance, authentication: auth)
+try SFTPClient.preflightConfigurationCheck(location, hostKeyAcceptance: acceptance, authentication: auth)
 ```
 
 ## Closing is optional
@@ -470,10 +471,10 @@ Things to watch:
 
 Mocks and other types conforming to `SFTPClientProtocol` must:
 
-- make their `init` `async throws`, with the parameters `openSocketIn`, `hostKeyAcceptance`, `authentication`,
+- make their `init` `async throws`, with the parameters `_ openSocketIn`, `hostKeyAcceptance`, `authentication`,
   `compressionPreference`, `loginTimeOut`, `operationsTimeOut`, and `deinitErrorHandler: @escaping
   DeinitErrorHandler`, in that order, and return logged in;
-- add `static func preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)
+- add `static func preflightConfigurationCheck(_:hostKeyAcceptance:authentication:)
   throws(SFTPClientInvalidConfig)`;
 - remove `login(timeOut:)`, and replace `fork(loggedIn:)` with `fork()`;
 - rename `contentsOfDirectory(path:recursive:)` to `listDirectory(path:recursive:)`;

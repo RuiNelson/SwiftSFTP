@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Releasing an ``SFTPClient``, an ``SFTPFile``, or an ``SSHShellAgent`` without closing it is supported: the object
 /// closes itself. Nothing is left to throw to by then, so a failure goes to the `deinitErrorHandler` given to
-/// ``SFTPClient/init(openSocketIn:operationsTimeOut:hostKeyAcceptance:authentication:compressionPreference:deinitErrorHandler:)``,
+/// ``SFTPClient/init(_:operationsTimeOut:hostKeyAcceptance:authentication:compressionPreference:deinitErrorHandler:)``,
 /// which the file handles and shell agents opened from the client, and its forks, share. Call `close()` instead when
 /// the outcome matters, for example before renaming a file just written.
 public struct DeinitError: Error, Sendable {

@@ -38,7 +38,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
     }
 
     init(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication,
         compressionPreference: (clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm]),
@@ -47,7 +47,7 @@ final class FaultInjectingClient: SFTPClientProtocol {
         deinitErrorHandler: @escaping DeinitErrorHandler
     ) async throws {
         base = try await SFTPClient(
-            openSocketIn: openSocketIn,
+            openSocketIn,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication,
             compressionPreference: compressionPreference,
@@ -59,12 +59,12 @@ final class FaultInjectingClient: SFTPClientProtocol {
     }
 
     static func preflightConfigurationCheck(
-        openSocketIn: TCPLocation,
+        _ openSocketIn: TCPLocation,
         hostKeyAcceptance: HostKeyAcceptance,
         authentication: UserAuthentication
     ) throws(SFTPClientInvalidConfig) {
         try SFTPClient.preflightConfigurationCheck(
-            openSocketIn: openSocketIn,
+            openSocketIn,
             hostKeyAcceptance: hostKeyAcceptance,
             authentication: authentication
         )

@@ -32,7 +32,7 @@ The initializer connects, authenticates, and initializes SFTP: a client that exi
 import SwiftSFTP
 
 let client = try await SFTPClient(
-    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    TCPLocation(hostname: "sftp.example.com", port: 22),
     hostKeyAcceptance: .acceptAny,          // see Host Key Verification
     authentication: UserAuthentication(
         name: "alice",
@@ -48,7 +48,7 @@ With every parameter:
 
 ```swift
 let client = try await SFTPClient(
-    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    TCPLocation(hostname: "sftp.example.com", port: 22),
     hostKeyAcceptance: .acceptAny,
     authentication: UserAuthentication(
         name: "alice",
@@ -71,7 +71,7 @@ authentication material, and host-key acceptance data, loaded into a libssh2 ses
 
 ```swift
 try SFTPClient.preflightConfigurationCheck(
-    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    TCPLocation(hostname: "sftp.example.com", port: 22),
     hostKeyAcceptance: .shortHandAcceptedKeys([savedHostKey]),
     authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t"))
 )
@@ -90,7 +90,7 @@ Accepts IPv4 addresses, IPv6 addresses, and DNS names. Port must be 1–65535.
 
 | Parameter | Type | Default | Notes |
 |-----------|------|---------|-------|
-| `openSocketIn` | `TCPLocation` | — | Server address |
+| `_ openSocketIn` | `TCPLocation` | — | Server address, passed without a label |
 | `hostKeyAcceptance` | `HostKeyAcceptance` | `.acceptAny` | See [Host Key Verification](#host-key-verification) |
 | `authentication` | `UserAuthentication` | — | See [Authentication](#authentication) |
 | `compressionPreference` | `(clientToServer: [CompressionAlgorithm], serverToClient: [CompressionAlgorithm])` | `([], [])` | Ordered preferences for each direction; an empty array means `[.none]` |
@@ -160,7 +160,7 @@ independently for each direction:
 
 ```swift
 let client = try await SFTPClient(
-    openSocketIn: TCPLocation(hostname: "sftp.example.com", port: 22),
+    TCPLocation(hostname: "sftp.example.com", port: 22),
     authentication: UserAuthentication(name: "alice", auth: .password("s3cr3t")),
     compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib])
 )

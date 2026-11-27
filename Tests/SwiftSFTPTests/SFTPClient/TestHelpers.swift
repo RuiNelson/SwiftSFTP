@@ -53,7 +53,7 @@ func makeClient(
     deinitErrorHandler: @escaping DeinitErrorHandler = debugPrintDeinitErrorHandler
 ) async throws -> SFTPClient {
     try await SFTPClient(
-        openSocketIn: TCPLocation(hostname: hostname, port: port),
+        TCPLocation(hostname: hostname, port: port),
         hostKeyAcceptance: hostKeyAcceptance,
         authentication: auth,
         loginTimeOut: loginTimeout,

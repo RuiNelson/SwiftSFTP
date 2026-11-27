@@ -120,7 +120,7 @@ struct SFTPClientMultiKeyAuth {
         func emptyArrayStopsTheProcess() async {
             await #expect(processExitsWith: .failure) {
                 try? SFTPClient.preflightConfigurationCheck(
-                    openSocketIn: TCPLocation(hostname: "localhost", port: 1),
+                    TCPLocation(hostname: "localhost", port: 1),
                     authentication: UserAuthentication(name: "charmander", auth: .privateKeys([]))
                 )
             }
