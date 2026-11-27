@@ -4,12 +4,31 @@ import Foundation
 ///
 /// Parsing checks that the key is valid for its algorithm, for example that an EC point lies on its curve and is not
 /// the point at infinity. It applies no acceptance policy, such as OpenSSH's minimum RSA modulus size: use
-/// ``KeyValidation/isValidForSSH_PublicKey`` for that.
+/// ``validForSSHAuth`` for that.
 public struct PublicKey: Sendable, Hashable, Codable {
     /// The key as DER-encoded SubjectPublicKeyInfo.
     public let derRepresentation: Data
     /// The key's algorithm and parameters.
     public let type: AsymmetricKeyType
+
+    /// RSA modulus sizes OpenSSH accepts, in bits (its `SSH_RSA_MINIMUM_MODULUS_SIZE` and `SSHBUF_MAX_BIGNUM`).
+    private static let sshRSAModulusBits = 1024 ... 16384
+
+    /// Whether OpenSSH accepts the key, for user authentication and host keys alike: an algorithm SSH defines (Ed25519,
+    /// ECDSA over P-256 / P-384 / P-521, or RSA), and, for RSA, a modulus of 1024 to 16384 bits and a public exponent
+    /// above 1.
+    public var validForSSHAuth: Bool {
+        switch type {
+        case .ed25519, .ecdsaP256, .ecdsaP384, .ecdsaP521:
+            return true
+        case .rsa:
+            guard let rsaKey = try? openSSLKey(),
+                  let exponent = try? rsaKey.rsaPublicComponents().publicExponent else { return false }
+            return Self.sshRSAModulusBits.contains(rsaKey.bits) && (exponent.count > 1 || (exponent.first ?? 0) > 1)
+        default:
+            return false
+        }
+    }
 
     /// Creates a public key from DER-encoded SubjectPublicKeyInfo.
     public init(derRepresentation: Data) throws {

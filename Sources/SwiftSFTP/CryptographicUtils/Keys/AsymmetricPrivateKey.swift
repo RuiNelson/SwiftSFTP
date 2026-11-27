@@ -3,8 +3,7 @@ import Foundation
 /// An asymmetric private key of any supported algorithm, with its public key.
 ///
 /// Parsing checks that the key is consistent: that its private and public halves belong together, so ``publicKey`` is
-/// the key that verifies its signatures. It applies no acceptance policy; for OpenSSH's, use
-/// ``KeyValidation/isValidForSSH_PrivateKey(passphrase:)``.
+/// the key that verifies its signatures. It applies no acceptance policy; for OpenSSH's, use ``validForSSHAuth``.
 public struct PrivateKey: Sendable, Hashable, Codable {
     /// The key as unencrypted DER-encoded PKCS#8.
     public let derRepresentation: Data
@@ -12,6 +11,11 @@ public struct PrivateKey: Sendable, Hashable, Codable {
     public let type: AsymmetricKeyType
     /// The public key matching this private key.
     public let publicKey: PublicKey
+
+    /// Whether OpenSSH accepts the key: see ``PublicKey/validForSSHAuth``, which this forwards to.
+    public var validForSSHAuth: Bool {
+        publicKey.validForSSHAuth
+    }
 
     /// Creates a private key from unencrypted DER-encoded PKCS#8, or from an algorithm-specific DER key (PKCS#1 RSA,
     /// SEC 1 EC).

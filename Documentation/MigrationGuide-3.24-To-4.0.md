@@ -352,7 +352,7 @@ destination of `untar`, `unzip`, `unSevenZip`, and `download`), an empty downloa
 | `.privateKeys(.init(url, passphrase: p))`, `.privateKeyFile(file: url, password: p)` | `.privateKey(try PrivateKey(file: url, passphrase: p))` |
 | `.privateKeys(.init(pem, passphrase: p))`, `.privateKeyString(keyData: pem, password: p)` | `.privateKey(try PrivateKey(string: pem, passphrase: p))` |
 | `.privateKeys(PrivateKeySet(strings: …, files: …))` | `.privateKeys([PrivateKey])`, in the order you want for keys of the same algorithm |
-| `PrivateKeyString` / `PrivateKeyFile` `.valid`, `.isValidForSSH`, `.algorithm` | `String.isValid_PrivateKey(passphrase:)`, `String.isValidForSSH_PrivateKey(passphrase:)`, `SSHUserKeyAlgorithm(privateKey:)` |
+| `PrivateKeyString` / `PrivateKeyFile` `.valid`, `.isValidForSSH`, `.algorithm` | `try PrivateKey(string:passphrase:)`, its `validForSSHAuth`, `SSHUserKeyAlgorithm(privateKey:)` |
 
 ```swift
 // Before
@@ -371,6 +371,23 @@ Keys are read, decrypted, and checked when you create the `PrivateKey`, not at l
 - A valid key of a type SSH cannot authenticate with (Ed448, ML-DSA, SLH-DSA, RSA under 1024 bits) makes the client
   initializer throw `SFTPClientInvalidConfig.invalidPrivateKey`; 3.24 skipped it at login.
 - `UserAuthentication` encodes a key as its DER bytes, unencrypted. Data encoded by 3.24 does not decode.
+
+## The `KeyValidation` `String` checks are removed
+
+The `KeyValidation` protocol and its `String` conformance are gone, with every `isValid_…` and `isValidForSSH_…` check
+on key text. Parse the key instead: a key that parses is valid, and the error says why one that does not was rejected.
+
+| 3.24 | 4.0 |
+|------|-----|
+| `s.isValid_PrivateKey(passphrase: p)` | `PrivateKey(string: s, passphrase: p) != nil` |
+| `s.isValid_PublicKey` | `PublicKey(string: s) != nil` |
+| `s.isValidForSSH_PrivateKey(passphrase: p)` | `(try? PrivateKey(string: s, passphrase: p))?.validForSSHAuth == true` |
+| `s.isValidForSSH_PublicKey` | `(try? PublicKey(string: s))?.validForSSHAuth == true` |
+| `s.privateKeyType(passphrase: p)`, `s.publicKeyType` | `try? PrivateKey(string: s, passphrase: p).type`, `try? PublicKey(string: s).type` |
+| `s.isValid_P256_PrivateKey`, `s.isValid_RSA_PublicKey`, … | Compare `.type` with `.ecdsaP256`, `.rsa`, … |
+| the `password:` variants | The `passphrase:` initializers |
+
+`String.isValid_HostKey` and `isValid_ShortHandHostKey` stay.
 
 ## `contentsOfDirectory` is now `listDirectory`
 
@@ -491,13 +508,14 @@ sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `
    `preflightConfigurationCheck` where you created a client only to validate its configuration.
 6. Replace `PrivateKeySet`, `PrivateKeyString`, `PrivateKeyFile`, `.privateKeyFile`, and `.privateKeyString` with
    `PrivateKey` and `.privateKey` / `.privateKeys([PrivateKey])`; handle key errors where you create the keys.
-7. Rename `contentsOfDirectory` to `listDirectory`.
-8. Remove `await cache.close()`; call `removeAll()` where you want the bytes gone at once.
-9. Remove `catch` and `switch` cases for `AlreadyClosed`, `NotLoggedIn`, and the removed enum cases; fix any race they
+7. Replace the `isValid_…` and `isValidForSSH_…` checks on key text with `PrivateKey` / `PublicKey` and `validForSSHAuth`.
+8. Rename `contentsOfDirectory` to `listDirectory`.
+9. Remove `await cache.close()`; call `removeAll()` where you want the bytes gone at once.
+10. Remove `catch` and `switch` cases for `AlreadyClosed`, `NotLoggedIn`, and the removed enum cases; fix any race they
    were hiding. Catch `UserAuthenticationError` where you caught `SFTPClientInvalidConfig.authenticationFailed`.
-10. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key arrays, and shell agent
+11. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key arrays, and shell agent
     inputs before passing them, since invalid values now stop the process.
-11. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
-12. Replace `Int64` with `FileSize` in progress callbacks, `directorySize` results, `set(size:)`, `upTo:`, and shell
+12. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
+13. Replace `Int64` with `FileSize` in progress callbacks, `directorySize` results, `set(size:)`, `upTo:`, and shell
     agent `length:` arguments, and check unsigned subtraction in your own progress arithmetic.
-13. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.
+14. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.

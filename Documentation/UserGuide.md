@@ -327,7 +327,7 @@ the username. An empty `.privateKeys([])` array stops the process.
 
 `PrivateKey` accepts any valid key, including types SSH cannot authenticate with (Ed448, ML-DSA, SLH-DSA, RSA under
 1024 bits); the client initializer rejects those with `.invalidPrivateKey`. Check a key offline with
-`SSHUserKeyAlgorithm(privateKey:)`, which is `nil` for them, or with `String` + `KeyValidation` — see
+`SSHUserKeyAlgorithm(privateKey:)`, which is `nil` for them, or with `PrivateKey.validForSSHAuth` — see
 [Validating SSH Keys (Offline)](#validating-ssh-keys-offline). Those checks do not prove server authorization.
 
 > **Note:** SSH agent and keyboard-interactive authentication are not supported by `SFTPClient`.
@@ -1054,8 +1054,9 @@ The same methods are available through `SFTPClientProtocol`.
 
 ## Validating SSH Keys (Offline)
 
-Call `.isValidForSSH_PrivateKey()` directly on the `String` containing your private key before connecting. It returns
-a `Bool` indicating whether the key is valid for SSH user authentication. Replace the sample key text below with your own.
+Parse your private key with `PrivateKey(string:passphrase:)` before connecting and read its `validForSSHAuth`, a
+`Bool` that says whether the key is valid for SSH user authentication. Parsing throws when the key is malformed or
+cannot be decrypted. Replace the sample key text below with your own.
 
 For an **OpenSSH private key without a passphrase**, omit `passphrase`:
 
@@ -1072,7 +1073,7 @@ gbOJzhna+0ZqQKFp/w1sAAAAFm5lbHNvbkBOZWxzb24tTTQubG9jYWwBAgMEBQYH
 -----END OPENSSH PRIVATE KEY-----
 """
 
-print(openSSH.isValidForSSH_PrivateKey()) // true
+print(try PrivateKey(string: openSSH).validForSSHAuth) // true
 ```
 
 For a **PEM private key with a passphrase**, supply `passphrase` (this example uses encrypted PKCS#8):
@@ -1089,14 +1090,14 @@ jCJCXPEfKsl6qOLYvzfKn1+LBOj5jw==
 -----END ENCRYPTED PRIVATE KEY-----
 """
 
-print(encryptedPEM.isValidForSSH_PrivateKey(passphrase: "testpassword123")) // true
+print(try PrivateKey(string: encryptedPEM, passphrase: "testpassword123").validForSSHAuth) // true
 ```
 
-An incorrect or missing passphrase makes `.isValidForSSH_PrivateKey(passphrase:)` return `false` for the encrypted key.
+An incorrect or missing passphrase makes `PrivateKey(string:passphrase:)` throw for the encrypted key.
 
 Both checks run offline and do not verify that the key is authorized on a server.
 
-For more formats, file-based validation, public keys, and algorithm-specific checks, see
+For more formats, file-based validation, public keys, and algorithm checks, see
 [Validating Existing Key Pairs](CryptographicUtils.md#validating-existing-key-pairs).
 
 ---

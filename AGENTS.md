@@ -62,13 +62,14 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 ## CryptographicUtils (`Sources/SwiftSFTP/CryptographicUtils`)
 
 - `Keys/` holds the public key API (`AsymmetricCryptography`, `PublicKey`, `PrivateKey`, …), one file per type.
-- `Validation/` holds the `String` validation APIs (`KeyValidation`, `known_hosts` checks) and `SSHUserKeyAlgorithm`.
-- `OpenSSH/` holds the OpenSSH formats: the SSH wire encoding, the key codec, key file ciphers, and
-  `OpenSSHKeyPolicy`. It does not import OpenSSL.
+- `Validation/` holds the `String` validation APIs (`known_hosts` checks) and `SSHUserKeyAlgorithm`. Key text is
+  validated by parsing it with `PrivateKey` / `PublicKey`, whose `validForSSHAuth` applies OpenSSH's acceptance rules.
+- `OpenSSH/` holds the OpenSSH formats: the SSH wire encoding, the key codec, and key file ciphers.
+  It does not import OpenSSL.
 - `OpenSSL/` is the only place that imports `OpenSSLCrypto`: `OpenSSLKey` wraps `EVP_PKEY`, alongside ciphers, digests, and
   support types.
 - Parsing (`PublicKey`, `PrivateKey`) checks that keys are valid and consistent but applies no policy; SSH acceptance
-  rules live only in `OpenSSHKeyPolicy`.
+  rules live only in `PublicKey.validForSSHAuth`.
 - Check imported keys in the `init(importing:)` initializers of `PublicKey` and `PrivateKey`, so every format gets the
   same checks.
 

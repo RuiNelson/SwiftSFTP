@@ -21,7 +21,6 @@ The main types are:
 | `PublicKey` | A public key of any supported algorithm. |
 | `AsymmetricKeyPair` | A `privateKey` and its `publicKey`, as returned by key generation. |
 | `AsymmetricKeyType` | The algorithm and parameters of a key (`.ed25519`, `.ecdsaP256`, `.rsa`, …). |
-| `KeyValidation` (on `String`) | `Bool` checks for private and public key text. |
 | `String.isValid_HostKey` / `isValid_ShortHandHostKey` | `Bool` checks for host key entries. |
 
 ---
@@ -180,14 +179,10 @@ to another key is rejected with `invalidKeyData`, so `privateKey.publicKey` is a
 
 ## Validating Existing Key Pairs
 
-Before using keys you did not create — imported by a user, read from disk, pasted into a form — check them. SwiftSFTP
-offers two styles:
-
-- **`Bool` checks** on `String`, through `KeyValidation`, for a quick yes or no.
-- **Throwing initializers** (`PrivateKey(string:passphrase:)`, `PublicKey(string:)`), when you need the reason a key
-  was rejected or the parsed key itself.
-
-Both apply the same checks. None of them tells you whether a server will authorize a key; see
+Before using keys you did not create — imported by a user, read from disk, pasted into a form — parse them with the
+throwing initializers `PrivateKey(string:passphrase:)` and `PublicKey(string:)`. A key that parses is valid, and the
+error says why one that does not was rejected. Use the failable `PrivateKey(_:)` and `PublicKey(_:)` for a quick yes
+or no. None of them tells you whether a server will authorize a key; see
 [What these APIs do not check](#what-these-apis-do-not-check).
 
 ### Valid keys and keys SSH accepts
@@ -196,8 +191,8 @@ There are two levels of validity:
 
 | Level | Checks | Accepts |
 |-------|--------|---------|
-| Valid | `isValid_PrivateKey`, `isValid_PublicKey`, `PrivateKey`, `PublicKey` | A well-formed, valid key of any [supported algorithm](#algorithms). No policy applies: a 768-bit RSA key is a valid key. |
-| Accepted by SSH | `isValidForSSH_PrivateKey(passphrase:)`, `isValidForSSH_PublicKey` | A valid key that OpenSSH will also use: Ed25519, ECDSA P-256/P-384/P-521, or RSA with a 1024- to 16384-bit modulus and a public exponent above 1. Ed448, ML-DSA, and SLH-DSA keys are rejected. |
+| Valid | `PrivateKey`, `PublicKey` | A well-formed, valid key of any [supported algorithm](#algorithms). No policy applies: a 768-bit RSA key is a valid key. |
+| Accepted by SSH | `validForSSHAuth` on `PrivateKey` and `PublicKey` | A valid key that OpenSSH will also use: Ed25519, ECDSA P-256/P-384/P-521, or RSA with a 1024- to 16384-bit modulus and a public exponent above 1. Ed448, ML-DSA, and SLH-DSA keys are rejected. |
 
 A key is valid when:
 
@@ -218,17 +213,17 @@ import SwiftSFTP
 
 let keyText = try String(contentsOfFile: "/Users/me/.ssh/id_ecdsa", encoding: .utf8)
 
-keyText.isValid_PrivateKey                                   // valid and unencrypted
-keyText.isValid_PrivateKey(passphrase: "passphrase")         // valid, encrypted or not
-keyText.isValidForSSH_PrivateKey(passphrase: "passphrase")   // valid, and SFTPClient can log in with it
-keyText.privateKeyType(passphrase: "passphrase")             // e.g. .ecdsaP256, or nil
+let key = try PrivateKey(string: keyText, passphrase: "passphrase")
+key.type            // e.g. .ecdsaP256
+key.validForSSHAuth // true when SFTPClient can log in with it
+
+PrivateKey(keyText) // nil when the key is invalid or encrypted
 ```
 
-Passphrases follow one rule everywhere: unencrypted keys pass whatever the passphrase, and encrypted keys must
-decrypt with it. A `nil` or empty passphrase therefore rejects every encrypted key. The properties without a
-`passphrase:` parameter (`isValid_PrivateKey`, `privateKeyType`) accept only unencrypted keys.
+Passphrases follow one rule everywhere: unencrypted keys parse whatever the passphrase, and encrypted keys must
+decrypt with it. A `nil` or empty passphrase therefore rejects every encrypted key.
 
-OpenSSH keys encrypted with more than 1024 bcrypt rounds fail these checks, since SwiftSFTP will not decrypt them.
+OpenSSH keys encrypted with more than 1024 bcrypt rounds are rejected, since SwiftSFTP will not decrypt them.
 `SFTPClient` still tries such keys last during authentication, when libssh2 decrypts them itself.
 
 ### Public keys
@@ -239,34 +234,23 @@ a trailing comment but without leading options:
 ```swift
 let line = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIMQcpIxd7XrCEeqjqair0YJgbOJzhna+0ZqQKFp/w1s user@host"
 
-line.isValid_PublicKey      // true
-line.isValidForSSH_PublicKey // true
-line.publicKeyType          // .ed25519
+let key = try PublicKey(string: line)
+key.type            // .ed25519
+key.validForSSHAuth // true
 ```
 
 ### Checking for a particular algorithm
 
-Compare `privateKeyType` or `publicKeyType` with the `AsymmetricKeyType` you expect:
+Compare the key's `type` with the `AsymmetricKeyType` you expect:
 
 ```swift
-if keyText.privateKeyType(passphrase: "passphrase") == .ed25519 {
+if let key = try? PrivateKey(string: keyText, passphrase: "passphrase"), key.type == .ed25519 {
     // a decryptable Ed25519 private key
 }
 ```
 
-Shortcuts exist for the SSH algorithms. Each private key check also has a `passphrase:` variant, such as
-`isValid_RSA_PrivateKey(passphrase:)`:
-
-| Algorithm | Private key | Public key |
-|-----------|-------------|------------|
-| Ed25519 | `isValid_Curve25519_PrivateKey` | `isValid_Curve25519_PublicKey` |
-| ECDSA P-256 | `isValid_P256_PrivateKey` | `isValid_P256_PublicKey` |
-| ECDSA P-384 | `isValid_P384_PrivateKey` | `isValid_P384_PublicKey` |
-| ECDSA P-521 | `isValid_P521_PrivateKey` | `isValid_P521_PublicKey` |
-| RSA | `isValid_RSA_PrivateKey` | `isValid_RSA_PublicKey` |
-
-These check validity only: `isValid_RSA_PublicKey` is `true` for a 768-bit RSA key. Combine them with
-`isValidForSSH_…` when the key is meant for SSH.
+`type` reports validity only: it is `.rsa` for a 768-bit RSA key. Check `validForSSHAuth` as well when the key is
+meant for SSH.
 
 ### Checking that a private and a public key belong together
 
@@ -304,7 +288,7 @@ do {
 }
 ```
 
-`PrivateKey` and `PublicKey` apply no SSH policy. Check `isValidForSSH_…` as well when the key is meant for SSH.
+`PrivateKey` and `PublicKey` apply no SSH policy. Check `validForSSHAuth` as well when the key is meant for SSH.
 
 ### Keys configured for `SFTPClient`
 
@@ -424,14 +408,6 @@ Key generation, parsing, and encoding throw `AsymmetricCryptographyError`:
 | `keyTypeMismatch(expected:actual:)` | `derivePublicKey(from:)` received a key of another algorithm. |
 | `invalidKeySize(_:)` | `RSA.generateKeyPair(bits:)` received a size outside 2048…16384. |
 | `openSSLFailure(_:)` | OpenSSL failed unexpectedly; carries its error queue. |
-
-The `Bool` checks never throw.
-
-### Deprecated API
-
-| Deprecated | Replacement |
-|------------|-------------|
-| `isValid_PrivateKey(password:)`, `isValid_RSA_PrivateKey(password:)`, … | The `passphrase:` variants |
 
 ### What these APIs do not check
 

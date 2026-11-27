@@ -3,7 +3,7 @@ import Foundation
 /// OpenSSH `known_hosts` host key validation for `String` values.
 ///
 /// A host key is valid when its blob names the line's algorithm, carries exactly that algorithm's components, holds a
-/// valid key (for example an EC point on its curve), and meets OpenSSH's rules (see ``OpenSSHKeyPolicy``).
+/// valid key (for example an EC point on its curve), and meets OpenSSH's rules (see ``PublicKey/validForSSHAuth``).
 public extension String {
     /// Returns whether the string is a valid shorthand host key (`algorithm base64-key`) for RSA, ECDSA, Ed25519, or
     /// DSA.
@@ -49,7 +49,7 @@ enum SSHHostKeyAlgorithm: String, Sendable {
         }
         guard let openSSLKey = try? OpenSSHKeyCodec.decodePublicKey(blob: blob, named: rawValue),
               let publicKey = try? PublicKey(importing: openSSLKey) else { return false }
-        return OpenSSHKeyPolicy.accepts(publicKey)
+        return publicKey.validForSSHAuth
     }
 
     /// Returns whether `blob` is a valid `ssh-dss` key.

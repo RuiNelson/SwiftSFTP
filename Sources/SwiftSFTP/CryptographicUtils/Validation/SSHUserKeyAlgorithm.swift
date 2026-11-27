@@ -49,16 +49,16 @@ public enum SSHUserKeyAlgorithm: String, Sendable, Equatable, CaseIterable, Coda
     ///   - passphrase: Passphrase for encrypted keys, or `nil` when the key is unencrypted.
     /// - Returns: The algorithm family, or `nil` when the key cannot be parsed (invalid material or wrong passphrase)
     /// or OpenSSH would not use it (an algorithm SSH does not define, or an RSA modulus outside 1024…16384 bits; see
-    /// ``OpenSSHKeyPolicy``).
+    /// ``PublicKey/validForSSHAuth``).
     public static func detect(from representation: String, passphrase: String? = nil) -> SSHUserKeyAlgorithm? {
         guard let key = try? PrivateKey(string: representation, passphrase: passphrase) else { return nil }
         return SSHUserKeyAlgorithm(privateKey: key)
     }
 
     /// The algorithm family of `privateKey`, or `nil` when OpenSSH would not use it (an algorithm SSH does not define,
-    /// or an RSA modulus outside 1024…16384 bits; see ``OpenSSHKeyPolicy``).
+    /// or an RSA modulus outside 1024…16384 bits; see ``PublicKey/validForSSHAuth``).
     public init?(privateKey: PrivateKey) {
-        guard OpenSSHKeyPolicy.accepts(privateKey.publicKey) else { return nil }
+        guard privateKey.validForSSHAuth else { return nil }
         self.init(keyType: privateKey.type)
     }
 

@@ -37,4 +37,8 @@ public struct AsymmetricKeyPair: Sendable, Hashable, Codable {
         }
         self.init(privateKey: privateKey)
     }
+    
+    public var validForSSHAuth: Bool {
+        publicKey.validForSSHAuth
+    }
 }

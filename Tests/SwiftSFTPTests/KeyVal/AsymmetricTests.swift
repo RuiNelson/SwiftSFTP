@@ -117,14 +117,14 @@ struct AsymmetricTests {
 
         let publicLine = try pair.publicKey.encode(format: .openSSH)
         #expect(try publicLine.hasPrefix("\(#require(type.openSSHName)) "))
-        #expect(publicLine.isValid_PublicKey)
+        #expect(PublicKey(publicLine) != nil)
         #expect(publicLine.isValid_ShortHandHostKey)
         #expect(try PublicKey(string: publicLine) == pair.publicKey)
         #expect(try PublicKey(string: publicLine + " user@example.com") == pair.publicKey)
 
         let plain = try pair.privateKey.encode(format: .openSSH)
         #expect(plain.hasPrefix("-----BEGIN OPENSSH PRIVATE KEY-----"))
-        #expect(plain.isValid_PrivateKey)
+        #expect(PrivateKey(plain) != nil)
         #expect(try PrivateKey(string: plain) == pair.privateKey)
 
         let encrypted = try pair.privateKey.encode(format: .openSSH, passphrase: Self.passphrase)

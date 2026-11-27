@@ -38,7 +38,7 @@ struct KeyParsingRegressionTests {
         let line = "ecdsa-sha2-nistp256 \(writer.data.base64EncodedString())"
 
         #expect(throws: AsymmetricCryptographyError.invalidKeyData) { try PublicKey(string: line) }
-        #expect(!line.isValid_PublicKey)
+        #expect(PublicKey(line) == nil)
         #expect(!line.isValid_ShortHandHostKey)
     }
 
@@ -62,14 +62,14 @@ struct KeyParsingRegressionTests {
         let publicLine = try key.publicKey.encode(format: .openSSH)
         let privatePEM = try key.encode(format: .pkcs8)
 
-        #expect(publicLine.isValid_RSA_PublicKey)
-        #expect(!publicLine.isValidForSSH_PublicKey)
+        #expect(try PublicKey(string: publicLine).type == .rsa)
+        #expect(try !PublicKey(string: publicLine).validForSSHAuth)
         #expect(!publicLine.isValid_ShortHandHostKey)
-        #expect(privatePEM.isValid_RSA_PrivateKey)
-        #expect(!privatePEM.isValidForSSH_PrivateKey())
+        #expect(try PrivateKey(string: privatePEM).type == .rsa)
+        #expect(try !PrivateKey(string: privatePEM).validForSSHAuth)
+        #expect(!key.validForSSHAuth)
         #expect(SSHUserKeyAlgorithm.detect(from: privatePEM) == nil)
         #expect(SSHUserKeyAlgorithm(privateKey: key) == nil)
-        #expect(privatePEM.isValid_PrivateKey())
     }
 
     @Test("a 512-bit RSA host key is rejected even with a large public exponent")
@@ -171,7 +171,6 @@ struct KeyParsingRegressionTests {
         )) {
             try PrivateKey(string: overLimit, passphrase: passphrase)
         }
-        #expect(!overLimit.isValid_PrivateKey(passphrase: passphrase))
         #expect(SSHUserKeyAlgorithm.detect(from: overLimit, passphrase: passphrase) == nil)
         // Without a passphrase nothing is derived, so the missing passphrase is what gets reported.
         #expect(throws: AsymmetricCryptographyError.passphraseRequired) { try PrivateKey(string: overLimit) }
