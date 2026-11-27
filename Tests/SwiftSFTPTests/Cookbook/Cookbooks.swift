@@ -29,7 +29,7 @@ struct Cookbook {
         let myClient = try await SFTPClient(
             "localhost:6922",
             hostKeyAcceptance: .acceptAny, // configurable
-            authentication: .init(name: "bulbasaur", auth: .password("pass123")) // supports private keys
+            authentication: "bulbasaur:pass123" // supports private keys
         )
 
         // - Check server banner

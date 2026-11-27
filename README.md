@@ -42,7 +42,7 @@ import Foundation
 let myClient = try await SFTPClient(
     "localhost:6922",
     hostKeyAcceptance: .acceptAny, // Configurable for strict host key checking
-    authentication: .init(name: "bulbasaur", auth: .password("pass123")), // Also supports .privateKey
+    authentication: "bulbasaur:pass123", // Also supports .privateKey
     compressionPreference: (clientToServer: [.zlib], serverToClient: [.zlib]) // Falls back to .none if unsupported
 )
 

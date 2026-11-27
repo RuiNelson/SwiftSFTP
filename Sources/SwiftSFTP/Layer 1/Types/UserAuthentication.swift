@@ -18,6 +18,9 @@ import Foundation
 /// // Password
 /// UserAuthentication(name: "alice", auth: .password("secret"))
 ///
+/// // Password, as a literal
+/// let credentials: UserAuthentication = "alice:secret"
+///
 /// // One private key on disk (optional passphrase)
 /// UserAuthentication(
 ///     name: "alice",
@@ -60,6 +63,25 @@ public struct UserAuthentication: Codable, Equatable, Sendable {
     public init(name: String, auth: UserAuthenticationMode) {
         self.name = name
         self.auth = auth
+    }
+}
+
+extension UserAuthentication: ExpressibleByStringLiteral {
+    /// Creates password credentials from a literal such as `"alice:secret"`.
+    ///
+    /// The text before the first `:` is the username and everything after it, colons included, is the password. A
+    /// literal without a `:` is a username with an empty password, which the client initializer rejects with
+    /// ``SFTPClientInvalidConfig/invalidPassword`` instead of stopping the process.
+    public init(stringLiteral value: String) {
+        if let colon = value.firstIndex(of: ":") {
+            self.init(
+                name: String(value[..<colon]),
+                auth: .password(String(value[value.index(after: colon)...]))
+            )
+        }
+        else {
+            self.init(name: value, auth: .password(""))
+        }
     }
 }
 
