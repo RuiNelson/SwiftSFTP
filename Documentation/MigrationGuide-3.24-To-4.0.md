@@ -17,6 +17,7 @@ in runtime behaviour, with what to do about each.
 | Configuration checked by the synchronous `init` | `preflightConfigurationCheck(openSocketIn:hostKeyAcceptance:authentication:)` |
 | `AlreadyClosed`, `NotLoggedIn` thrown | Misuse: assertion failure in debug, `MisuseError` thrown in release; no "not logged in" state |
 | Invalid timeouts, buffer sizes, keepalive intervals, URLs thrown or ignored | Precondition failure in every build |
+| `.privateKeys(PrivateKeySet)`, `.privateKeyFile`, `.privateKeyString` | `.privateKey(PrivateKey)`, `.privateKeys([PrivateKey])` |
 | `contentsOfDirectory(path:recursive:)` | `listDirectory(path:recursive:)`, returning `[FileMetadata]` |
 | Deprecated `listDirectory(path:recursive:) -> Set<FileMetadata>` | Removed; the name now returns `[FileMetadata]` |
 | `multiTune(..., logger:)` | `multiTune(..., onRound:)` with `MultiTuneRound` |
@@ -299,7 +300,7 @@ thrown or silently ignored. Validate them before calling SwiftSFTP if they come 
 | Transfers | `bufferSize` or `chunkSize` below one | Threw `FileTransferErrors.invalidBufferSize` | Precondition failure |
 | Transfers | Local URL that is not a `file://` URL | Threw `FileTransferErrors.notAFileURL` | Precondition failure |
 | `SFTPFile.read(upTo:)` | `upTo` below one | `read(upTo: 0)` returned `nil` | Precondition failure |
-| `UserAuthentication` | Empty `PrivateKeySet` | Threw `SFTPClientInvalidConfig.invalidPrivateKey` at login | Precondition failure in `SFTPClient.init` |
+| `UserAuthentication` | Empty `PrivateKeySet` (now an empty `.privateKeys([])`) | Threw `SFTPClientInvalidConfig.invalidPrivateKey` at login | Precondition failure in `SFTPClient.init` |
 | Shell agent | Empty input list to `tar`, `zip`, `sevenZip`, `concat` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
 | Shell agent | `compressionLevel` outside `0...9` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
 | Shell agent | Negative length to `createZeros`, `createRandomData` | Threw `ShellAgentError.invalidArgument` | Precondition failure |
@@ -311,9 +312,40 @@ As a result these enum cases are removed, and a `switch` or `catch` naming them 
 - `FileTransferErrors.notAFileURL`
 - `FileTransferErrors.invalidBufferSize`
 
-`SFTPClientInvalidConfig.invalidPrivateKey` remains, for a private key file missing at init.
+`SFTPClientInvalidConfig.invalidPrivateKey` remains, for a private key of a type SSH cannot authenticate with (see
+[Private keys are `PrivateKey` values](#private-keys-are-privatekey-values)).
 `ShellAgentError.invalidArgument` remains, but is thrown only for an empty path (to `stat`, and the archive or
 destination of `untar`, `unzip`, `unSevenZip`, and `download`), an empty download URL, and an unknown 7-Zip binary name.
+
+## Private keys are `PrivateKey` values
+
+`UserAuthenticationMode` takes parsed `PrivateKey` values instead of key text or file URLs. `PrivateKeySet`,
+`PrivateKeyString`, and `PrivateKeyFile` are removed, and so are the deprecated `.privateKeyFile(file:password:)` and
+`.privateKeyString(keyData:password:)` cases.
+
+| 3.24 | 4.0 |
+|------|-----|
+| `.privateKeys(.init(url, passphrase: p))`, `.privateKeyFile(file: url, password: p)` | `.privateKey(try PrivateKey(file: url, passphrase: p))` |
+| `.privateKeys(.init(pem, passphrase: p))`, `.privateKeyString(keyData: pem, password: p)` | `.privateKey(try PrivateKey(string: pem, passphrase: p))` |
+| `.privateKeys(PrivateKeySet(strings: …, files: …))` | `.privateKeys([PrivateKey])`, in the order you want for keys of the same algorithm |
+| `PrivateKeyString` / `PrivateKeyFile` `.valid`, `.isValidForSSH`, `.algorithm` | `String.isValid_PrivateKey(passphrase:)`, `String.isValidForSSH_PrivateKey(passphrase:)`, `SSHUserKeyAlgorithm(privateKey:)` |
+
+```swift
+// Before
+let auth = UserAuthentication(name: "alice", auth: .privateKeys(.init(keyURL, passphrase: "secret")))
+
+// After
+let auth = try UserAuthentication(name: "alice", auth: .privateKey(PrivateKey(file: keyURL, passphrase: "secret")))
+```
+
+Keys are read, decrypted, and checked when you create the `PrivateKey`, not at login:
+
+- A missing file, malformed key, or wrong passphrase throws from the `PrivateKey` initializer, instead of
+  `SFTPClientInvalidConfig.invalidPrivateKey` (missing file) or `.authenticationFailed` (the rest) from the client.
+- A key file is read once; changing it on disk afterwards does not affect a client that already has the key.
+- A valid key of a type SSH cannot authenticate with (Ed448, ML-DSA, SLH-DSA, RSA under 1024 bits) makes the client
+  initializer throw `SFTPClientInvalidConfig.invalidPrivateKey`; 3.24 skipped it at login.
+- `UserAuthentication` encodes a key as its DER bytes, unencrypted. Data encoded by 3.24 does not decode.
 
 ## `contentsOfDirectory` is now `listDirectory`
 
@@ -374,11 +406,13 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
 5. Replace `SFTPClient(...)` + `login(timeOut:)` and `initAndLogin(...)` with `try await SFTPClient(...)`, moving
    `loginTimeOut` and `operationsTimeOut`, in that order, after `compressionPreference`; replace `fork(loggedIn:)` with `fork()`; use
    `preflightConfigurationCheck` where you created a client only to validate its configuration.
-6. Rename `contentsOfDirectory` to `listDirectory`.
-7. Remove `await cache.close()`; call `removeAll()` where you want the bytes gone at once.
-8. Remove `catch` and `switch` cases for `AlreadyClosed`, `NotLoggedIn`, and the removed enum cases; fix any race they
+6. Replace `PrivateKeySet`, `PrivateKeyString`, `PrivateKeyFile`, `.privateKeyFile`, and `.privateKeyString` with
+   `PrivateKey` and `.privateKey` / `.privateKeys([PrivateKey])`; handle key errors where you create the keys.
+7. Rename `contentsOfDirectory` to `listDirectory`.
+8. Remove `await cache.close()`; call `removeAll()` where you want the bytes gone at once.
+9. Remove `catch` and `switch` cases for `AlreadyClosed`, `NotLoggedIn`, and the removed enum cases; fix any race they
    were hiding.
-9. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key sets, and shell agent inputs
-   before passing them, since invalid values now stop the process.
-10. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
-11. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.
+10. Validate timeouts, keepalive intervals, buffer and chunk sizes, local URLs, private key arrays, and shell agent
+    inputs before passing them, since invalid values now stop the process.
+11. Handle `ShellAgentError.channelClosedAfterFailure` by opening a new shell agent.
+12. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.

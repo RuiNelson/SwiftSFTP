@@ -36,6 +36,25 @@ public struct PrivateKey: Sendable, Hashable, Codable {
         try self.init(importing: key)
     }
 
+    public init(file: URL, passphrase: String? = nil) throws {
+        precondition(file.isFileURL, "Not a file URL")
+        let data = try Data(contentsOf: file, options: [.uncached])
+        let string =
+            String(data: data, encoding: .ascii) ??
+            String(data: data, encoding: .utf8) ??
+            String(data: data, encoding: .utf16) ??
+            ""
+        
+        try self.init(string: string, passphrase: passphrase)
+    }
+    
+    public init(derFile: URL) throws {
+        precondition(derFile.isFileURL, "Not a file URL")
+        let data = try Data(contentsOf: derFile, options: [.uncached])
+        
+        try self.init(derRepresentation: data)
+    }
+
     /// Wraps a private key read from outside SwiftSFTP, after checking that it is a consistent key of a supported type.
     init(importing key: OpenSSLKey) throws {
         let type = try key.keyType()
@@ -86,5 +105,26 @@ public struct PrivateKey: Sendable, Hashable, Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(derRepresentation)
+    }
+}
+
+extension PrivateKey: LosslessStringConvertible {
+    public init?(_ description: String) {
+        try? self.init(string: description)
+    }
+
+    public var description: String {
+        if let pkcs8 = try? self.encode(format: .pkcs8) {
+            return pkcs8
+        }
+        else {
+            for format in PrivateKeyFormat.allCases {
+                if let anotherFormat = try? self.encode(format: format) {
+                    return anotherFormat
+                }
+            }
+            
+            fatalError("Private key invalid: could not be encoded in any format.")
+        }
     }
 }

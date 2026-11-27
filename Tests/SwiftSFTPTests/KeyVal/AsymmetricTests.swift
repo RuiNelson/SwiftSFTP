@@ -323,6 +323,85 @@ struct AsymmetricTests {
         }
     }
 
+    // MARK: - Files and strings
+
+    /// Writes `data` to a new temporary file, passes its URL to `body`, and deletes it.
+    private static func withTemporaryFile<T>(_ data: Data, _ body: (URL) throws -> T) throws -> T {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftSFTP-key-\(UUID().uuidString)")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try body(url)
+    }
+
+    @Test("public keys read from text and DER files", arguments: availableTypes)
+    func publicKeyFiles(type: AsymmetricKeyType) throws {
+        let key = try Self.generate(type).publicKey
+        var formats: [PublicKeyFormat] = [.pem]
+        if type.openSSHName != nil {
+            formats.append(.openSSH)
+        }
+        for format in formats {
+            let text = try key.encode(format: format) + "\n"
+            #expect(try Self.withTemporaryFile(Data(text.utf8)) { try PublicKey(file: $0) } == key)
+        }
+        #expect(try Self.withTemporaryFile(key.derRepresentation) { try PublicKey(derFile: $0) } == key)
+    }
+
+    @Test("private keys read from text and DER files", arguments: availableTypes)
+    func privateKeyFiles(type: AsymmetricKeyType) throws {
+        let key = try Self.generate(type).privateKey
+        let encrypted = try key.encode(format: .pkcs8, passphrase: Self.passphrase)
+        #expect(try Self.withTemporaryFile(Data(encrypted.utf8)) {
+            try PrivateKey(file: $0, passphrase: Self.passphrase)
+        } == key)
+        #expect(try Self.withTemporaryFile(key.derRepresentation) { try PrivateKey(derFile: $0) } == key)
+    }
+
+    @Test("ssh-keygen public key fixtures read from file, with their comment")
+    func publicKeyFixtureFiles() throws {
+        for name in ["ed25519", "p256", "p384", "p521", "rsa"] {
+            let openSSH = URL(fileURLWithPath: "\(TS.keyPairsRoot)/\(name)-public-openssh-clear")
+            let pem = URL(fileURLWithPath: "\(TS.keyPairsRoot)/\(name)-public-pem-clear")
+            let privateKey = URL(fileURLWithPath: "\(TS.keyPairsRoot)/\(name)-private-openssh-clear")
+            guard FileManager.default.fileExists(atPath: openSSH.path),
+                  FileManager.default.fileExists(atPath: pem.path),
+                  FileManager.default.fileExists(atPath: privateKey.path) else { return }
+
+            let expected = try PrivateKey(file: privateKey).publicKey
+            #expect(try PublicKey(file: openSSH) == expected)
+            // The EC PEM fixtures spell out the curve parameters instead of naming the curve, so their DER, and with it
+            // `==`, differs from the same key's; compare the canonical OpenSSH encoding instead.
+            #expect(try PublicKey(file: pem).encode(format: .openSSH) == expected.encode(format: .openSSH))
+        }
+    }
+
+    @Test("reading a missing or non-key file throws")
+    func unreadableKeyFiles() throws {
+        let missing = URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)")
+        #expect(throws: (any Error).self) { try PublicKey(file: missing) }
+        #expect(throws: (any Error).self) { try PublicKey(derFile: missing) }
+        #expect(throws: (any Error).self) { try PrivateKey(file: missing) }
+        #expect(throws: (any Error).self) { try PrivateKey(derFile: missing) }
+
+        try Self.withTemporaryFile(Data([0xFF, 0xFE, 0x00, 0xD8])) { url in
+            #expect(throws: (any Error).self) { try PublicKey(file: url) }
+            #expect(throws: (any Error).self) { try PrivateKey(file: url) }
+        }
+    }
+
+    @Test("LosslessStringConvertible round trip", arguments: availableTypes)
+    func losslessStringConvertible(type: AsymmetricKeyType) throws {
+        let pair = try Self.generate(type)
+        let publicFormat: PublicKeyFormat = type.openSSHName != nil ? .openSSH : .pem
+        #expect(try pair.publicKey.description == (pair.publicKey.encode(format: publicFormat)))
+        #expect(PublicKey(pair.publicKey.description) == pair.publicKey)
+        #expect(try PublicKey(pair.publicKey.encode(format: .pem)) == pair.publicKey)
+        #expect(try pair.privateKey.description == (pair.privateKey.encode(format: .pkcs8)))
+        #expect(PrivateKey(pair.privateKey.description) == pair.privateKey)
+        #expect(PublicKey("not a key") == nil)
+        #expect(PrivateKey("not a key") == nil)
+    }
+
     // MARK: - Codable
 
     @Test("Codable round trip")

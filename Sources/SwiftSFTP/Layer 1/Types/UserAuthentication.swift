@@ -4,10 +4,8 @@ import Foundation
 
 // Read this file top-down:
 //   1. UserAuthentication     — what you pass to SFTPClient
-//   2. UserAuthenticationMode — password vs one key vs several keys
-//   3. PrivateKeySet          — multi-identity collection and selection rules
-//   4. PrivateKeyString/File  — one key in memory or on disk
-//   5. SFTPClient.authenticate — runtime behaviour (internal)
+//   2. UserAuthenticationMode — password, one key, or several keys
+//   3. SFTPClient.authenticate — runtime behaviour (internal)
 
 // MARK: - Credentials
 
@@ -20,31 +18,27 @@ import Foundation
 /// // Password
 /// UserAuthentication(name: "alice", auth: .password("secret"))
 ///
-/// // One private key on disk
+/// // One private key on disk (optional passphrase)
 /// UserAuthentication(
 ///     name: "alice",
-///     auth: .privateKeys(.init(url))
+///     auth: .privateKey(PrivateKey(file: url, passphrase: "optional"))
 /// )
 ///
-/// // One private key in memory (optional passphrase)
-/// UserAuthentication(
-///     name: "alice",
-///     auth: .privateKeys(.init(pem, passphrase: "optional"))
-/// )
+/// // One private key in memory
+/// UserAuthentication(name: "alice", auth: .privateKey(PrivateKey(string: pem)))
 ///
-/// // Several private keys — library filters/orders and tries until one works
+/// // Several private keys — the library filters, orders, and tries them until one works
 /// UserAuthentication(
 ///     name: "alice",
-///     auth: .privateKeys(.init(files: [
-///         .init(file: idEd25519),
-///         .init(file: idRSA),
-///     ]))
+///     auth: .privateKeys([
+///         PrivateKey(file: idEd25519),
+///         PrivateKey(file: idRSA),
+///     ])
 /// )
 /// ```
 ///
-/// Prefer ``UserAuthenticationMode/privateKeys(_:)`` for all public-key logins (one key or many). That mode classifies
-/// keys, uses the server's RFC 8308 `server-sig-algs` when available, and tries compatible candidates in preference
-/// order — similar in spirit to OpenSSH multi-`IdentityFile`, without scanning `~/.ssh` or using ssh-agent.
+/// Keys are parsed, decrypted, and checked when you create each ``PrivateKey``, so a missing file, malformed key, or
+/// wrong passphrase is reported by its initializer, before any connection is made.
 ///
 /// - Important: `server-sig-algs` lists signature **algorithms** the daemon supports, not the public keys in
 /// `authorized_keys`. A key may match an accepted algorithm and still be rejected if it is not authorized for ``name``.
@@ -62,7 +56,7 @@ public struct UserAuthentication: Codable, Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - name: Remote account name.
-    ///   - auth: Password or public-key material.
+    ///   - auth: Password or private keys.
     public init(name: String, auth: UserAuthenticationMode) {
         self.name = name
         self.auth = auth
@@ -72,264 +66,42 @@ public struct UserAuthentication: Codable, Equatable, Sendable {
 // MARK: - Authentication modes
 
 /// How ``UserAuthentication`` proves the remote user's identity.
-///
-/// Prefer:
-///
-/// 1. ``password(_:)`` — server accepts password auth.
-/// 2. ``privateKeys(_:)`` — one or more private keys (see ``PrivateKeySet``).
-///
-/// The single-key cases ``privateKeyString(keyData:password:)`` and
-/// ``privateKeyFile(file:password:)`` remain for source compatibility and are deprecated;
-/// migrate to ``privateKeys(_:)`` with a single-key ``PrivateKeySet``, for example
-/// `.privateKeys(.init(pem))` or `.privateKeys(.init(url))`.
 public enum UserAuthenticationMode: Codable, Equatable, Sendable {
     /// Password authentication (SSH `password` method).
     ///
-    /// The associated value is the account password. Empty passwords may be rejected during client setup or by the
-    /// server.
+    /// The associated value is the account password. Empty passwords are rejected by the client initializer with
+    /// ``SFTPClientInvalidConfig/invalidPassword``.
     case password(String)
 
-    /// One private key provided as in-memory text.
+    /// Public-key authentication with one private key.
     ///
-    /// - Parameters:
-    ///   - keyData: Private key text.
-    ///   - password: Passphrase if the key is encrypted; otherwise `nil`. Named `password` for historical API
-    /// compatibility (it is the key passphrase).
+    /// The same as ``privateKeys(_:)`` with a single key.
+    case privateKey(PrivateKey)
+
+    /// Public-key authentication with one or more private keys; SwiftSFTP filters, orders, and tries them until one is
+    /// accepted.
     ///
-    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with a string ``PrivateKeySet`` instead:
-    ///   `.privateKeys(.init(keyData, passphrase: password))`.
-    @available(*, deprecated, message: "Use .privateKeys(.init(_:passphrase:)) with the PEM string instead")
-    case privateKeyString(keyData: String, password: String?)
-
-    /// One private key loaded from a filesystem path at authentication time.
+    /// You pass every identity explicitly: SwiftSFTP does **not** scan `~/.ssh`, read `IdentityFile` from
+    /// `ssh_config`, or query ssh-agent.
     ///
-    /// - Parameters:
-    ///   - file: File URL of the private key.
-    ///   - password: Passphrase if the key is encrypted; otherwise `nil`. Named `password` for historical API
-    /// compatibility (it is the key passphrase).
+    /// ## Selection on login
     ///
-    /// - Warning: Deprecated. Use ``privateKeys(_:)`` with a file ``PrivateKeySet`` instead:
-    ///   `.privateKeys(.init(file, passphrase: password))`.
-    @available(*, deprecated, message: "Use .privateKeys(.init(_:passphrase:)) with the key file URL instead")
-    case privateKeyFile(file: URL, password: String?)
-
-    /// One or more private keys; SwiftSFTP filters, orders, and tries them until one is accepted.
+    /// 1. Classify each key with ``SSHUserKeyAlgorithm/init(privateKey:)``.
+    /// 2. Read the server's RFC 8308 `server-sig-algs` when present (``SessionServerSignAlgorithms(session:)``).
+    /// 3. **Filter** out keys whose family cannot produce any listed signature algorithm (when the server advertised
+    /// the extension).
+    /// 4. **Order** the remaining keys by server preference, or by
+    ///    ``SSHUserKeyAlgorithm/defaultSignaturePreference`` if `server-sig-algs` is missing. Keys of the same family
+    ///    keep the order of the array.
+    /// 5. Attempt each candidate with libssh2 until one authenticates or all fail.
     ///
-    /// Use this for both a single identity and multi-identity sets. Selection rules, empty-set behaviour, and limits
-    /// versus the OpenSSH `ssh` client are documented on ``PrivateKeySet``.
-    case privateKeys(PrivateKeySet)
-}
-
-// MARK: - Multi-key collection
-
-/// Collection of private keys for multi-identity public-key authentication.
-///
-/// Used only with ``UserAuthenticationMode/privateKeys(_:)``. You pass every identity explicitly: SwiftSFTP does
-/// **not** scan `~/.ssh`, read `IdentityFile` from `ssh_config`, or query ssh-agent.
-///
-/// ## Selection on login
-///
-/// 1. Build candidates from ``strings`` first, then ``files`` (that enumeration order becomes the stable secondary sort
-/// key).
-/// 2. Classify each key with ``SSHUserKeyAlgorithm`` (via ``PrivateKeyString/algorithm`` /
-///    ``PrivateKeyFile/algorithm``).
-/// 3. Read the server's RFC 8308 `server-sig-algs` when present (``SessionServerSignAlgorithms(session:)``).
-/// 4. **Filter** keys whose family cannot produce any listed signature algorithm (when the server advertised the
-/// extension). Unclassifiable keys are still tried last.
-/// 5. **Order** remaining keys by server preference, or by
-///    ``SSHUserKeyAlgorithm/defaultSignaturePreference`` if `server-sig-algs` is missing.
-/// 6. Attempt each candidate with libssh2 until one authenticates or all fail.
-///
-/// This is closer to OpenSSH multi-identity behaviour than a blind “try files in user list order” loop. It still cannot
-/// know which public key is in `authorized_keys` without probing the server.
-///
-/// ## Examples
-///
-/// ```swift
-/// // Single file or PEM (type-context `.init` form)
-/// .privateKeys(.init(idEd25519URL))
-/// .privateKeys(.init(pemText, passphrase: "optional"))
-///
-/// // Several files
-/// let keys = PrivateKeySet(files: [
-///     .init(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_ed25519")),
-///     .init(file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_rsa")),
-///     .init(
-///         file: URL(fileURLWithPath: NSHomeDirectory() + "/.ssh/id_ecdsa"),
-///         passphrase: "optional"
-///     ),
-/// ])
-/// let auth = UserAuthentication(name: "alice", auth: .privateKeys(keys))
-/// ```
-public struct PrivateKeySet: Codable, Sendable, Equatable {
-    /// In-memory private keys (see ``PrivateKeyString``).
+    /// This is closer to OpenSSH multi-identity behaviour than a blind “try keys in order” loop. It still cannot know
+    /// which public key is in `authorized_keys` without probing the server.
     ///
-    /// When candidates are built, these are enumerated before ``files``, so they receive lower original indices than
-    /// files in the same set.
-    public var strings: [PrivateKeyString]
-
-    /// On-disk private keys (see ``PrivateKeyFile``).
-    public var files: [PrivateKeyFile]
-
-    /// Creates a set from in-memory and file-backed keys.
-    ///
-    /// - Parameters:
-    ///   - strings: Keys already loaded as text.
-    ///   - files: Keys referenced by filesystem URL.
-    public init(strings: [PrivateKeyString], files: [PrivateKeyFile]) {
-        self.strings = strings
-        self.files = files
-    }
-
-    /// Creates a set that contains only file-backed keys.
-    ///
-    /// - Parameter files: On-disk private keys to try.
-    public init(files: [PrivateKeyFile]) {
-        self.init(strings: [], files: files)
-    }
-
-    /// Creates a set that contains only in-memory keys.
-    ///
-    /// - Parameter strings: In-memory private keys to try.
-    public init(strings: [PrivateKeyString]) {
-        self.init(strings: strings, files: [])
-    }
-
-    /// Creates a set with a single in-memory private key.
-    ///
-    /// Prefer this (or `.privateKeys(.init(pem, passphrase: …))`) for one PEM/OpenSSH key already loaded as text.
-    ///
-    /// - Parameters:
-    ///   - string: Private key text (PEM, PKCS#8, or OpenSSH block).
-    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
-    public init(_ string: String, passphrase: String? = nil) {
-        let key = PrivateKeyString(representation: string, passphrase: passphrase)
-        self.init(strings: [key], files: [])
-    }
-
-    /// Creates a set with a single on-disk private key.
-    ///
-    /// Prefer this (or `.privateKeys(.init(url, passphrase: …))`) for one key file.
-    ///
-    /// - Parameters:
-    ///   - file: File URL of the private key.
-    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
-    public init(_ file: URL, passphrase: String? = nil) {
-        let key = PrivateKeyFile(file: file, passphrase: passphrase)
-        self.init(strings: [], files: [key])
-    }
-
-    /// `true` when both ``strings`` and ``files`` are empty.
-    ///
-    /// An empty set fails authentication with ``SFTPClientInvalidConfig/invalidPrivateKey(_:)`` before attempting
-    /// public-key auth with no identities.
-    public var isEmpty: Bool {
-        strings.isEmpty && files.isEmpty
-    }
-}
-
-// MARK: - Single key carriers
-
-/// In-memory PEM, PKCS#8, or OpenSSH private key.
-///
-/// Building block for ``PrivateKeySet/strings`` and for inspecting material before connect. During auth, libssh2
-/// derives the public key from this private material.
-public struct PrivateKeyString: Codable, Sendable, Equatable, Hashable {
-    /// Private key text (PEM, PKCS#8, or OpenSSH `BEGIN OPENSSH PRIVATE KEY` block).
-    public var representation: String
-
-    /// Passphrase for an encrypted private key, or `nil` when the key is unencrypted.
-    public var passphrase: String?
-
-    /// Creates in-memory private key material.
-    ///
-    /// - Parameters:
-    ///   - representation: Private key file contents as UTF-8 text.
-    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
-    public init(representation: String, passphrase: String? = nil) {
-        self.representation = representation
-        self.passphrase = passphrase
-    }
-
-    /// Whether the key parses as a private key of any ``AsymmetricKeyType`` for ``passphrase``.
-    ///
-    /// Local format check only — does **not** prove the key is authorized on a server, nor that SSH supports its
-    /// algorithm (see ``isValidForSSH``). Encrypted keys without the correct passphrase return `false`.
-    public var valid: Bool {
-        representation.isValid_PrivateKey(passphrase: passphrase)
-    }
-
-    /// Whether the key parses for ``passphrase`` and is of a family SSH user authentication supports.
-    ///
-    /// True exactly when ``algorithm`` is non-`nil`: RSA with a 1024 to 16384-bit modulus, ECDSA P-256 / P-384 / P-521,
-    /// or Ed25519. Keys that are ``valid`` but that OpenSSH will not use, such as Ed448, ML-DSA, SLH-DSA, or RSA under
-    /// 1024 bits, return `false`. Does **not** prove the key is authorized on a server.
-    public var isValidForSSH: Bool {
-        representation.isValidForSSH_PrivateKey(passphrase: passphrase)
-    }
-
-    /// Key family (`rsa`, `ed25519`, ECDSA curve, …) when detectible.
-    ///
-    /// Uses the same OpenSSL-backed rules as ``KeyValidation``. Returns `nil` for invalid material, a wrong passphrase,
-    /// or unsupported types. Multi-key selection uses this to match `server-sig-algs` (e.g. RSA material matches
-    /// `rsa-sha2-512` / `rsa-sha2-256`).
-    public var algorithm: SSHUserKeyAlgorithm? {
-        SSHUserKeyAlgorithm.detect(from: representation, passphrase: passphrase)
-    }
-}
-
-/// On-disk private key referenced by URL.
-///
-/// Building block for ``PrivateKeySet/files``. The file is read at authentication time and when evaluating ``valid`` /
-/// ``algorithm``. Contents must be UTF-8 PEM, PKCS#8, or OpenSSH private key text; binary or non-file URLs are treated
-/// as invalid.
-public struct PrivateKeyFile: Codable, Sendable, Equatable, Hashable {
-    /// File URL of the private key (typically `file://`).
-    public var file: URL
-
-    /// Passphrase for an encrypted private key, or `nil` when the key is unencrypted.
-    public var passphrase: String?
-
-    /// Creates a file-backed private key reference.
-    ///
-    /// - Parameters:
-    ///   - file: Location of the private key on disk.
-    ///   - passphrase: Decryption passphrase, or `nil` if the key is not encrypted.
-    public init(file: URL, passphrase: String? = nil) {
-        self.file = file
-        self.passphrase = passphrase
-    }
-
-    /// Whether the file exists, is UTF-8 text, and parses as a private key for ``passphrase``.
-    ///
-    /// Reads the whole file for validation. Same limits as ``PrivateKeyString/valid``: format only, not server
-    /// authorization or SSH algorithm support (see ``isValidForSSH``).
-    public var valid: Bool {
-        contents?.valid ?? false
-    }
-
-    /// Whether the file exists, is UTF-8 text, and parses for ``passphrase`` as a private key of a family SSH user
-    /// authentication supports.
-    ///
-    /// Reads the whole file for validation. Same rules as ``PrivateKeyString/isValidForSSH``.
-    public var isValidForSSH: Bool {
-        contents?.isValidForSSH ?? false
-    }
-
-    /// The file's contents as in-memory key material, or `nil` when it is not a readable UTF-8 file.
-    private var contents: PrivateKeyString? {
-        guard file.isFileURL,
-              let data = try? Data(contentsOf: file),
-              let str = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return PrivateKeyString(representation: str, passphrase: passphrase)
-    }
-
-    /// Key family when the file can be read and typed; otherwise `nil`.
-    public var algorithm: SSHUserKeyAlgorithm? {
-        contents?.algorithm
-    }
+    /// The array must not be empty (a precondition of the client initializer), and every key must be one SSH user
+    /// authentication supports (``SSHUserKeyAlgorithm/init(privateKey:)`` is non-`nil`); otherwise the client
+    /// initializer throws ``SFTPClientInvalidConfig/invalidPrivateKey(_:)``.
+    case privateKeys([PrivateKey])
 }
 
 // MARK: - Runtime (SFTPClient)
@@ -339,11 +111,11 @@ extension SFTPClient {
     ///
     /// Invoked after TCP connect, handshake, and host-key verification. Dispatches on
     /// ``UserAuthentication/auth``:
-    /// - password / single key → one libssh2 attempt;
-    /// - ``UserAuthenticationMode/privateKeys(_:)`` → plan then try candidates in order.
+    /// - password → one libssh2 attempt;
+    /// - ``UserAuthenticationMode/privateKey(_:)`` / ``UserAuthenticationMode/privateKeys(_:)`` → plan, then try
+    /// candidates in order.
     ///
-    /// Single-credential failures map to ``SFTPClientInvalidConfig/authenticationFailed(_:)``. An empty
-    /// ``PrivateKeySet`` maps to ``SFTPClientInvalidConfig/invalidPrivateKey(_:)``.
+    /// Failures map to ``SFTPClientInvalidConfig/authenticationFailed(_:)``.
     func authenticate() throws {
         let username = authentication.name
 
@@ -356,37 +128,23 @@ extension SFTPClient {
                 throw SFTPClientInvalidConfig.authenticationFailed(error)
             }
 
-        case let .privateKeys(set):
-            try authenticate(with: set, username: username)
+        case let .privateKey(key):
+            try authenticate(with: [key], username: username)
 
-        case .privateKeyString, .privateKeyFile:
-            try authenticateDeprecatedSingleKey(authentication.auth, username: username)
+        case let .privateKeys(keys):
+            try authenticate(with: keys, username: username)
         }
-    }
-
-    /// Compatibility path for deprecated single-key modes; routes through multi-key auth.
-    private func authenticateDeprecatedSingleKey(_ mode: UserAuthenticationMode, username: String) throws {
-        let set: PrivateKeySet
-        switch mode {
-        case let .privateKeyString(keyData: string, password: passphrase):
-            set = .init(string, passphrase: passphrase)
-        case let .privateKeyFile(file: file, password: passphrase):
-            set = .init(file, passphrase: passphrase)
-        default:
-            return
-        }
-        try authenticate(with: set, username: username)
     }
 
     /// Multi-key path: plan with ``PrivateKeyAuthPlanner``, then try each candidate.
     ///
-    /// Retryable per-key failures (unverified public key, auth rejected, missing file, bad key material) advance to the
-    /// next candidate. Non-retryable session errors abort immediately.
-    private func authenticate(with set: PrivateKeySet, username: String) throws {
-        // `SFTPClient.init` stops the process for an empty set.
+    /// Retryable per-key failures (unverified public key, auth rejected, bad key material) advance to the next
+    /// candidate. Non-retryable session errors abort immediately.
+    private func authenticate(with keys: [PrivateKey], username: String) throws {
+        // `SFTPClient.init` stops the process for an empty array and rejects keys SSH cannot use.
         let serverAlgs = SessionServerSignAlgorithms(session: session)
         let planned = PrivateKeyAuthPlanner.plan(
-            candidates: PrivateKeyAuthPlanner.candidates(from: set),
+            candidates: PrivateKeyAuthPlanner.candidates(from: keys),
             serverSigAlgs: serverAlgs
         )
 
@@ -402,7 +160,13 @@ extension SFTPClient {
         var lastError: Error?
         for candidate in planned {
             do {
-                try authenticate(with: candidate, username: username)
+                try UserAuthPublicKeyFromMemory(
+                    session: session,
+                    username: username,
+                    publicKeyFileData: "",
+                    privateKeyFileData: candidate.keyData,
+                    passphrase: nil
+                )
                 return
             }
             catch let error as LibSSH2Error where error.isRetryablePrivateKeyFailure {
@@ -417,28 +181,6 @@ extension SFTPClient {
         throw SFTPClientInvalidConfig.authenticationFailed(
             lastError ?? LibSSH2Error.authenticationFailed("All private keys were rejected")
         )
-    }
-
-    /// One planned multi-key candidate → one libssh2 public-key attempt.
-    private func authenticate(with candidate: PrivateKeyAuthCandidate, username: String) throws {
-        switch candidate.source {
-        case let .memory(keyData):
-            try UserAuthPublicKeyFromMemory(
-                session: session,
-                username: username,
-                publicKeyFileData: "",
-                privateKeyFileData: keyData,
-                passphrase: candidate.passphrase
-            )
-        case let .file(url):
-            try UserAuthPublicKeyFromFile(
-                session: session,
-                username: username,
-                publicKeyPath: nil,
-                privateKeyPath: url.path,
-                passphrase: candidate.passphrase
-            )
-        }
     }
 }
 

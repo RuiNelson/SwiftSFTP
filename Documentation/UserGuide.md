@@ -52,7 +52,7 @@ let client = try await SFTPClient(
     hostKeyAcceptance: .acceptAny,
     authentication: UserAuthentication(
         name: "alice",
-        auth: .privateKeys(.init(URL(filePath: "/Users/alice/.ssh/id_ed25519")))
+        auth: .privateKey(PrivateKey(file: URL(filePath: "/Users/alice/.ssh/id_ed25519")))
     ),
     compressionPreference: ([], []),
     loginTimeOut: 15.0,         // connection, handshake, authentication, and SFTP initialization
@@ -149,7 +149,7 @@ These values stop the process in every build:
 | `loginTimeOut`, `operationsTimeOut`, `getServerHostKey(timeOut:)`, `timeout`, `teardownGracePeriod` | Zero, negative, or NaN. `.infinity` means no timeout |
 | `setKeepAlive(every:)` | Zero, negative, NaN, or infinite (`nil` disables keepalives) |
 | Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL |
-| `UserAuthentication` | An empty `PrivateKeySet` |
+| `UserAuthentication` | An empty `.privateKeys([])` array |
 | Shell agent | An empty input list (`tar`, `zip`, `sevenZip`, `concat`), a `compressionLevel` outside `0...9`, a negative length (`createZeros`, `createRandomData`) |
 | `ReferenceCache` and `InMemoryCacheStorage` configuration, `compareFiles` | Negative sizes and intervals, and the other out-of-range values their documentation names |
 
@@ -227,10 +227,14 @@ The initializer applies them after the SSH handshake.
 | Mode | Use when |
 |------|----------|
 | `.password(_:)` | Password authentication |
-| `.privateKeys(_:)` | One or more private keys (`PrivateKeySet`) |
+| `.privateKey(_:)` | One private key (`PrivateKey`) |
+| `.privateKeys(_:)` | Several private keys (`[PrivateKey]`) |
 
 Empty usernames and empty passwords are rejected at client construction
 (`.invalidUsername` / `.invalidPassword`).
+
+Private keys are `PrivateKey` values, parsed, decrypted, and checked when you create them. A missing file, malformed
+key, or wrong passphrase throws from the `PrivateKey` initializer, before any connection is made.
 
 ### Password
 
@@ -246,7 +250,7 @@ let pem = """
 MC4CAQAwBQYDK2VwBCIEIGYjP7RxFRNEUJLgrI3JIbf0HusB+uh40DOCcvkw4KZY
 -----END PRIVATE KEY-----
 """
-let adaAuth = UserAuthentication(name: "ada", auth: .privateKeys(.init(pem)))
+let adaAuth = try UserAuthentication(name: "ada", auth: .privateKey(PrivateKey(string: pem)))
 ```
 
 With a passphrase (encrypted PKCS#8):
@@ -260,9 +264,9 @@ l5660ARAQUnm6k8TrAhjqvfYutpenh8bn1TTs9ysjKRlEowQPf6Q1bmypow3NifQ
 G5Wmq8A8p+PLsMwH0q36YeRuNcPG5w==
 -----END ENCRYPTED PRIVATE KEY-----
 """
-let brunaAuth = UserAuthentication(
+let brunaAuth = try UserAuthentication(
     name: "bruna",
-    auth: .privateKeys(.init(encPkcs8, passphrase: "nobodyknows"))
+    auth: .privateKey(PrivateKey(string: encPkcs8, passphrase: "nobodyknows"))
 )
 ```
 
@@ -270,75 +274,61 @@ let brunaAuth = UserAuthentication(
 
 ```swift
 let chiaraPrivateKeyFile = URL(fileURLWithPath: "/users/chiara/.ssh/id_rsa")
-let chiaraAuth = UserAuthentication(
+let chiaraAuth = try UserAuthentication(
     name: "chiara",
-    auth: .privateKeys(.init(chiaraPrivateKeyFile))
+    auth: .privateKey(PrivateKey(file: chiaraPrivateKeyFile))
 )
 
 let chiaraEncryptedPrivateKeyFile = URL(fileURLWithPath: "/users/chiara/MyKeys/id_rsa.enc")
-let chiaraAuthEnc = UserAuthentication(
+let chiaraAuthEnc = try UserAuthentication(
     name: "chiara",
-    auth: .privateKeys(.init(chiaraEncryptedPrivateKeyFile, passphrase: "donttell"))
+    auth: .privateKey(PrivateKey(file: chiaraEncryptedPrivateKeyFile, passphrase: "donttell"))
 )
 ```
 
-The public key is derived from the private material; you do not need a separate `.pub` file.
-Missing key files are rejected when constructing `SFTPClient`.
+`PrivateKey(file:passphrase:)` reads OpenSSH, PEM, or PKCS#8 text; `PrivateKey(derFile:)` reads unencrypted DER. The
+public key is derived from the private material; you do not need a separate `.pub` file.
 
-### Several private keys (multiple files)
+### Several private keys
 
 Pass every candidate yourself. SwiftSFTP does **not** scan `~/.ssh`, read `ssh_config`, or
 use ssh-agent.
 
 ```swift
 let files = ["/users/dina/.ssh/id_rsa", "/users/dina/.ssh/id_ecdsa"]
-let urls = files.map { URL(fileURLWithPath: $0) }
-let privateKeyFiles = urls.map { PrivateKeyFile(file: $0, passphrase: nil) }
-let privateKeySet = PrivateKeySet(files: privateKeyFiles)
+let keys = try files.map { try PrivateKey(file: URL(fileURLWithPath: $0)) }
 
-let dinaAuth = UserAuthentication(name: "dina", auth: .privateKeys(privateKeySet))
-```
+let dinaAuth = UserAuthentication(name: "dina", auth: .privateKeys(keys))
 
-### Several private keys (files and memory mixed)
-
-```swift
-let mixedPrivateKeySet = PrivateKeySet(
-    strings: [PrivateKeyString(representation: pem, passphrase: nil)],
-    files: privateKeyFiles
-)
-let newDinaAuth = UserAuthentication(name: "dina", auth: .privateKeys(mixedPrivateKeySet))
+// Keys from files and memory mix freely.
+let newDinaAuth = try UserAuthentication(name: "dina", auth: .privateKeys(keys + [PrivateKey(string: pem)]))
 ```
 
 ### How multi-key selection works
 
-On login with `.privateKeys`:
+On login with `.privateKey` or `.privateKeys`:
 
-1. Build candidates from in-memory strings first, then files.
-2. Classify each key (RSA, Ed25519, ECDSA P-256/384/521).
-3. Use the server’s RFC 8308 `server-sig-algs` when available.
-4. Prefer keys whose algorithms the server lists (and order by that preference).
-5. Try candidates until one authenticates or all fail.
+1. Classify each key (RSA, Ed25519, ECDSA P-256/384/521).
+2. Use the server’s RFC 8308 `server-sig-algs` when available.
+3. Prefer keys whose algorithms the server lists (and order by that preference); keys of the same algorithm keep the
+   order of the array.
+4. Try candidates until one authenticates or all fail.
 
 `server-sig-algs` is about **signature algorithms the daemon supports**, not which public keys
 are in `authorized_keys`. A compatible key can still be rejected if it is not authorized for
-the username. An empty `PrivateKeySet` fails with `.invalidPrivateKey`.
+the username. An empty `.privateKeys([])` array stops the process.
 
 ### Supported key material
 
 | | |
 |--|--|
-| **Formats** | PEM, PKCS#8, OpenSSH (`BEGIN OPENSSH PRIVATE KEY`) |
+| **Formats** | PEM, PKCS#8, OpenSSH (`BEGIN OPENSSH PRIVATE KEY`), DER (`PrivateKey(derFile:)`) |
 | **Algorithms** | RSA, ECDSA P-256 / P-384 / P-521, Ed25519 |
 
-Offline checks: `PrivateKeyString` / `PrivateKeyFile` (`.valid`, `.algorithm`) or
-`String` + `KeyValidation` — see [Validating SSH Keys (Offline)](#validating-ssh-keys-offline).
-`.valid` accepts any well-formed key; `.isValidForSSH` also requires one of the algorithms above, rejecting keys SSH
-cannot authenticate with (Ed448, ML-DSA, SLH-DSA). Those checks only prove parseability, not server authorization.
-
-### Deprecated modes
-
-`.privateKeyFile(file:password:)` and `.privateKeyString(keyData:password:)` still work but are
-deprecated. Prefer `.privateKeys(.init(...))` as in the examples above.
+`PrivateKey` accepts any valid key, including types SSH cannot authenticate with (Ed448, ML-DSA, SLH-DSA, RSA under
+1024 bits); the client initializer rejects those with `.invalidPrivateKey`. Check a key offline with
+`SSHUserKeyAlgorithm(privateKey:)`, which is `nil` for them, or with `String` + `KeyValidation` — see
+[Validating SSH Keys (Offline)](#validating-ssh-keys-offline). Those checks do not prove server authorization.
 
 > **Note:** SSH agent and keyboard-interactive authentication are not supported by `SFTPClient`.
 
@@ -1125,7 +1115,7 @@ Thrown by `SFTPClient.preflightConfigurationCheck` and by `SFTPClient.init` befo
 | `.invalidPassword` | Empty password string |
 | `.couldNotCreateSession(Error)` | libssh2 session allocation failed |
 | `.invalidHostKeyFormat(Error)` | Malformed known_hosts file or string |
-| `.invalidPrivateKey(Error)` | Private key file missing at init |
+| `.invalidPrivateKey(Error)` | A private key of a type SSH cannot authenticate with |
 | `.authenticationFailed(Error)` | Thrown by `SFTPClient.init` only: the server rejected credentials (including all multi-key candidates failed or none matched `server-sig-algs`) |
 
 ### Host key verification errors (`HostKeyVerificationError`)

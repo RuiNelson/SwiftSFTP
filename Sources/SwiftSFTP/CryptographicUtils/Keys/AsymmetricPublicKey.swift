@@ -27,6 +27,27 @@ public struct PublicKey: Sendable, Hashable, Codable {
         }
     }
 
+    /// Reads a PEM `PUBLIC KEY` or one-line OpenSSH public key file, such as an `id_ed25519.pub`.
+    public init(file: URL) throws {
+        precondition(file.isFileURL, "Not a file URL")
+        let data = try Data(contentsOf: file, options: [.uncached])
+        let string =
+            String(data: data, encoding: .ascii) ??
+            String(data: data, encoding: .utf8) ??
+            String(data: data, encoding: .utf16) ??
+            ""
+
+        try self.init(string: string)
+    }
+
+    /// Reads a DER-encoded SubjectPublicKeyInfo file.
+    public init(derFile: URL) throws {
+        precondition(derFile.isFileURL, "Not a file URL")
+        let data = try Data(contentsOf: derFile, options: [.uncached])
+
+        try self.init(derRepresentation: data)
+    }
+
     /// Wraps a public key read from outside SwiftSFTP, after checking that it is a valid key of a supported type.
     init(importing key: OpenSSLKey) throws {
         let type = try key.keyType()
@@ -73,5 +94,28 @@ public struct PublicKey: Sendable, Hashable, Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(derRepresentation)
+    }
+}
+
+extension PublicKey: LosslessStringConvertible {
+    /// Parses `description` as ``init(string:)`` does, or returns `nil` when it is not a valid public key.
+    public init?(_ description: String) {
+        try? self.init(string: description)
+    }
+
+    /// The key as a one-line OpenSSH public key, or as PEM for key types OpenSSH does not define.
+    public var description: String {
+        if let openSSH = try? self.encode(format: .openSSH) {
+            return openSSH
+        }
+        else {
+            for format in PublicKeyFormat.allCases {
+                if let anotherFormat = try? self.encode(format: format) {
+                    return anotherFormat
+                }
+            }
+
+            fatalError("Public key invalid: could not be encoded in any format.")
+        }
     }
 }

@@ -10,219 +10,122 @@ import Testing
 struct SFTPClientMultiKeyAuth {
     private let keyRoot = TS.keyPairsRoot
 
-    private func keyURL(_ name: String) -> URL? {
+    /// The fixture key `name`, or `nil` when the fixtures have not been generated.
+    private func key(_ name: String, passphrase: String? = nil) throws -> PrivateKey? {
         let path = "\(keyRoot)/\(name)"
         guard FileManager.default.fileExists(atPath: path) else { return nil }
-        return URL(fileURLWithPath: path)
-    }
-
-    private func keyText(_ name: String) throws -> String? {
-        guard let url = keyURL(name) else { return nil }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try PrivateKey(file: URL(fileURLWithPath: path), passphrase: passphrase)
     }
 
     // MARK: - Per-user authorized algorithm among distractors
 
     @Test("multi-key selects authorized RSA for charmander among distractors")
     func multiKeyCharmanderRSA() async throws {
-        guard let rsa = keyURL("rsa-private-openssh-clear"),
-              let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
+        guard let rsa = try key("rsa-private-openssh-clear"),
+              let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: rsa),
-        ])
-        try await loginAndClose(user: "charmander", set: set)
+        try await loginAndClose(user: "charmander", auth: .privateKeys([ed, p256, rsa]))
     }
 
     @Test("multi-key selects authorized Ed25519 for pidgey among distractors")
     func multiKeyPidgeyEd25519() async throws {
-        guard let rsa = keyURL("rsa-private-openssh-clear"),
-              let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
+        guard let rsa = try key("rsa-private-openssh-clear"),
+              let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear") else { return }
 
         // Authorized key first would mask ordering; put it last.
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: rsa),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: ed),
-        ])
-        try await loginAndClose(user: "pidgey", set: set)
+        try await loginAndClose(user: "pidgey", auth: .privateKeys([rsa, p256, ed]))
     }
 
     @Test("multi-key selects authorized P-256 for squirtle among distractors")
     func multiKeySquirtleP256() async throws {
-        guard let rsa = keyURL("rsa-private-openssh-clear"),
-              let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear"),
-              let p384 = keyURL("p384-private-openssh-clear") else { return }
+        guard let rsa = try key("rsa-private-openssh-clear"),
+              let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear"),
+              let p384 = try key("p384-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: rsa),
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: p384),
-            PrivateKeyFile(file: p256),
-        ])
-        try await loginAndClose(user: "squirtle", set: set)
+        try await loginAndClose(user: "squirtle", auth: .privateKeys([rsa, ed, p384, p256]))
     }
 
     @Test("multi-key selects authorized P-384 for caterpie among distractors")
     func multiKeyCaterpieP384() async throws {
-        guard let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear"),
-              let p384 = keyURL("p384-private-openssh-clear") else { return }
+        guard let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear"),
+              let p384 = try key("p384-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: p384),
-        ])
-        try await loginAndClose(user: "caterpie", set: set)
+        try await loginAndClose(user: "caterpie", auth: .privateKeys([ed, p256, p384]))
     }
 
     @Test("multi-key selects authorized P-521 for weedle among distractors")
     func multiKeyWeedleP521() async throws {
-        guard let rsa = keyURL("rsa-private-openssh-clear"),
-              let p521 = keyURL("p521-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
+        guard let rsa = try key("rsa-private-openssh-clear"),
+              let p521 = try key("p521-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: rsa),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: p521),
-        ])
-        try await loginAndClose(user: "weedle", set: set)
+        try await loginAndClose(user: "weedle", auth: .privateKeys([rsa, p256, p521]))
     }
 
     // MARK: - Formats & sources
 
-    @Test("multi-key works with in-memory strings only")
-    func multiKeyMemoryOnly() async throws {
-        guard let rsa = try keyText("rsa-private-openssh-clear"),
-              let ed = try keyText("ed25519-private-openssh-clear") else { return }
+    @Test("multi-key works with keys parsed from strings")
+    func multiKeyFromStrings() async throws {
+        let rsaPath = "\(keyRoot)/rsa-private-openssh-clear"
+        let edPath = "\(keyRoot)/ed25519-private-openssh-clear"
+        guard FileManager.default.fileExists(atPath: rsaPath),
+              FileManager.default.fileExists(atPath: edPath) else { return }
 
-        let set = PrivateKeySet(strings: [
-            PrivateKeyString(representation: ed),
-            PrivateKeyString(representation: rsa),
-        ])
-        try await loginAndClose(user: "charmander", set: set)
-    }
-
-    @Test("multi-key mixes memory and file sources")
-    func multiKeyMixedSources() async throws {
-        guard let rsaText = try keyText("rsa-private-openssh-clear"),
-              let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
-
-        let set = PrivateKeySet(
-            strings: [PrivateKeyString(representation: rsaText)],
-            files: [
-                PrivateKeyFile(file: ed),
-                PrivateKeyFile(file: p256),
-            ]
-        )
-        try await loginAndClose(user: "charmander", set: set)
+        let keys = try [edPath, rsaPath].map { try PrivateKey(string: String(contentsOfFile: $0, encoding: .utf8)) }
+        try await loginAndClose(user: "charmander", auth: .privateKeys(keys))
     }
 
     @Test("multi-key accepts encrypted PKCS#8 RSA among clear distractors")
     func multiKeyEncryptedRSAAmongClear() async throws {
-        guard let encrypted = keyURL("rsa-private-pkcs8-encrypted"),
-              let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
+        guard let encrypted = try key("rsa-private-pkcs8-encrypted", passphrase: TS.keyPassphrase),
+              let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: encrypted, passphrase: TS.keyPassphrase),
-        ])
-        try await loginAndClose(user: "charmander", set: set)
+        try await loginAndClose(user: "charmander", auth: .privateKeys([ed, p256, encrypted]))
     }
 
-    @Test("multi-key single-element set equals single-key login")
-    func multiKeySingleElement() async throws {
-        guard let ed = keyURL("ed25519-private-openssh-clear") else { return }
-        let set = PrivateKeySet(ed)
-        try await loginAndClose(user: "pidgey", set: set)
+    @Test("single-key mode equals a one-element multi-key login")
+    func singleKeyMode() async throws {
+        guard let ed = try key("ed25519-private-openssh-clear") else { return }
+        try await loginAndClose(user: "pidgey", auth: .privateKey(ed))
+        try await loginAndClose(user: "pidgey", auth: .privateKeys([ed]))
     }
 
     @Test("multi-key PEM and PKCS#8 formats for authorized algorithm")
     func multiKeyAlternateFormatsForPidgey() async throws {
-        guard let pem = keyURL("ed25519-private-pem-clear"),
-              let pkcs8 = keyURL("ed25519-private-pkcs8-clear"),
-              let rsa = keyURL("rsa-private-openssh-clear") else { return }
+        guard let pem = try key("ed25519-private-pem-clear"),
+              let pkcs8 = try key("ed25519-private-pkcs8-clear"),
+              let rsa = try key("rsa-private-openssh-clear") else { return }
 
         // First authorized format should succeed; RSA is a distractor.
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: rsa),
-            PrivateKeyFile(file: pem),
-            PrivateKeyFile(file: pkcs8),
-        ])
-        try await loginAndClose(user: "pidgey", set: set)
+        try await loginAndClose(user: "pidgey", auth: .privateKeys([rsa, pem, pkcs8]))
     }
 
     // MARK: - Failures
 
     @Test("multi-key fails when no key is authorized for the user")
     func multiKeyNoneAuthorized() async throws {
-        guard let ed = keyURL("ed25519-private-openssh-clear"),
-              let p256 = keyURL("p256-private-openssh-clear") else { return }
+        guard let ed = try key("ed25519-private-openssh-clear"),
+              let p256 = try key("p256-private-openssh-clear") else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: p256),
-        ])
-        try await expectLoginFails(user: "charmander", set: set)
+        try await expectLoginFails(user: "charmander", auth: .privateKeys([ed, p256]))
     }
 
     #if os(macOS) || os(Linux) || os(FreeBSD) || os(Windows)
-        @Test("an empty PrivateKeySet stops the process")
-        func emptySetStopsTheProcess() async {
+        @Test("an empty privateKeys array stops the process")
+        func emptyArrayStopsTheProcess() async {
             await #expect(processExitsWith: .failure) {
                 try? SFTPClient.preflightConfigurationCheck(
                     openSocketIn: TCPLocation(hostname: "localhost", port: 1),
-                    authentication: UserAuthentication(name: "charmander", auth: .privateKeys(PrivateKeySet(files: [])))
+                    authentication: UserAuthentication(name: "charmander", auth: .privateKeys([]))
                 )
             }
         }
     #endif
-
-    @Test("multi-key rejects missing key files in the preflight check")
-    func multiKeyMissingFilesOnly() throws {
-        let missing = URL(fileURLWithPath: "/tmp/swiftSFTP-missing-\(UUID().uuidString)")
-        let set = PrivateKeySet(files: [PrivateKeyFile(file: missing)])
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: TS.hostname, port: TS.port),
-                authentication: UserAuthentication(name: "charmander", auth: .privateKeys(set))
-            )
-        }
-    }
-
-    @Test("multi-key fails with wrong passphrase on sole encrypted key")
-    func multiKeyWrongPassphraseOnly() async throws {
-        guard let encrypted = keyURL("rsa-private-pkcs8-encrypted") else { return }
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: encrypted, passphrase: "wrong-passphrase"),
-        ])
-        try await expectLoginFails(user: "charmander", set: set)
-    }
-
-    @Test("multi-key succeeds if a later key has correct passphrase after a wrong one")
-    func multiKeyWrongThenRightPassphrase() async throws {
-        guard let encrypted = keyURL("rsa-private-pkcs8-encrypted"),
-              let ed = keyURL("ed25519-private-openssh-clear") else { return }
-
-        // Wrong encrypted RSA first, then distractor Ed25519, then correct encrypted RSA. Both RSA entries are the same
-        // file with different passphrases.
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: encrypted, passphrase: "wrong"),
-            PrivateKeyFile(file: ed),
-            PrivateKeyFile(file: encrypted, passphrase: TS.keyPassphrase),
-        ])
-        try await loginAndClose(user: "charmander", set: set)
-    }
 
     // MARK: - server-sig-algs visibility (handshake)
 
@@ -255,12 +158,12 @@ struct SFTPClientMultiKeyAuth {
 
     // MARK: - Helpers
 
-    private func loginAndClose(user: String, set: PrivateKeySet) async throws {
+    private func loginAndClose(user: String, auth: UserAuthenticationMode) async throws {
         try await withClient { _ in
             let client = try await loginWithRetry {
                 try await makeClient(
                     user: user,
-                    auth: UserAuthentication(name: user, auth: .privateKeys(set))
+                    auth: UserAuthentication(name: user, auth: auth)
                 )
             }
             #expect(!client.closed)
@@ -268,12 +171,12 @@ struct SFTPClientMultiKeyAuth {
         }
     }
 
-    private func expectLoginFails(user: String, set: PrivateKeySet) async throws {
+    private func expectLoginFails(user: String, auth: UserAuthenticationMode) async throws {
         try await withClient { _ in
             await #expect(throws: (any Error).self) {
                 try await makeClient(
                     user: user,
-                    auth: UserAuthentication(name: user, auth: .privateKeys(set))
+                    auth: UserAuthentication(name: user, auth: auth)
                 )
             }
         }

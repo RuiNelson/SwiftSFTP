@@ -310,10 +310,8 @@ do {
 
 The key types `SFTPClient` authenticates with apply the same checks:
 
-- `PrivateKeyString` and `PrivateKeyFile` have `valid` (any valid key) and `isValidForSSH` (a key OpenSSH accepts).
-  `PrivateKeyFile` reads the file each time.
-- Their `algorithm` property returns the key's `SSHUserKeyAlgorithm` (`.ed25519`, `.ecdsaP256`, …, `.rsa`), or `nil`
-  for a key SSH will not use. `isValidForSSH` is `true` exactly when `algorithm` is non-`nil`.
+- `SSHUserKeyAlgorithm(privateKey:)` returns a `PrivateKey`'s family (`.ed25519`, `.ecdsaP256`, …, `.rsa`), or `nil`
+  for a key SSH will not use. `SFTPClient` rejects such keys with `SFTPClientInvalidConfig.invalidPrivateKey`.
 - `SSHUserKeyAlgorithm.detect(from:passphrase:)` does the same for key text.
 
 ---

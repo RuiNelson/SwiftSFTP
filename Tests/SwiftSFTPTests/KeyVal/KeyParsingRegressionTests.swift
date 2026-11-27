@@ -68,8 +68,8 @@ struct KeyParsingRegressionTests {
         #expect(privatePEM.isValid_RSA_PrivateKey)
         #expect(!privatePEM.isValidForSSH_PrivateKey())
         #expect(SSHUserKeyAlgorithm.detect(from: privatePEM) == nil)
-        #expect(!PrivateKeyString(representation: privatePEM).isValidForSSH)
-        #expect(PrivateKeyString(representation: privatePEM).valid)
+        #expect(SSHUserKeyAlgorithm(privateKey: key) == nil)
+        #expect(privatePEM.isValid_PrivateKey())
     }
 
     @Test("a 512-bit RSA host key is rejected even with a large public exponent")

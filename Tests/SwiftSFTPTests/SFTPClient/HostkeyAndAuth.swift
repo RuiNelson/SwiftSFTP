@@ -79,19 +79,6 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("preflight rejects missing private key file")
-    func rejectsMissingKeyFile() {
-        #expect(throws: SFTPClientInvalidConfig.self) {
-            try SFTPClient.preflightConfigurationCheck(
-                openSocketIn: TCPLocation(hostname: "localhost"),
-                authentication: UserAuthentication(
-                    name: "x",
-                    auth: .privateKeys(.init(URL(fileURLWithPath: "/nonexistent/key")))
-                )
-            )
-        }
-    }
-
     @Test("preflight rejects malformed host keys")
     func rejectsMalformedHostKeys() {
         #expect(throws: SFTPClientInvalidConfig.self) {
@@ -382,7 +369,7 @@ struct SFTPClientHostkeyAndAuth {
             let client = try await loginWithRetry {
                 try await makeClient(
                     user: "charmander",
-                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyPath)))
+                    auth: UserAuthentication(name: "charmander", auth: .privateKey(PrivateKey(file: keyPath)))
                 )
             }
             #expect(!client.closed)
@@ -399,7 +386,7 @@ struct SFTPClientHostkeyAndAuth {
             let client = try await loginWithRetry {
                 try await makeClient(
                     user: "charmander",
-                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(.init(keyData)))
+                    auth: UserAuthentication(name: "charmander", auth: .privateKey(PrivateKey(string: keyData)))
                 )
             }
             #expect(!client.closed)
@@ -418,7 +405,7 @@ struct SFTPClientHostkeyAndAuth {
                     user: "charmander",
                     auth: UserAuthentication(
                         name: "charmander",
-                        auth: .privateKeys(.init(keyPath, passphrase: TS.keyPassphrase))
+                        auth: .privateKey(PrivateKey(file: keyPath, passphrase: TS.keyPassphrase))
                     )
                 )
             }
@@ -438,7 +425,7 @@ struct SFTPClientHostkeyAndAuth {
                     user: "charmander",
                     auth: UserAuthentication(
                         name: "charmander",
-                        auth: .privateKeys(.init(keyData, passphrase: TS.keyPassphrase))
+                        auth: .privateKey(PrivateKey(string: keyData, passphrase: TS.keyPassphrase))
                     )
                 )
             }
@@ -447,21 +434,13 @@ struct SFTPClientHostkeyAndAuth {
         }
     }
 
-    @Test("encrypted private key login rejects wrong passphrase")
-    func encryptedPrivateKeyLoginRejectsWrongPassphrase() async throws {
+    @Test("encrypted private key rejects a wrong passphrase before connecting")
+    func encryptedPrivateKeyRejectsWrongPassphrase() {
         let keyPath = URL(fileURLWithPath: "\(TS.keyPairsRoot)/rsa-private-pkcs8-encrypted")
         guard FileManager.default.fileExists(atPath: keyPath.path) else { return }
 
-        try await withClient { _ in
-            await #expect(throws: (any Error).self) {
-                try await makeClient(
-                    user: "charmander",
-                    auth: UserAuthentication(
-                        name: "charmander",
-                        auth: .privateKeys(.init(keyPath, passphrase: "wrong-passphrase"))
-                    )
-                )
-            }
+        #expect(throws: AsymmetricCryptographyError.incorrectPassphrase) {
+            try PrivateKey(file: keyPath, passphrase: "wrong-passphrase")
         }
     }
 
@@ -475,17 +454,13 @@ struct SFTPClientHostkeyAndAuth {
               FileManager.default.fileExists(atPath: p256.path) else { return }
 
         // Put the authorized RSA key last in the user list so success requires more than "always try the first key".
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed25519),
-            PrivateKeyFile(file: p256),
-            PrivateKeyFile(file: rsa),
-        ])
+        let keys = try [ed25519, p256, rsa].map { try PrivateKey(file: $0) }
 
         try await withClient { _ in
             let client = try await loginWithRetry {
                 try await makeClient(
                     user: "charmander",
-                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(keys))
                 )
             }
             #expect(!client.closed)
@@ -500,16 +475,13 @@ struct SFTPClientHostkeyAndAuth {
         guard FileManager.default.fileExists(atPath: ed25519.path),
               FileManager.default.fileExists(atPath: p256.path) else { return }
 
-        let set = PrivateKeySet(files: [
-            PrivateKeyFile(file: ed25519),
-            PrivateKeyFile(file: p256),
-        ])
+        let keys = try [ed25519, p256].map { try PrivateKey(file: $0) }
 
         try await withClient { _ in
             await #expect(throws: (any Error).self) {
                 try await makeClient(
                     user: "charmander",
-                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(set))
+                    auth: UserAuthentication(name: "charmander", auth: .privateKeys(keys))
                 )
             }
         }

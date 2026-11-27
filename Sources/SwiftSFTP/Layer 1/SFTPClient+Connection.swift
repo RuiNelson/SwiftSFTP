@@ -108,6 +108,15 @@ public extension SFTPClient {
 // MARK: Initialization support
 
 extension SFTPClient {
+    /// Throws ``SFTPClientInvalidConfig/invalidPrivateKey(_:)`` unless SSH user authentication supports `key`.
+    private static func checkUsableForSSH(_ key: PrivateKey) throws(SFTPClientInvalidConfig) {
+        guard SSHUserKeyAlgorithm(privateKey: key) != nil else {
+            throw SFTPClientInvalidConfig.invalidPrivateKey(
+                AsymmetricCryptographyError.unsupportedAlgorithm("\(key.type)")
+            )
+        }
+    }
+
     /// Validates the static configuration and creates a libssh2 session with the host keys to accept.
     ///
     /// On success the caller owns the session, the known-hosts collection, and one `SSHInit`, and must release them
@@ -136,22 +145,14 @@ extension SFTPClient {
                 throw SFTPClientInvalidConfig.invalidPassword
             }
 
-        case let .privateKeys(set):
-            precondition(!set.isEmpty, "PrivateKeySet must hold at least one key")
-            for keyFile in set.files {
-                guard FileManager.default.fileExists(atPath: keyFile.file.path) else {
-                    throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
-                }
-            }
+        case let .privateKey(key):
+            try checkUsableForSSH(key)
 
-        case let .privateKeyFile(file, _):
-            // Deprecated single-key mode; kept for API compatibility.
-            guard FileManager.default.fileExists(atPath: file.path) else {
-                throw SFTPClientInvalidConfig.invalidPrivateKey(POSIXError(.ENOENT))
+        case let .privateKeys(keys):
+            precondition(!keys.isEmpty, "privateKeys must hold at least one key")
+            for key in keys {
+                try checkUsableForSSH(key)
             }
-
-        case .privateKeyString:
-            break
         }
 
         do {
