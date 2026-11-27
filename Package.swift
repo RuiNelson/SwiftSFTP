@@ -4,7 +4,7 @@
 import PackageDescription
 
 // BEGIN OPENSSL SOURCE MANIFEST OpenSSL source manifest SHA-256:
-// 07a07c497547770033117a40a3f6ded028419721cb05f97c3cd547182d96dae4
+// 920d133af69f663b3cf9ed8849fb26cc83a7cf2c7eae3f6926ca3d8e926e4a44
 let opensslSourcePaths: [String] = [
     "crypto",
     "providers",
@@ -139,6 +139,7 @@ let opensslExcludedPaths: [String] = [
     "providers/stores.inc",
 ]
 // END OPENSSL SOURCE MANIFEST
+// swiftformat:enable reflowComments
 
 // Every platform with a POSIX socket and libc API. Windows is the one that is not: it uses Winsock and has no system
 // zlib.
