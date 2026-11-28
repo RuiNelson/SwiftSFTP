@@ -27,26 +27,35 @@ public enum FileTransferErrors: Error {
     /// The requested remote path is a regular file where a directory was required.
     case remotePathIsAFile(path: String)
 
-    /// A resumable transfer found a partial file whose trailer announces a format version this release cannot read.
+    /// A swarm's striped upload or download found a partial file whose trailer announces a format version this release
+    /// cannot read.
     ///
-    /// The partial file is **preserved**, because it most likely belongs to a newer release of the library transferring
-    /// the same file. Pass `doNotResume: true` to discard it and start over instead. A partial file whose trailer is
+    /// The partial file is **preserved**, because it most likely belongs to another release of the library transferring
+    /// the same file. Delete it, or sweep it with ``SFTPClientProtocol/cleanupResumableUploads(in:olderThan:)`` or
+    /// ``SFTPClientProtocol/cleanupResumableDownloads(in:olderThan:)``, to start over. A partial file whose trailer is
     /// merely corrupt is deleted silently and never reaches the caller as an error.
     case resumableTrailerVersionUnsupported(version: UInt16, path: String)
 
-    /// A resumable transfer moved every byte, but the destination refused to shrink away the trailer.
+    /// A swarm's striped upload or download moved every byte, but the destination refused to shrink away the trailer.
     ///
-    /// Some SFTP servers ignore or reject a `SETSTAT` that truncates a file. The final rename is skipped, since it
-    /// would publish a file with the trailer stuck to the payload. The partial file is preserved with every block
-    /// marked done, so once the server is fixed the next run finishes it without retransmitting anything.
+    /// Some SFTP servers ignore or reject a `SETSTAT` that truncates a file; a local file system that fails the
+    /// truncation does the same to a download. The final rename is skipped, since it would publish a file with the
+    /// trailer stuck to the payload. The partial file is preserved with its whole payload marked valid, so once the
+    /// server is fixed the next run with `resume` set finishes it without sending the payload again. Transfers in
+    /// place, those of ``SFTPClient`` and a swarm's files up to
+    /// ``SFTPSwarmProtocol/smallFileThreshold``, have no trailer and are not affected.
     case resumableTruncateUnsupported(path: String)
 
-    /// The destination's file name does not fit in the trailer of a resumable transfer.
+    /// The destination's file name does not fit in the trailer of a swarm's striped transfer.
     ///
-    /// The trailer stores the final name behind a `UInt16` length, and rejects on read anything longer than 4096 bytes.
-    /// Writing such a name would produce a partial file that every later run reads as corrupt, deletes, and starts over
-    /// — forever — so the transfer is refused before anything is created. No real filesystem accepts a name this long
-    /// anyway; use ``SFTPClientProtocol/multiUpload(from:to:workers:bufferSize:permissions:continuation:)`` or
-    /// ``SFTPClientProtocol/multiDownload(from:to:workers:bufferSize:continuation:)`` if you somehow need one.
+    /// The trailer holds names of up to 4096 UTF-8 bytes. No real filesystem accepts a name this long anyway.
     case resumableDestinationNameTooLong(byteCount: Int, maximum: Int)
+
+    /// Another striped upload or download in this process is already writing the temporary file of this destination,
+    /// through the same swarm for an upload.
+    ///
+    /// Two transfers to one destination would interleave their stripes into one temporary file and publish a mixture of
+    /// both. Through another swarm or process, an upload is caught only as it finishes: one whose temporary file was
+    /// replaced meanwhile throws this rather than publish the other transfer's bytes. Serialize those yourself.
+    case transferAlreadyInProgress(path: String)
 }

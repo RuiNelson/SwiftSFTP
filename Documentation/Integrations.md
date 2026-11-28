@@ -15,81 +15,82 @@ the `SwiftSFTP` module, so depend on the integration's product instead of `Swift
 
 Use `.product(name: "SwiftSFTPAVFoundation", package: "SwiftSFTP")` as your target's dependency. It supplies both the
 `SwiftSFTP` and `SwiftSFTPAVFoundation` modules in one dynamic library. Import them alongside AVFoundation.
-The adapter is available on macOS 11+, iOS 14+, tvOS 14+, visionOS, and Mac Catalyst 14+.
+The adapter is available on every platform the package supports that has AVFoundation: macOS 12+, iOS 15+, tvOS 15+,
+visionOS, and Mac Catalyst 15+.
 The SFTP library remains usable on watchOS, Linux, and Android; the AVFoundation adapter has no API on those platforms.
 
-Pass clients that are already authenticated. Forks of one client give you more connections to the same server:
+Pass a client that is already authenticated, or an [`SFTPSwarm`](UserGuide.md#swarms-of-connections) for several
+connections to the same server:
 
 ```swift
 import AVFoundation
 import SwiftSFTP
 import SwiftSFTPAVFoundation
 
-var clients = [client]
-for _ in 1 ..< 4 {
-    try await clients.append(client.fork())
-}
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)
 
-let player = AVPlayer(playerItem: clients.makePlayerItem(at: "/Videos/holiday.mp4"))
+let player = AVPlayer(playerItem: await swarm.makePlayerItem(path: "/Videos/holiday.mp4"))
 player.play()
 
 // Or create an asset for metadata loading, AVAssetReader, or your own player item.
-let asset = clients.makeAsset(
-    at: "/Videos/holiday.mp4",
+let asset = await swarm.makeAsset(
+    path: "/Videos/holiday.mp4",
     options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
 )
 ```
 
-`makeAsset(at:contentType:readAheadSize:stripeSize:options:)` and
-`makePlayerItem(at:contentType:readAheadSize:stripeSize:)` are available on any collection of clients, such as
-`[SFTPClient]`. The same methods on `SFTPClientProtocol`, including `SFTPClient` and protocol existentials, stream over
-that one client. A collection must hold at least one client and no client twice. An empty collection or a repeated
-client is a programming error and stops at a precondition. Construction performs no network I/O, and no local media
-file is created.
+`makeAsset(path:contentType:readAhead:bufferSize:options:)` and
+`makePlayerItem(path:contentType:readAhead:bufferSize:)` are available on `SFTPClientProtocol`, so on an `SFTPClient`,
+an `SFTPSwarm`, and protocol existentials. Both are `async`: an asset made from any `SFTPSwarmProtocol` gets one worker
+per connection that takes work, which it asks the swarm for when the asset is created; one made from any other client
+gets one worker. Construction performs no network I/O, and no local media file is created: nothing is opened before
+AVFoundation first loads the asset.
 
-### Striping and read-ahead
+### Parallel reads and read-ahead
 
-When AVFoundation first loads the asset, every client opens the file read-only on its own connection. The file is
-split into stripes of `stripeSize` bytes, 2 MiB by default, and each client fetches whole stripes. The connections
-therefore transfer different parts of the file at the same time. Bytes reach AVFoundation as soon as they arrive, so
-neither the start of playback nor a seek waits for a whole stripe.
+Each worker opens the file read-only through the client when it first fetches. A swarm opens every handle on the idle
+connection with the fewest open handles, which spreads the workers over its connections. The file is fetched in pieces
+of `bufferSize` bytes, 2 MiB by default, and each worker fetches whole pieces, so the connections of a swarm transfer
+different parts of the file at the same time. Bytes reach AVFoundation as soon as they arrive, so neither the start of
+playback nor a seek waits for a whole piece.
 
-The clients also read ahead. They keep the `readAheadSize` bytes that follow AVFoundation's newest request fetched or
-in flight, 8 MiB by default, so playback seldom waits on the network. Seeking moves that window and cancels the
-prefetches it leaves behind. An asset holds at most `readAheadSize + stripeSize` bytes of fetched and in-flight
-stripes, plus any stripe a request is still waiting on. A `readAheadSize` of zero fetches only the stripe being read.
+The workers also read ahead. They keep the `readAhead` bytes that follow AVFoundation's newest request fetched or in
+flight, 8 MiB by default, so playback seldom waits on the network. Seeking moves that window and cancels the prefetches
+it leaves behind. An asset holds at most `readAhead + bufferSize` bytes of fetched and in-flight pieces, plus any piece
+a request is still waiting on. A `readAhead` of zero fetches only the piece being read.
 
 ```swift
-let item = clients.makePlayerItem(
-    at: "/Videos/holiday.mp4",
-    readAheadSize: 32 * 1024 * 1024,
-    stripeSize: 4 * 1024 * 1024
+let item = await swarm.makePlayerItem(
+    path: "/Videos/holiday.mp4",
+    readAhead: 32 * 1024 * 1024,
+    bufferSize: 4 * 1024 * 1024
 )
 ```
 
 More connections help where one connection cannot fill the link, typically when the round trip to the server is
-long. At most about `readAheadSize / stripeSize + 1` stripes are fetched at once, so with the defaults up to five
-clients can be busy. Raise the read-ahead or lower the stripe size to keep more connections working. Stripes smaller
-than 32 KiB are rounded up to 32 KiB.
+long. At most about `readAhead / bufferSize + 1` pieces are fetched at once, so with the defaults up to five workers
+can be busy. Raise `readAhead` or lower `bufferSize` to keep more connections working. A `bufferSize` below 32 KiB uses
+32 KiB.
 
 The media type is inferred from a registered filename extension, ignoring case. Missing or unrecognized extensions
 fall back to `.movie`. Specify the format explicitly when needed:
 
 ```swift
-let asset = client.makeAsset(at: "/Videos/extensionless", contentType: .mpeg4Movie)
+let asset = await client.makeAsset(path: "/Videos/extensionless", contentType: .mpeg4Movie)
 ```
 
 ### Lifetime and errors
 
-The asset retains its clients and shares their connections with your other operations. Keep every client logged in
-and open until playback and metadata loading finish. Releasing the asset, or the player item holding it, cancels
-pending requests and asynchronously closes the asset's file handles. The asset holds the clients, so each one closes
-itself once you and every asset have released it; call `close()` yourself only after playback. Closing a client under
-a playing asset is a misuse: a debug build stops, and in a release build the media reads that follow fail with
-`ENOTCONN`.
+The asset retains its client or swarm, and its handles share the connections with your other operations, as any handle
+does. Keep the client or swarm open until playback and metadata loading finish. Releasing the asset, or the player item
+holding it, cancels pending requests and asynchronously closes the asset's file handles. The asset holds the client, so
+it closes itself once you and every asset have released it; call `close()` yourself only after playback. Closing a
+client or swarm under a playing asset is a misuse: a debug build stops, and in a release build the media reads that
+follow fail with `ENOTCONN`.
 
-The first failure on any client fails all of AVFoundation's pending requests, as a multi-worker download stops at its
-first failing worker. Later requests try again, so a client that keeps failing fails each of them. Loading failures
+The first failure of any worker fails all of AVFoundation's pending requests, and stops the other workers' fetches.
+Later requests try again, the failed worker on a new handle, so a connection that keeps failing fails each of them. A
+swarm takes a broken connection out of service, and opens that new handle on another one. Loading failures
 are reported through AVFoundation's normal asset loading errors and `AVPlayerItem.status == .failed`. AVFoundation
 preserves the mapped POSIX code in its underlying `NSPOSIXErrorDomain` error: `ENOENT` for a missing file, `EACCES` for
 denied access, `ENOTCONN` for a closed or unauthenticated client, and `ETIMEDOUT` for a timeout.

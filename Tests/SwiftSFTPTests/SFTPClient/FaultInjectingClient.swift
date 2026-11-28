@@ -125,6 +125,43 @@ final class FaultInjectingClient: SFTPClientProtocol {
         set { base.writeAhead = newValue }
     }
 
+    // MARK: Transfers
+
+    /// Runs the library's own transfer on this client, so every step goes through the faults.
+    func upload(
+        from localURL: URL,
+        to remotePath: String,
+        resume: Bool,
+        bufferSize: Int,
+        permissions: POSIXPermissions,
+        continuation: @escaping TransferProgress
+    ) async throws {
+        try await uploadInPlace(
+            from: localURL,
+            to: remotePath,
+            resume: resume,
+            bufferSize: bufferSize,
+            permissions: permissions,
+            continuation: continuation
+        )
+    }
+
+    func download(
+        from remotePath: String,
+        to localURL: URL,
+        resume: Bool,
+        bufferSize: Int,
+        continuation: @escaping TransferProgress
+    ) async throws {
+        try await downloadInPlace(
+            from: remotePath,
+            to: localURL,
+            resume: resume,
+            bufferSize: bufferSize,
+            continuation: continuation
+        )
+    }
+
     var compression: (clientToServer: CompressionAlgorithm, serverToClient: CompressionAlgorithm) {
         base.compression
     }

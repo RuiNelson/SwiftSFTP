@@ -1,10 +1,6 @@
 import Foundation
 
 extension FileManager {
-    func localFileSize(at url: URL) throws -> FileSize {
-        try localFileSize(atPath: url.path)
-    }
-
     func localFileSize(atPath path: String) throws -> FileSize {
         let size = try FileManager.default.attributesOfItem(atPath: path)[.size]
 

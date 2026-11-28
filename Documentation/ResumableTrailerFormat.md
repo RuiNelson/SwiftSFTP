@@ -1,10 +1,13 @@
 # Resumable trailer format
 
-Wire format of the trailer that `multiUpload` / `multiDownload` write with `resume: .ifPossible`. Enough to implement a
-compatible reader or writer. For what the feature does and what it does not protect, see
-[Resumable transfer details](ResumableTransferDetails.md).
+Wire format of the trailer that an `SFTPSwarm` writes into the temporary file of an upload or download larger than its
+`smallFileThreshold`, which it sends in stripes. Enough to implement a compatible reader or writer.
 
-Current version: **1**.
+Nothing else writes it. `SFTPClient`, and a swarm's files up to `smallFileThreshold`, move in place: straight into the
+destination, without a temporary file or a trailer, and `resume: true` continues from the destination's current size.
+
+Current version: **2**. Version 1, written by the multi-worker transfers of SwiftSFTP 3.x, is not compatible: a version 2
+reader sees a version 1 partial file as corrupt, replaces it, and the transfer starts over.
 
 ## Temporary file name
 
@@ -14,170 +17,114 @@ Current version: **1**.
 
 `<hash>` is the first 16 bytes of the SHA-256 of the destination's **last path component**, encoded in Base32 with the
 Crockford alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, uppercase, no padding, RFC 4648 bit order. That is 26 characters,
-34 with the suffix. The file lives in the destination's own directory.
+34 with the suffix. The file lives in the destination's own directory: on the server for an upload, on disk for a
+download.
+
+A transfer with `resume: true` continues the partial file it finds there; with `resume: false` it deletes it and starts
+over.
 
 ## File layout
 
 ```
 +---------------------------+  offset 0
-|          payload          |
-+---------------------------+  offset = fileSize
-|      magic word (10)      |
+|          payload          |  payloadSize bytes, preallocated
++---------------------------+  offset payloadSize
+|  magic word "SwiftSFTP"   |  9 bytes
 +---------------------------+
-|         metadata          |
+|          frames           |
 +---------------------------+
-|          bitmap           |
+|         end frame         |  12 bytes
 +---------------------------+  end of file
 ```
 
-The trailer runs to the very end of the file, with no slack after it. At every moment:
-
-```
-totalFileSize == fileSize + 10 + metadataByteCount + bitmapByteCount
-```
-
-The payload region is preallocated to `fileSize` when the file is created, so the file's size never changes during a
-transfer.
+Once every byte has arrived, the writer marks the whole payload valid, truncates the file to `payloadSize`, checks that
+the truncation took effect, and renames the file onto the destination. A server that ignores a shrinking `SETSTAT`
+leaves a partial file whose whole payload is valid; the next run only has to finish it.
 
 ## Magic word
 
-Ten bytes: `04 53 77 69 66 74 53 46 54 50` — `EOT` followed by `SwiftSFTP` in ASCII. It sits at file offset `fileSize`.
+The nine ASCII bytes `SwiftSFTP` (`53 77 69 66 74 53 46 54 50`).
 
-## Metadata
+## Frames
 
-A sequence of fields, each:
-
-```
-key (UInt16) [ length (UInt16) ] value
-```
-
-The `length` is present **only** for variable-length fields. All integers are big-endian.
-
-| Key | Field | Length | Type | Value |
-|-----|-------|--------|------|-------|
-| `0x0001` | Version | omitted | `UInt16` | Trailer format version |
-| `0x0002` | File name | `UInt16` | UTF-8 | Final file name, last path component only, no terminator |
-| `0x0003` | Payload size | omitted | `UInt64` | Bytes, excluding the trailer. Also the magic word's offset |
-| `0x0004` | Block scale | omitted | `UInt64` | Bytes of payload per bitmap bit |
-| `0x0005` | Source mtime | omitted | `UInt64` | Whole seconds since 1970-01-01 UTC |
-| `0xFFFF` | End of metadata | omitted | — | No length, no value. The bitmap starts on the next byte |
-
-Rules:
-
-- All six keys are mandatory and each appears exactly once. A missing, repeated, or unknown key is corruption.
-- Because fixed-length fields omit their length, an unknown key cannot be skipped. This is why the version is rejected
-  first, and why a future format must bump the version rather than add fields silently.
-- Field order is not fixed, but a writer emits the version first so a reader can reject an unknown format before
-  interpreting anything after it.
-- A file name longer than 4096 bytes is rejected on read, and refused on write with
-  `FileTransferErrors.resumableDestinationNameTooLong`.
-
-## Bitmap
-
-One bit per block, **MSB first**: block 0 is `0x80` of byte 0, block 1 is `0x40`, block 8 is `0x80` of byte 1.
+Every frame, the end frame included, is:
 
 ```
-blockCount      = ceil(fileSize / blockScale)
-bitmapByteCount = ceil(blockCount / 8)
+type   UInt16, big-endian
+length UInt16, big-endian: the byte count of value
+value  length bytes
 ```
 
-- `1` means the block is on the destination. `0` means it is not, or that it is but the bitmap has not caught up yet;
-  both are treated as not transferred.
-- Unused bits in the final byte are zero on write and ignored on read.
-- Bits only ever go from 0 to 1. A bitmap write cut short by a crash therefore leaves a mix of new prefix and old
-  suffix, which is still a valid, pessimistic bitmap.
-- `blockCount` may not exceed **262 144**, so a full bitmap fits one 32 KiB SFTP write.
-- The last block is short when `fileSize` is not a multiple of `blockScale`: it covers
-  `fileSize - (blockCount - 1) * blockScale` bytes.
+| Type     | Name                     | Value                                                                   |
+|----------|--------------------------|-------------------------------------------------------------------------|
+| `0x0001` | Version                  | `UInt16`, big-endian: `2`                                               |
+| `0x0002` | File name                | UTF-8, the destination's last path component, at most 4096 bytes       |
+| `0x0003` | Payload size             | `UInt64`, big-endian: bytes before the magic word                       |
+| `0x0004` | Source modification time | `Int64`, big-endian: nanoseconds since 1970-01-01 UTC                   |
+| `0x0005` | Valid prefix             | `UInt64`, big-endian: bytes from offset 0 known to be on the destination |
+| `0xFFFF` | End                      | `UInt64`, big-endian: the trailer's byte count, magic word included    |
 
-## Block scale
+Writers emit the frames in the order of the table, each once. Readers accept them in any order, and skip frame types they
+do not know, which is what every frame carrying a length buys. A known type that appears twice, or whose value has the
+wrong size, is corruption. The end frame is always last, and its value lets a reader find the trailer from the end of
+the file.
 
-Chosen once, when the temporary file is created, from the payload size and the requested worker count:
+The source modification time of an upload is the local file's, to the nanosecond the platform reports. SFTP reports a
+remote file's in whole seconds, so a download records that number of seconds times 10⁹.
 
-```
-rounds     = max(1, ceil(fileSize / (10 MiB × workers)))
-blockCount = min(rounds × workers, 262144)
-blockScale = roundUpToMultipleOf8(max(1, ceil(fileSize / blockCount)))
-```
+## Valid prefix
 
-| Payload | Workers | Scale | Blocks | Bitmap |
-|---------|---------|-------|--------|--------|
-| 100 B | 4 | 32 B | 4 | 1 byte |
-| 8 MiB | 4 | 2 MiB | 4 | 1 byte |
-| 100 MiB | 3 | 8 738 136 B | 12 | 2 bytes |
-| 1 GiB | 8 | 10 324 448 B | 104 | 13 bytes |
-| 4 TiB | 8 | 16 MiB | 262 144 | 32 KiB |
+Stripes go out lowest offset first, each to whichever connection is free. A partial transfer therefore has its holes
+near the end of the payload, and one number says how much of it can be trusted: every byte before the valid prefix has
+been acknowledged by the destination. Bytes past it may have arrived too; a resumed transfer sends them again.
 
-The block count is deliberately a multiple of the worker count. Blocks are handed out whole, so a count that does not
-divide evenly leaves one worker moving a final block alone while the others sit idle; on a 100 MiB upload over three
-workers that cost 20% of the wall clock before this rule was introduced.
+The writer updates the valid prefix in place by rewriting the eight bytes of its value. With the frames in the table's
+order, that value sits at a fixed offset, `payloadSize + trailerByteCount - 20`, for the whole transfer. An update is
+written only after the writes of every stripe it covers have been acknowledged, only when the prefix grew, and at most
+once a second. A transfer stopped by its caller writes the prefix it reached before returning; one that fails on a
+broken connection does not, and the next run sends again what the last update did not cover.
 
-10 MiB is the largest a block gets, which bounds how much in-flight work a crash discards. That ceiling gives way only
-above roughly 2.5 TiB, where the 262 144-block limit forces a larger scale so the bitmap still fits one 32 KiB write.
-
-On a resume the scale recorded in the trailer is used as-is, whatever `workers` is passed, because recomputing it would
-invalidate the existing bitmap.
+A reader trusts the valid prefix and nothing else.
 
 ## Reading a trailer
 
-The magic word only marks where validation starts; it is not proof on its own.
+1. Read the last `min(fileSize, 16384)` bytes of the file.
+2. The last 12 bytes must be an end frame: `FF FF 00 08` and a `UInt64` byte count. The byte count must be at least 21
+   (magic word and end frame) and fit in what was read.
+3. The trailer starts that many bytes before the end of the file, with the magic word.
+4. Walk the frames after the magic word up to the end frame, which must end exactly at the end of the file.
+5. The version frame must be present. A version other than 2 is **not** corruption: the file is kept and the transfer
+   reports `resumableTrailerVersionUnsupported`.
+6. File name, payload size, source modification time and valid prefix must be present. The payload size must equal
+   `fileSize - trailerByteCount`, and the valid prefix must not exceed it.
 
-1. `stat` the file for `totalFileSize`.
-2. Read the last `min(totalFileSize, 65536)` bytes.
-3. Scan that window **backwards** for the magic word.
-4. For each candidate at absolute offset `o`, accept only if all hold:
-   - the metadata parses under the rules above;
-   - field `0x0003` equals `o`;
-   - `o + 10 + metadataByteCount + bitmapByteCount == totalFileSize`, where `bitmapByteCount` is what `0x0003` and
-     `0x0004` imply;
-   - `blockScale > 0` and `blockCount <= 262144`.
-5. If no candidate validates, the file is corrupt.
+Anything else that fails is corruption: the reader deletes the file and starts over. A payload that happens to contain
+the magic word cannot pass for a trailer, because the end frame, not a search, says where the trailer starts.
 
-A 64 KiB window always suffices: the largest possible trailer is 36 914 bytes (10 magic + 4 136 metadata with a
-4096-byte name + 32 768 bitmap).
-
-Checking `0x0003 == o` alongside the size equation is what makes a magic word occurring inside payload data harmless.
+A partial file is continued only when its file name, payload size and source modification time all equal the source's
+as it is now. Otherwise it belongs to another transfer, and it is deleted.
 
 ## Writing a trailer
 
-Order matters. When creating a new temporary file:
-
-1. Create it exclusively and preallocate to `fileSize + trailerByteCount`.
-2. Write the metadata and the all-zero bitmap.
-3. Write the magic word **last**.
-4. Only then start transferring.
-
-A crash between steps 1 and 3 leaves a file with no magic word, which reads as corrupt and is deleted — costing nothing,
-since no block had been transferred.
-
-During a transfer only the bitmap is rewritten, at offset `fileSize + 10 + metadataByteCount`. The magic word and the
-metadata are written once and never touched again.
-
-On completion the file is truncated to `fileSize`, the truncation is verified by `stat`, and only then is the file
-renamed onto the destination.
-
-## Version handling
-
-| Condition | Result |
-|-----------|--------|
-| version `== 1` | Resume normally |
-| version `> 1` | Throw `FileTransferErrors.resumableTrailerVersionUnsupported`; the file is **preserved** |
-| version `== 0`, or any corruption | Delete the file and restart, silently |
-
-Version 0 was never written by any release, so it is treated as damage rather than as an unsupported format.
-`resume: .discardingProgress` deletes the file before reading it, which is the way past a trailer from a newer release.
+1. Create the temporary file exclusively and preallocate it to `payloadSize + trailerByteCount`.
+2. Write the trailer without its magic word at `payloadSize + 9`, then the magic word at `payloadSize`. Dying between the
+   two leaves a file without a magic word, which reads as corrupt, and no stripe had been sent yet.
+3. Send the stripes, updating the valid prefix as described above.
+4. Write a valid prefix equal to `payloadSize`, truncate the file to `payloadSize`, check its size, and rename it onto
+   the destination.
 
 ## Worked example
 
-A 12 MiB payload named `payload.bin`, one worker, one of two blocks transferred:
+A trailer for `a.bin`, with a payload of 20 bytes, a source modification time of 1 700 000 000.123456789 s after the
+epoch, and a valid prefix of 8 bytes. It is 72 bytes long and starts at offset 20 of a 92-byte file. Its valid prefix
+value sits at offset 72.
 
-| Region | Offset | Bytes |
-|--------|--------|-------|
-| Payload | 0 | 12 582 912 |
-| Magic word | 12 582 912 | 10 |
-| Metadata | 12 582 922 | 51 |
-| Bitmap | 12 582 973 | 1 |
-| **Total** | | **12 582 974** |
-
-Metadata: version 4, file name 4 + 11, payload size 10, block scale 10, mtime 10, terminator 2 = 51.
-Block scale is 6 MiB, so `blockCount` is 2 and the bitmap is `0x80` — block 0 done, block 1 not.
+```
+53 77 69 66 74 53 46 54 50                         "SwiftSFTP"
+00 01 00 02 00 02                                  version 2
+00 02 00 05 61 2E 62 69 6E                         file name "a.bin"
+00 03 00 08 00 00 00 00 00 00 00 14                payload size 20
+00 04 00 08 17 97 9C FE 3D 85 CD 15                modification time 1700000000123456789 ns
+00 05 00 08 00 00 00 00 00 00 00 08                valid prefix 8
+FF FF 00 08 00 00 00 00 00 00 00 48                end: trailer of 72 bytes
+```

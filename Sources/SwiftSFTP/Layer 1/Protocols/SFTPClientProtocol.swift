@@ -128,7 +128,7 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// The fork has its own SSH session, socket, SFTP subsystem, identity, and keepalive state. It inherits the
     /// receiver's endpoint, operation and login timeouts, host-key acceptance policy, authentication, compression
     /// preferences in both directions, teardown grace period, read-ahead, write-ahead, and deinit error handler. It is
-    /// logged in when it returns.
+    /// logged in when it returns. A swarm's fork is a new swarm of as many connections.
     ///
     /// - Returns: A new, independent, logged-in client.
     /// - Throws: ``MisuseError/clientUsedAfterClosing`` when the receiver is closed, or the errors of the initializer.
@@ -394,6 +394,76 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// - Throws: libssh2/SFTP errors.
     func createSymLink(path: String, destination: String) async throws
 
+    // MARK: Transfers
+
+    /// Uploads a local file to a remote file.
+    ///
+    /// Parent directories of `remotePath` are created as needed and are **not** removed again if the upload fails. When
+    /// `resume` is `false`, the remote file must not exist yet. When `resume` is `true` and it exists, the upload
+    /// continues an interrupted one; when it does not exist, `resume` changes nothing.
+    ///
+    /// ``SFTPClient`` writes the remote file directly, over its one connection: a resumed upload appends what the
+    /// remote file is missing, starting at its current size. ``SFTPSwarm`` does the same over one connection for a file
+    /// of its ``SFTPSwarmProtocol/smallFileThreshold`` or less; a larger file goes in stripes over every connection,
+    /// into a temporary file renamed onto `remotePath` once complete, and can be resumed from that temporary file.
+    /// ``SFTPSwarmProtocol`` describes it.
+    ///
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`. File handles are closed
+    /// on the way out, capped at a short grace period on a server that has stopped answering.
+    ///
+    /// - Parameters:
+    ///   - localURL: Local file URL to upload. Any other URL stops the process.
+    ///   - remotePath: Remote file path to create.
+    ///   - resume: Whether to continue an interrupted upload to `remotePath`.
+    ///   - bufferSize: Maximum local read size per transfer step. Each step's write returns only once the server has
+    /// acknowledged all of it, so steps several times ``writeAhead`` keep the connection busy. Must be greater than
+    /// zero.
+    ///   - permissions: POSIX permissions to request when creating the remote file.
+    ///   - continuation: Progress callback. Return `true` to continue, or `false` to stop, which throws
+    /// ``FileTransferErrors/transferCancelled``.
+    /// - Throws: `CancellationError` when the task is cancelled; ``FileTransferErrors`` for a missing local file, an
+    /// existing remote file when `resume` is `false`, a remote directory, a stop requested by `continuation`, or a
+    /// short write; otherwise SFTP and local-file errors.
+    func upload(
+        from localURL: URL,
+        to remotePath: String,
+        resume: Bool,
+        bufferSize: Int,
+        permissions: POSIXPermissions,
+        continuation: @escaping TransferProgress
+    ) async throws
+
+    /// Downloads a remote file to a local file.
+    ///
+    /// When `resume` is `false`, the local file must not exist yet. When `resume` is `true` and it exists, the download
+    /// continues an interrupted one; when it does not exist, `resume` changes nothing.
+    ///
+    /// ``SFTPClient`` writes the local file directly, over its one connection: a resumed download appends what the
+    /// local file is missing, starting at its current size. ``SFTPSwarm`` does the same over one connection for a file
+    /// of its ``SFTPSwarmProtocol/smallFileThreshold`` or less; a larger file goes in stripes over every connection,
+    /// into a temporary file moved onto `localURL` once complete, and can be resumed from that temporary file.
+    ///
+    /// Cancelling the calling task stops the transfer promptly and throws `CancellationError`. The remote file is
+    /// closed on the way out, capped at a short grace period on a server that has stopped answering.
+    ///
+    /// - Parameters:
+    ///   - remotePath: Existing remote regular file to download.
+    ///   - localURL: Local file URL to create. Any other URL stops the process.
+    ///   - resume: Whether to continue an interrupted download to `localURL`.
+    ///   - bufferSize: Maximum remote read size per transfer step. Must be greater than zero.
+    ///   - continuation: Progress callback. Return `true` to continue, or `false` to stop, which throws
+    /// ``FileTransferErrors/transferCancelled``.
+    /// - Throws: `CancellationError` when the task is cancelled; ``FileTransferErrors`` for a missing or non-regular
+    /// source, an existing local file when `resume` is `false`, a local directory, or a stop requested by
+    /// `continuation`; otherwise SFTP and local-file errors.
+    func download(
+        from remotePath: String,
+        to localURL: URL,
+        resume: Bool,
+        bufferSize: Int,
+        continuation: @escaping TransferProgress
+    ) async throws
+
     // MARK: Files
 
     /// Opens a remote file and returns a handle object.
@@ -402,9 +472,9 @@ public protocol SFTPClientProtocol: Identifiable, Sendable, AnyObject {
     /// file just written; a handle released without it closes itself in the background. The concrete implementation
     /// validates the remote path before opening: directory paths are rejected, and non-create opens require an existing
     /// regular file. Existing regular files may still be opened with `.create`; use `.exclusive` or higher-level
-    /// helpers such as ``SFTPClientProtocol/upload(from:to:bufferSize:permissions:continuation:)`` when replacement
-    /// should be rejected. `permissions` is passed to libssh2 when creating files; otherwise it is ignored by the
-    /// server.
+    /// helpers such as ``SFTPClientProtocol/upload(from:to:resume:bufferSize:permissions:continuation:)`` when
+    /// replacement should be rejected. `permissions` is passed to libssh2 when creating files; otherwise it is ignored
+    /// by the server.
     ///
     /// - Parameters:
     ///   - flags: SFTP open flags such as read, write, create, truncate, append, or exclusive.

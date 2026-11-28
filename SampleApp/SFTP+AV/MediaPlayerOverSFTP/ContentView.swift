@@ -5,8 +5,8 @@ import SwiftUI
 
 /// Connects to an SFTP server and plays one of its audio or video files with `AVPlayer`.
 ///
-/// The interesting part is `PlayerModel.play()`: once connected, it forks the client into several connections, and
-/// `makePlayerItem(at:readAheadSize:)` on that array returns an `AVPlayerItem` that streams the file over all of them.
+/// The interesting part is `PlayerModel.play()`: once connected, it makes an `SFTPSwarm` of several connections, and
+/// `makePlayerItem(path:readAhead:)` on the swarm returns an `AVPlayerItem` that streams the file over all of them.
 /// Playback starts without downloading the file first.
 struct ContentView: View {
     @State private var model = PlayerModel()

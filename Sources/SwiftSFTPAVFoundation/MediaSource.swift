@@ -5,22 +5,22 @@
     /// Identifies one AVFoundation loading request. Requests that arrive later get larger identifiers.
     typealias MediaReaderID = UInt64
 
-    /// Streams one remote file through several SFTP clients and keeps a bounded window of it fetched ahead of the
-    /// newest reader.
+    /// Streams one remote file through several workers and keeps a bounded window of it fetched ahead of the newest
+    /// reader.
     ///
-    /// The file is split into stripes, and each client has a worker that fetches whole stripes on its own handle. A
-    /// fetch hands every piece to the reads waiting on it as soon as the piece arrives, so the first bytes after a seek
-    /// do not wait for the whole stripe. A worker seeks only when its cursor stands somewhere else, and an idle worker
-    /// whose cursor already stands at a stripe's first missing byte gets that stripe. In steady playback, the worker
-    /// that fetched the window's last stripe extends it without seeking.
+    /// The file is split into stripes, and each worker fetches whole stripes on its own read handle: on a swarm, the
+    /// handles sit on different connections. A fetch hands every piece to the reads waiting on it as soon as the piece
+    /// arrives, so the first bytes after a seek do not wait for the whole stripe. A worker seeks only when its cursor
+    /// stands somewhere else, and an idle worker whose cursor already stands at a stripe's first missing byte gets that
+    /// stripe. In steady playback, the worker that fetched the window's last stripe extends it without seeking.
     ///
     /// The window starts where the newest reader's last read ended and spans `readAheadSize` bytes. Older readers are
     /// served on demand only, so two requests far apart cannot drag the window back and forth. Cached and in-flight
     /// stripes never reserve more than `readAheadSize + stripeSize` bytes, besides stripes that reads are waiting on.
     /// When the window moves, the prefetches it left behind are cancelled to free their workers.
     ///
-    /// The first failure of any worker fails every waiting read, like a multi-worker download: the other fetches stop,
-    /// and the window is refilled only once a reader asks again.
+    /// The first failure of any worker fails every waiting read: the other fetches stop, the failed worker opens a new
+    /// handle when next used, and the window is refilled only once a reader asks again.
     actor MediaSource {
         /// Bytes a worker asks its handle for at a time.
         static let defaultChunkSize = 128 * 1024

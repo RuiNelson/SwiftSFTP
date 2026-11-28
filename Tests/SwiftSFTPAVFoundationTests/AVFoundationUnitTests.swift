@@ -12,9 +12,11 @@
         func lazyAssetsAndContentTypes() async throws {
             guard #available(macOS 11, iOS 14, tvOS 14, macCatalyst 14, visionOS 1, *) else { return }
             let client = try makeUnconnectedClient()
-            let fork = try makeUnconnectedClient()
             // No login: creating any of the conveniences must neither open a file nor connect to the server.
+            let swarm = try await SFTPSwarm([makeUnconnectedClient(), makeUnconnectedClient()])
             let protocolClient: any SFTPClientProtocol = client
+            // A swarm seen as a plain client still streams over every connection.
+            let protocolSwarm: any SFTPClientProtocol = swarm
             let cases: [(String, UTType)] = [
                 ("Videos/holiday.MP4", .mpeg4Movie),
                 ("Videos/holiday.mov", .quickTimeMovie),
@@ -22,39 +24,42 @@
                 ("Videos/holiday.mp4.part", .movie),
             ]
             for (path, expected) in cases {
-                let asset = try #require(protocolClient.makeAsset(at: path) as? SFTPMediaAsset)
+                let asset = try await #require(protocolClient.makeAsset(path: path) as? SFTPMediaAsset)
                 #expect(asset.loader.contentType == expected)
                 #expect(asset.loader.servingRequestCount == 0)
                 #expect(await asset.loader.source.workerCount == 1)
-                let striped = try #require([client, fork].makeAsset(at: path) as? SFTPMediaAsset)
+                let striped = try await #require(protocolSwarm.makeAsset(path: path) as? SFTPMediaAsset)
                 #expect(striped.loader.contentType == expected)
                 #expect(await striped.loader.source.workerCount == 2)
             }
-            let explicit = try #require(client.makeAsset(at: "movie", contentType: .mpeg4Movie) as? SFTPMediaAsset)
+            let explicit = try await #require(client.makeAsset(
+                path: "movie",
+                contentType: .mpeg4Movie
+            ) as? SFTPMediaAsset)
             #expect(explicit.loader.contentType == .mpeg4Movie)
-            let item = client.makePlayerItem(at: "movie", contentType: .mpeg4Movie)
+            let item = await client.makePlayerItem(path: "movie", contentType: .mpeg4Movie)
             #expect(try #require(item.asset as? SFTPMediaAsset).loader.contentType == .mpeg4Movie)
-            let stripedItem = [client, fork].makePlayerItem(at: "movie", contentType: .mpeg4Movie)
+            let stripedItem = await swarm.makePlayerItem(path: "movie", contentType: .mpeg4Movie)
             let stripedLoader = try #require(stripedItem.asset as? SFTPMediaAsset).loader
             #expect(stripedLoader.contentType == .mpeg4Movie)
             #expect(await stripedLoader.source.workerCount == 2)
             try await client.close()
-            try await fork.close()
+            try await swarm.close()
         }
 
         #if os(macOS)
-            @Test("an empty client collection fails its precondition")
-            func emptyClientCollection() async {
+            @Test("a swarm of no clients fails its precondition")
+            func emptySwarm() async {
                 await #expect(processExitsWith: .failure) {
-                    _ = [SFTPClient]().makeAsset(at: "movie.mp4")
+                    _ = try await SFTPSwarm([])
                 }
             }
 
-            @Test("a client passed twice fails the precondition")
+            @Test("a client passed twice to a swarm fails the precondition")
             func repeatedClient() async {
                 await #expect(processExitsWith: .failure) {
                     let client = try makeUnconnectedClient()
-                    _ = [client, client].makePlayerItem(at: "movie.mp4")
+                    _ = try await SFTPSwarm([client, client])
                 }
             }
         #endif

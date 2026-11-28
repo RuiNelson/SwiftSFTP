@@ -19,25 +19,23 @@ FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helveti
 CHARTS = {
     "upload": ("Upload Throughput", [
         ("CITADEL", "5.05 MiB/s", None, 19.820, "blue"),
-        ("SWIFTSFTP · 1 WORKER", "26.55 MiB/s", "+426%", 3.766, "orange"),
-        ("SWIFTSFTP · 2 WORKERS", "25.29 MiB/s", "+401%", 3.954, "orange"),
-        ("SWIFTSFTP · 2 WORKERS · RESUMABLE", "24.96 MiB/s", "+394%", 4.006, "orange"),
+        ("SWIFTSFTP · 1 CONNECTION", "26.55 MiB/s", "+426%", 3.766, "orange"),
     ]),
     "download": ("Download Throughput", [
         ("CITADEL", "7.94 MiB/s", None, 12.589, "blue"),
-        ("SWIFTSFTP · 1 WORKER", "22.36 MiB/s", "+182%", 4.473, "orange"),
-        ("SWIFTSFTP · 2 WORKERS", "20.97 MiB/s", "+164%", 4.768, "orange"),
-        ("SWIFTSFTP · 2 WORKERS · RESUMABLE", "20.74 MiB/s", "+161%", 4.821, "orange"),
+        ("SWIFTSFTP · 1 CONNECTION", "22.36 MiB/s", "+182%", 4.473, "orange"),
     ]),
 }
 
-# The card is at most 380 px wide; everything else is laid out from this width.
-WIDTH, HEIGHT = 380, 544
+# The card is at most 380 px wide; everything else is laid out from this width. Its height follows the number of rows.
+WIDTH = 380
 MARGIN = 8  # between the SVG's edge and the card
 PAD = 24  # between the card's edge and its content
 LEFT, RIGHT = MARGIN + PAD, WIDTH - MARGIN - PAD
 TRACK_X, TRACK_W, TRACK_H = LEFT, RIGHT - LEFT, 20
 ROW_TOP, ROW_PITCH = 116, 108
+# From the last row's name to the bottom of the SVG.
+ROW_TAIL = 104
 FILE_MIB = 100
 # A dot makes one round trip (there and back) per second at this throughput; faster transfers are proportionally faster.
 ROUND_TRIP_MIB_PER_SECOND = 10
@@ -54,8 +52,9 @@ def text(x, y, cls, size, weight, body, anchor=None, spacing=None):
 
 
 def build(title, rows):
+    height = ROW_TOP + (len(rows) - 1) * ROW_PITCH + ROW_TAIL
     out = []
-    out.append(f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" width="{WIDTH}" height="{HEIGHT}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{title}">')
+    out.append(f'<svg viewBox="0 0 {WIDTH} {height}" width="{WIDTH}" height="{height}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="{title}">')
     out.append("""<style>    .surface { fill: #fcfcfb; }
     .card-stroke { stroke: rgba(11,11,11,0.10); }
     .ink { fill: #0b0b0b; }
@@ -79,7 +78,7 @@ def build(title, rows):
       .series-orange { fill: #d95926; }
       .series-blue { fill: #3987e5; }
     }</style>""" % {"travel": TRAVEL})
-    out.append(f'<rect x="{MARGIN}" y="{MARGIN}" width="{WIDTH - 2 * MARGIN}" height="{HEIGHT - 2 * MARGIN}" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>')
+    out.append(f'<rect x="{MARGIN}" y="{MARGIN}" width="{WIDTH - 2 * MARGIN}" height="{height - 2 * MARGIN}" rx="24" ry="24" class="surface card-stroke" stroke-width="1"/>')
     mid = WIDTH / 2
     out.append(text(mid, 42, "ink", 21, 700, title, "middle", "-0.02em"))
     out.append(text(mid, 61, "muted", 10.5, 600, "100 MiB FILE · BEST OF 3 RUNS", "middle", "0.09em"))

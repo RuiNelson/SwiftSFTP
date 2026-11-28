@@ -14,11 +14,11 @@
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("remote assets load duration and video tracks", arguments: [1, 4])
         func durationAndTracks(connections: Int) async throws {
-            try await withUploadedMovie(connections: connections) { clients, path in
-                let asset = clients.makeAsset(
-                    at: path,
-                    readAheadSize: Self.readAheadSize,
-                    stripeSize: Self.stripeSize,
+            try await withUploadedMovie(connections: connections) { target, path in
+                let asset = await target.makeAsset(
+                    path: path,
+                    readAhead: Self.readAheadSize,
+                    bufferSize: Self.stripeSize,
                     options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]
                 )
                 let duration = try await asset.load(.duration)
@@ -31,11 +31,11 @@
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("an asset reader decodes every remote video frame", arguments: [1, 4])
         func decodeEveryFrame(connections: Int) async throws {
-            try await withUploadedMovie(connections: connections) { clients, path in
-                let asset = clients.makeAsset(
-                    at: path,
-                    readAheadSize: Self.readAheadSize,
-                    stripeSize: Self.stripeSize
+            try await withUploadedMovie(connections: connections) { target, path in
+                let asset = await target.makeAsset(
+                    path: path,
+                    readAhead: Self.readAheadSize,
+                    bufferSize: Self.stripeSize
                 )
                 let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
                 let reader = try AVAssetReader(asset: asset)
@@ -64,11 +64,11 @@
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("player items become ready and support seeking", .timeLimit(.minutes(1)), arguments: [1, 4])
         func playerItemAndSeeking(connections: Int) async throws {
-            try await withUploadedMovie(connections: connections) { clients, path in
-                let item = clients.makePlayerItem(
-                    at: path,
-                    readAheadSize: Self.readAheadSize,
-                    stripeSize: Self.stripeSize
+            try await withUploadedMovie(connections: connections) { target, path in
+                let item = await target.makePlayerItem(
+                    path: path,
+                    readAhead: Self.readAheadSize,
+                    bufferSize: Self.stripeSize
                 )
                 let player = AVPlayer(playerItem: item)
                 defer { player.replaceCurrentItem(with: nil) }
@@ -86,8 +86,8 @@
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("extensionless media accepts an explicit type")
         func extensionlessMedia() async throws {
-            try await withUploadedMovie(fileExtension: nil) { clients, path in
-                let asset = try #require(clients.first).makeAsset(at: path, contentType: .mpeg4Movie)
+            try await withUploadedMovie(fileExtension: nil) { target, path in
+                let asset = await target.makeAsset(path: path, contentType: .mpeg4Movie)
                 let tracks = try await asset.loadTracks(withMediaType: .video)
                 #expect(tracks.count == 1)
             }
@@ -97,7 +97,7 @@
         @Test("missing remote files report ENOENT")
         func missingFile() async throws {
             try await withClient { client in
-                let asset = client.makeAsset(at: uniqueRemotePath("missing") + ".mp4")
+                let asset = await client.makeAsset(path: uniqueRemotePath("missing") + ".mp4")
                 await expectLoadingFailure(asset, code: ENOENT)
             }
         }
@@ -105,45 +105,50 @@
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         @Test("files without read permission report EACCES")
         func unreadableFile() async throws {
-            try await withUploadedMovie { clients, path in
-                let client = try #require(clients.first)
-                let handle = try await client.openFile(.read, path: path)
+            try await withUploadedMovie { client, path in
+                let handle = try await client.openFile(.read, path: path, permissions: [])
                 try await handle.set(permissions: [])
                 try await handle.close()
-                let asset = client.makeAsset(at: path)
+                let asset = await client.makeAsset(path: path)
                 await expectLoadingFailure(asset, code: EACCES)
             }
         }
 
-        /// Uploads a test movie and runs `body` with `connections` logged-in clients: a test client and its forks.
+        /// Uploads a test movie and runs `body` with the test client alone, or with a swarm of `connections` forks of
+        /// it.
         @available(macOS 13, iOS 16, tvOS 16, macCatalyst 16, visionOS 1, *)
         private func withUploadedMovie(
             fileExtension: String? = "mp4",
             connections: Int = 1,
-            _ body: ([SFTPClient], String) async throws -> Void
+            _ body: (any SFTPClientProtocol, String) async throws -> Void
         ) async throws {
             let local = try await TestMovie.make()
             defer { try? FileManager.default.removeItem(at: local) }
             try await withClient { client in
                 let path = uniqueRemotePath("férias #1? 100%") + (fileExtension.map { "." + $0 } ?? "")
                 try await client.upload(from: local, to: path) { _, _, _, _ in true }
-                var clients = [client]
+                var swarm: SFTPSwarm?
                 do {
-                    for _ in 1 ..< connections {
-                        try await clients.append(retryingTransientConnectionFailure { try await client.fork() })
+                    if connections > 1 {
+                        swarm = try await retryingTransientConnectionFailure {
+                            let first = try await client.fork()
+                            do {
+                                return try await SFTPSwarm(first, numberOfForksToCreate: connections - 1)
+                            }
+                            catch {
+                                try? await first.close()
+                                throw error
+                            }
+                        }
                     }
-                    try await body(clients, path)
+                    try await body(swarm ?? client, path)
                 }
                 catch {
-                    for fork in clients.dropFirst() {
-                        try? await fork.close()
-                    }
+                    try? await swarm?.close()
                     try? await client.deleteFile(path: path)
                     throw error
                 }
-                for fork in clients.dropFirst() {
-                    try await fork.close()
-                }
+                try await swarm?.close()
                 try await client.deleteFile(path: path)
             }
         }

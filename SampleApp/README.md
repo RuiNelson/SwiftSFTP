@@ -17,6 +17,6 @@ playback is restarted. Credentials are held in memory only.
 The sample accepts any SSH host key for demonstration. Configure `hostKeyAcceptance` in `PlayerModel.swift` with
 your trusted host key or `known_hosts` content before using it in a production application.
 
-Like SwiftSMB's sample, this app uses a SwiftUI form and `VideoPlayer`. It forks the logged-in client and calls
-`makePlayerItem(at:readAheadSize:)` on the array of connections, which then fetch different stripes of the file in
-parallel.
+Like SwiftSMB's sample, this app uses a SwiftUI form and `VideoPlayer`. It makes an `SFTPSwarm` of the logged-in client
+and its forks, and calls `makePlayerItem(path:readAhead:)` on the swarm, whose connections then fetch different stripes
+of the file in parallel.

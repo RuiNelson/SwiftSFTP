@@ -20,11 +20,12 @@ Whether you need to quickly upload files, manage a remote filesystem, or build a
 
 - **Ergonomic API**: High-level abstractions over SFTP and SSH functionalities using modern Swift concurrency (`async/await`).
 - **Solid Base**: Built on top of `libssh2` and OpenSSL, compiled from pinned C sources by SwiftPM on every supported platform.
-- **Fast**: Outperforms other Swift SFTP clients — 5.3× upload and 2.8× download over one connection, keeping up to 2 MiB in flight per connection; `multiUpload` / `multiDownload` add connections when a link has headroom; see [Benchmarks](#benchmarks).
-- **Resumable Transfers**: `upload` / `download` and `multiUpload` / `multiDownload` can continue interrupted transfers; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading) and [Resumable parallel transfers](Documentation/UserGuide.md#resumable-parallel-transfers).
+- **Fast**: Outperforms other Swift SFTP clients — 5.3× upload and 2.8× download over one connection, keeping up to 2 MiB in flight per connection; a swarm spreads large transfers over several connections when a link has headroom; see [Benchmarks](#benchmarks).
+- **Resumable Transfers**: `upload` / `download` continue an interrupted transfer with `resume: true`. An `SFTPClient` writes the destination directly and appends what it is missing; a swarm sends a file above its `smallFileThreshold` (10 MiB by default) in stripes into a temporary file, renamed into place once complete, which the next call continues where it stopped; see [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading).
+- **Connection Swarms**: `SFTPSwarm` keeps several connections to one server open and uses them as one client: each operation goes to a free connection, large transfers are split into stripes across all of them, broken connections are replaced, and auto-tune finds the number of connections that is fastest; see [Swarms of Connections](Documentation/UserGuide.md#swarms-of-connections).
 - **Block-Level Cache (optional)**: Keeps what a client reads from the server so that reading it again costs nothing: attach a `ReferenceCache` in two lines, choose the memory budget, replace the storage backend, or plug in a custom cache; see [Block-Level Cache](Documentation/BlockLevelCache.md).
 - **Shell Agent**: Server-side copy, move, concatenation, hash, archive, download, nanosecond-resolution `stat` and related work over a persistent shell on the same session, without hauling the payload over the network; see [Shell Agent](Documentation/ShellAgent.md).
-- **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one or several connections, with seeking, parallel striped reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
+- **AVFoundation Playback**: The optional `SwiftSFTPAVFoundation` product streams remote media into `AVPlayer` over one connection or a swarm, with seeking, parallel reads and read-ahead; see [AVFoundation Playback](#avfoundation-playback).
 - **EXIF Metadata**: The optional `SwiftSFTPEXIFKit` product reads, edits and removes the EXIF of remote images with [EXIFKit](https://github.com/RuiNelson/EXIFKit), reading only the byte ranges that hold metadata; see [EXIF Metadata](#exif-metadata).
 - **Cryptographic Utilities**: OpenSSL helpers to validate user keys and `known_hosts` host keys, plus key generation and conversion for Ed25519, Ed448, ECDSA, RSA, ML-DSA and SLH-DSA; see [Cryptographic Utilities](Documentation/CryptographicUtils.md).
 - **Low-Level Access**: Fully exposed `libssh2` wrappers (Layer 0), allowing users to expand functionality or perform other non-SFTP related SSH tasks.
@@ -112,6 +113,7 @@ For complete details, see:
   - [Navigating the Remote Filesystem](Documentation/UserGuide.md#navigating-the-remote-filesystem)
   - [Working with Files](Documentation/UserGuide.md#working-with-files)
   - [Uploading and Downloading](Documentation/UserGuide.md#uploading-and-downloading)
+  - [Swarms of Connections](Documentation/UserGuide.md#swarms-of-connections)
   - [Copying, Renaming, and Deleting](Documentation/UserGuide.md#copying-renaming-and-deleting)
   - [Symlinks](Documentation/UserGuide.md#symlinks)
   - [Filesystem Statistics](Documentation/UserGuide.md#filesystem-statistics)
@@ -154,23 +156,27 @@ import AVFoundation
 import SwiftSFTP
 import SwiftSFTPAVFoundation
 
-// Use authenticated clients and keep them open throughout playback. Each fork is another connection,
-// and the connections read different stripes of the file at the same time.
-let clients = [client, try await client.fork(), try await client.fork(), try await client.fork()]
-let item = clients.makePlayerItem(at: "/Videos/holiday.mp4")
+// Use an authenticated client or swarm, and keep it open throughout playback. The connections of a swarm
+// read different parts of the file at the same time.
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)
+let item = await swarm.makePlayerItem(path: "/Videos/holiday.mp4")
 let player = AVPlayer(playerItem: item)
 player.play()
 
-// A single connection works too. Use an asset for metadata, asset options, or custom AVFoundation workflows:
-let asset = client.makeAsset(at: "/Videos/holiday.mp4")
+// Use an asset for metadata, asset options, or custom AVFoundation workflows. A plain SFTPClient works too,
+// over its one connection.
+let asset = await swarm.makeAsset(path: "/Videos/holiday.mp4")
 ```
 
-Each client opens the file read-only when AVFoundation loads it. The clients fetch 2 MiB stripes in parallel and read
-8 MiB ahead of playback; pass `stripeSize:` and `readAheadSize:` to change either. Playback and seeking never create a
-local copy. Releasing an asset or its player item cancels its pending reads and closes its file handles. The caller
-still owns the SFTP clients: keep them open until playback ends, since closing one under a playing asset is a misuse. The media type is inferred from the filename; pass `contentType: .mpeg4Movie`
-for an extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android.
-See [Integrations](Documentation/Integrations.md#avfoundation-playback) for read-ahead, lifetime, and error handling
+Both methods are `async`, because an asset made from a swarm asks it for its connections: it gets one worker per
+connection that takes work when it is created, and one from a plain client gets one worker. Each worker opens the file
+read-only when it first fetches, through the swarm, which spreads the workers over its connections. The workers fetch
+2 MiB pieces in parallel and read 8 MiB ahead of playback; pass `bufferSize:` and `readAhead:` to change either.
+Playback and seeking never create a local copy. Releasing an asset or its player item cancels its pending reads and
+closes its file handles. The caller still owns the client or swarm: keep it open until playback ends, since closing it
+under a playing asset is a misuse. The media type is inferred from the filename; pass `contentType: .mpeg4Movie` for an
+extensionless MP4. The adapter is unavailable on watchOS, Linux, and Android. See
+[Integrations](Documentation/Integrations.md#avfoundation-playback) for read-ahead, lifetime, and error handling
 details.
 
 The [sample app](SampleApp/README.md) includes a SwiftUI player for macOS, iOS, and visionOS, using this checkout's
@@ -314,7 +320,7 @@ On a Wi-Fi network, SwiftSFTP uploaded a 100 MiB file 5.3× faster and downloade
 connection. Much of that gap comes from how the two clients use the connection: SwiftSFTP keeps up to
 2 MiB of data in flight per connection, while the Citadel transfer path used in this benchmark waits
 for each request to be answered before sending the next. The numbers below show the difference; the
-rest of the section explains when it matters — and when adding connections does not help.
+rest of the section explains when it matters, and when more connections help.
 
 Citadel can achieve transfer speeds comparable to SwiftSFTP, but doing so requires substantial
 implementation and tuning effort from the library's consumer. SwiftSFTP provides request pipelining
@@ -323,8 +329,8 @@ so consumers get these optimizations without having to implement them themselves
 compare the transfer paths used here; they do not establish Citadel's maximum achievable throughput.
 
 <p>
-  <img src="Documentation/benchmark-upload.svg" alt="Animated upload throughput, one dot per configuration crossing its track in the time of one run: Citadel 5.05 MiB/s (baseline), SwiftSFTP 1 worker 26.55 MiB/s (+426%), SwiftSFTP 2 workers 25.29 MiB/s (+401%), SwiftSFTP 2 workers resumable 24.96 MiB/s (+394%)" width="380" />
-  <img src="Documentation/benchmark-download.svg" alt="Animated download throughput, one dot per configuration crossing its track in the time of one run: Citadel 7.94 MiB/s (baseline), SwiftSFTP 1 worker 22.36 MiB/s (+182%), SwiftSFTP 2 workers 20.97 MiB/s (+164%), SwiftSFTP 2 workers resumable 20.74 MiB/s (+161%)" width="380" />
+  <img src="Documentation/benchmark-upload.svg" alt="Animated upload throughput, one dot per configuration crossing its track in the time of one run: Citadel 5.05 MiB/s (baseline), SwiftSFTP over one connection 26.55 MiB/s (+426%)" width="380" />
+  <img src="Documentation/benchmark-download.svg" alt="Animated download throughput, one dot per configuration crossing its track in the time of one run: Citadel 7.94 MiB/s (baseline), SwiftSFTP over one connection 22.36 MiB/s (+182%)" width="380" />
 </p>
 
 ### How the test was run
@@ -342,16 +348,13 @@ keeps compression from affecting the result.
 
 ### Results
 
-The charts use the API's term, **worker**, for one parallel transfer; each worker normally uses its own
-connection. In each chart a dot runs back and forth along its track at a speed proportional to the throughput
-(one round trip per second for every 10 MiB/s), so a faster dot is a faster transfer. The one-connection dots use
-plain `upload` / `download`; the two-worker dots use `multiUpload` / `multiDownload`. The time under each track is
-for the full 100 MiB file.
+In each chart a dot runs back and forth along its track at a speed proportional to the throughput (one
+round trip per second for every 10 MiB/s), so a faster dot is a faster transfer. The SwiftSFTP dots use
+plain `upload` / `download` over one connection. The time under each track is for the full 100 MiB file.
 
-Over one connection, SwiftSFTP uploads 5.3× and downloads 2.8× as fast as Citadel. Two workers were
-slightly slower than one on this link, and resumability cost about 1%. The charts express improvement as
-a percentage increase over Citadel; +426% is the same as 5.3× faster. The dots move only in viewers that
-play animated SVG; with reduced motion requested, each one rests at the end of its track.
+Over one connection, SwiftSFTP uploads 5.3× and downloads 2.8× as fast as Citadel. The charts express
+improvement as a percentage increase over Citadel; +426% is the same as 5.3× faster. The dots move only in
+viewers that play animated SVG; with reduced motion requested, each one rests at the end of its track.
 
 ### Why one connection is faster
 
@@ -379,47 +382,49 @@ of MiB/s.
 
 ### When more connections help
 
-`multiUpload` and `multiDownload` split a file across workers, each an independent connection with its
-own in-flight window and TCP congestion window. One connection's throughput is capped by its window:
+An [`SFTPSwarm`](Documentation/UserGuide.md#swarms-of-connections) keeps several connections to one server
+open and spreads each large transfer over them in stripes, each connection with its own in-flight window and TCP
+congestion window. One connection's throughput is capped by its window:
 
     throughput ≈ window size ÷ round-trip time
 
 At the 2 MiB default, one connection cannot exceed about 67 MiB/s on a 30 ms link or 20 MiB/s on a
 100 ms link, however much bandwidth the link offers. The actual rate is the lower of that window limit
-and the link's own capacity. Workers add windows, so they help when round trips are long, when a server
-limits a single session, or when the link has more bandwidth than one window can keep busy.
+and the link's own capacity. More connections add windows, so they help when round trips are long, when
+a server limits a single session, or when the link has more bandwidth than one window can keep busy.
 
-On this Wi-Fi network, the link, not the 2 MiB window, was the limit, so a second connection had little
-to add. It shared the same radio and added handshake and coordination work, and the transfer finished
-4.7% slower on upload and 6.2% slower on download. That is a result for this link, not a rule: on a
-high-latency or per-session-limited link, extra workers can be substantially faster. The right count is
-worth measuring rather than assuming.
+Where the link itself is the limit, as on a busy Wi-Fi network, more connections share the same capacity
+and add handshakes and coordination, so they can make a transfer slower. The right count is worth
+measuring rather than assuming.
 
 ### What resumability costs
 
-A resumable multi-transfer appends a small trailer past the payload, recording which blocks have
-arrived, so a later call can skip the completed parts. The trailer is removed before the file is put in
-place. Compared with the non-resumable two-worker runs, that bookkeeping cost 1.3% on upload and 1.1% on
-download. A resumable upload opens one extra connection for its trailer; a resumable download writes its
-trailer locally and uses no extra connection. You pay this cost only when you ask
-`multiUpload` / `multiDownload` to be resumable.
+`upload` and `download` on an `SFTPClient`, and on a swarm for a file of `smallFileThreshold` (10 MiB by
+default) or less, write the destination directly and keep no bookkeeping: `resume: true` continues from
+the destination's current size. A swarm sends a larger file in stripes into a temporary file beside the
+destination and renames it into place once complete. The temporary file is preallocated and carries a
+small trailer past the payload, recording how many bytes from the start have arrived. That count is
+rewritten at most once a second: eight bytes, sent on a connection the upload already uses, or written to
+the local file of a download. The trailer is cut off with one truncation before the rename.
 
 ### Measure your own link
 
-The best worker count depends on the network, so `multiTune` measures it: it transfers a test file at
-increasing parallelism and returns the count with the highest throughput. On a link that one connection
-already saturates, it reports 1. The [`Benchmark`](Benchmark) package builds the harness used above and
-ships it as the `swift-sftp-benchmark` and `swift-sftp-multitune` executables:
+The best number of connections depends on the network, so `autoTuneForUpload` and `autoTuneForDownload`
+measure it: they transfer a test file over a growing number of connections, leave the swarm at the
+fastest, and return every measurement. Started from one connection on a link that one connection already
+saturates, they normally stay at one. The [`Benchmark`](Benchmark) package ships the benchmark as the
+`swift-sftp-benchmark` executable, now comparing SwiftSFTP over one connection and over a swarm with
+Citadel, and auto-tune as `swift-sftp-autotune`:
 
 ```sh
 swift build --package-path Benchmark -c release
 swift run --package-path Benchmark -c release swift-sftp-benchmark --help
-swift run --package-path Benchmark -c release swift-sftp-multitune --help
+swift run --package-path Benchmark -c release swift-sftp-autotune --help
 ```
 
 Use release builds for throughput measurements. See
-[Choosing a worker count](Documentation/UserGuide.md#choosing-a-worker-count) for the `multiTune` API and
-[the Benchmark README](Benchmark/README.md) for server setup and options.
+[Finding the best number of connections](Documentation/UserGuide.md#finding-the-best-number-of-connections)
+for the auto-tune API and [the Benchmark README](Benchmark/README.md) for server setup and options.
 
 These figures describe one Wi-Fi network, one server, and one moment in October 2026. Interference,
 round-trip time, server disk speed, SSH cipher, and other traffic all move them, so treat them as a

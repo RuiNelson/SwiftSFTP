@@ -1,8 +1,8 @@
 # Migrating from SwiftSFTP 3.24 to 4.0
 
-SwiftSFTP 4.0 changes how the library reports problems and how objects are released. Most programs need only a few
-mechanical edits; the compiler finds nearly all of them. This guide lists every source-breaking change and every change
-in runtime behaviour, with what to do about each.
+SwiftSFTP 4.0 changes how the library reports problems, how objects are released, and how files are transferred over
+several connections. Most programs need only a few mechanical edits; the compiler finds nearly all of them. This guide
+lists every source-breaking change and every change in runtime behaviour, with what to do about each.
 
 ## At a glance
 
@@ -20,7 +20,10 @@ in runtime behaviour, with what to do about each.
 | `.privateKeys(PrivateKeySet)`, `.privateKeyFile`, `.privateKeyString` | `.privateKey(PrivateKey)`, `.privateKeys([PrivateKey])` |
 | `contentsOfDirectory(path:recursive:)` | `listDirectory(path:recursive:)`, returning `[FileMetadata]` |
 | Deprecated `listDirectory(path:recursive:) -> Set<FileMetadata>` | Removed; the name now returns `[FileMetadata]` |
-| `multiTune(..., logger:)` | `multiTune(..., onRound:)` with `MultiTuneRound` |
+| `multiUpload`, `multiDownload`, `multiTune`, `ResumeBehavior`, `TransferDirection` | `SFTPSwarm`, with `upload`, `download`, `autoTuneForUpload`, `autoTuneForDownload` |
+| `upload(from:to:resume:...)`, `download(from:to:resume:...)` as extension methods | Requirements of `SFTPClientProtocol`; call sites and `SFTPClient` behaviour unchanged |
+| `makeAsset(at:readAheadSize:stripeSize:...)`, `makePlayerItem(at:...)` | `await makeAsset(path:readAhead:bufferSize:...)`, `await makePlayerItem(path:...)` |
+| `makeAsset` / `makePlayerItem` on a collection of clients | The same methods on an `SFTPSwarm` |
 | `TraceSetToLogger(session:options:)` | Removed; use `TraceSetHandler` and `Trace` |
 | `ReferenceCache.close()` | Removed; release the cache, or call `removeAll()` |
 | Deprecated `SwiftSFTP_Curve25519`, `OpenSSHKeyPair` | Removed; use `AsymmetricCryptography.EdDSA.Ed25519` with `PrivateKey` and `PublicKey` |
@@ -113,21 +116,8 @@ a client released without `close()`. That no longer happens.
 
 ### `multiTune`
 
-`multiTune` takes an `onRound` callback instead of a `logger`. It receives each timed round as a `MultiTuneRound`, with
-`search`, `workers`, `bytes`, `duration`, and `bytesPerSecond`.
-
-```swift
-// Before
-let workers = try await client.multiTune(testDirection: .upload, testFilePath: probe, logger: logger)
-
-// After
-let workers = try await client.multiTune(testDirection: .upload, testFilePath: probe) { round in
-    logger.info("\(round.workers) worker(s): \(round.bytesPerSecond / 1_048_576) MiB/s")
-}
-```
-
-The per-search and final summary lines the logger used to print are not reported separately: keep the fastest round
-yourself if you need them, or use the returned worker count.
+`multiTune` is removed altogether, so its `logger:` has nothing to become: see
+[Multi-connection transfers become `SFTPSwarm`](#multi-connection-transfers-become-sftpswarm) for what replaces it.
 
 ### Layer 0 tracing
 
@@ -302,7 +292,7 @@ What to change:
   builds stop before the throw.
 - **Tests that expected `AlreadyClosed`** should assert that the operation is not reached, or be removed. A test that
   must exercise the release-build throw needs a release build.
-- **AVFoundation**: closing a client under a playing `SFTPAsset` is a misuse. Keep every client open until playback and
+- **AVFoundation**: closing a client or swarm under a playing asset is a misuse. Keep it open until playback and
   metadata loading finish. `MediaLoadingError` now recognises `MisuseError` where it recognised `AlreadyClosed`; in a release build the following media reads fail with `ENOTCONN`.
 - **EXIFKit**: reading a thumbnail after its handle or client closed is a misuse instead of an `AlreadyClosed` throw.
   Use `try await metadata.loadingThumbnail()` if you want to close the handle early.
@@ -472,7 +462,7 @@ now `FileSize`:
 
 | API | 3.24 | 4.0 |
 |-----|------|-----|
-| `TransferProgress` (the callback of `write(from:)`, `read(to:)`, `multiUpload`, `multiDownload`, and the file-to-file `read(from:)`/`write(to:)`) | `(Int64, Int64, Int, TimeInterval) async -> Bool` | `(FileSize, FileSize, Int, TimeInterval) async -> Bool` |
+| `TransferProgress` (the callback of `upload`, `download`, `write(from:)`, `read(to:)`, and the file-to-file `read(from:)`/`write(to:)`) | `(Int64, Int64, Int, TimeInterval) async -> Bool` | `(FileSize, FileSize, Int, TimeInterval) async -> Bool` |
 | `directorySize(_:)` | Returned `Int64` | Returns `FileSize` |
 | `set(size:owner:date:permissions:)` on a file, `setAttributes(path:size:owner:date:permissions:)` | `size: Int64?`; a negative size was ignored | `size: FileSize?` |
 | `read(from:upTo:chunkSize:continuation:)`, `write(to:upTo:chunkSize:continuation:)` between handles | `upTo: Int64?`; any value of zero or below copied nothing | `upTo: FileSize?`; zero copies nothing |
@@ -508,11 +498,162 @@ Things to watch:
   outside SwiftSFTP) needs `FileSize(x)`, or `FileSize(clamping: x)` when it can be negative.
 - **Negative inputs no longer compile.** `set(size: -1)` was silently ignored and `createZeros(length: -1)` stopped the
   process; neither can be written now. Code that computed such a value at runtime must reject it before converting.
-- **Overflow.** Aggregate progress of a multi-worker transfer saturates at `UInt64.max` instead of `Int64.max`.
+- **Overflow.** The progress `upload` and `download` report never exceeds the total, even when a swarm sends a stripe
+  again after a broken connection.
 - **Sizes above `Int64.max`.** `FileSize` can hold them, but no filesystem does, and the EXIFKit file handle still
   rejects a write that would end past `Int64.max` and a truncation to more than `Int64.max`, as in 3.24. The
   AVFoundation integration refuses to open a file larger than `Int64.max` (`EOVERFLOW`), because AVFoundation counts in
   `Int64`.
+
+## Multi-connection transfers become `SFTPSwarm`
+
+`multiUpload`, `multiDownload`, and `multiTune` are removed, and with them `ResumeBehavior` and `TransferDirection`. An
+`SFTPSwarm` takes their place: a set of connections to one server that stay open and are used as one client. It conforms
+to `SFTPClientProtocol`, every operation goes to a free connection, and its `upload` and `download` spread a file larger
+than its `smallFileThreshold` over every connection in stripes. See
+[Swarms of Connections](UserGuide.md#swarms-of-connections) and
+[Transfers over a swarm](UserGuide.md#transfers-over-a-swarm).
+
+| 3.24 | 4.0 |
+|------|-----|
+| `client.multiUpload(from:to:workers: n, ...)` | `let swarm = try await SFTPSwarm(client, numberOfForksToCreate: n - 1)`, then `swarm.upload(from:to:...)` |
+| `client.multiDownload(from:to:workers: n, ...)` | `swarm.download(from:to:...)` |
+| `resume: .never` | `resume: false`, the default. An interrupted striped transfer still leaves its temporary file, which the next call with `resume: false` deletes |
+| `resume: .ifPossible` | `resume: true` |
+| `resume: .discardingProgress` | `resume: false`: the temporary file an earlier attempt left is deleted, and the transfer starts from zero |
+| `multiTune(testDirection: .upload, ...)` | `swarm.autoTuneForUpload(localFile:testFilePath:clientCountLimit:maximumBackAndForths:)` |
+| `multiTune(testDirection: .download, ...)` | `swarm.autoTuneForDownload(testFilePath:createTestFileIfDoesNotExist:clientCountLimit:maximumBackAndForths:)` |
+| The rounds `multiTune` logged to its `logger` | The returned `[Int: Double]`: bytes per second by number of connections |
+| The worker count `multiTune` returned | `swarm.clientCount().setNumber`: auto-tune leaves the swarm at the fastest count |
+
+**Before (3.24):**
+
+```swift
+let workers = try await client.multiTune(testDirection: .upload, workersMax: 8, testFilePath: probe)
+try await client.multiUpload(from: localFile, to: remotePath, workers: workers, resume: .ifPossible) { _, _, _, _ in
+    true
+}
+```
+
+**After (4.0):**
+
+```swift
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 0)
+_ = try await swarm.autoTuneForUpload(
+    localFile: sample,          // at least clientCountLimit × stripeSize
+    testFilePath: probe,
+    clientCountLimit: 8,
+    maximumBackAndForths: 2
+)
+try await swarm.upload(from: localFile, to: remotePath, resume: true) { _, _, _, _ in true }
+```
+
+What differs besides the names:
+
+- **A swarm owns its clients.** The client you make it from is closed with the others: close the swarm, not the
+  client. Keep the swarm for as long as you need the connections, rather than making one per transfer the way
+  `multiUpload` forked its workers per call.
+- **Forks that fail are retried, not skipped.** `multiUpload` and `multiDownload` went on silently with the workers that
+  could log in. A swarm's initializer retries a failing fork as `SwarmOptions.replaceBrokenConnections` says, then
+  closes the forks it made and throws, leaving your client open; `increaseClients(_:)` keeps the connections it could
+  make and throws the last error.
+- **A broken connection no longer ends the transfer.** The first failing worker ended a multi-worker transfer. A swarm
+  takes a broken connection out, replaces it, and sends its stripe again on another connection, up to three times in
+  all.
+- **Auto-tune searches differently.** It starts at the swarm's current number of connections and only adds connections,
+  one at a time, re-measuring a result that looks like a fluke at most `maximumBackAndForths` times; `workersStart`,
+  `workersStep`, and `bestOf` have no counterpart. An upload tune uploads a local file you pass, of at least
+  `clientCountLimit` stripes of `stripeSize` (8 MiB by default), instead of `testFileSize` random bytes. A download tune
+  can create its remote test file with `createTestFileIfDoesNotExist: (create: true, size:)`, where `multiTune` required
+  it to exist.
+- **Small files move in place.** `multiUpload` wrote every file into a temporary file renamed into place, and
+  `multiDownload` without resuming deleted an incomplete destination. A swarm moves a file of `smallFileThreshold` bytes
+  or less, 10 MiB by default, in place over one connection, exactly as `SFTPClient` does: an interrupted transfer leaves
+  a partial destination, which `resume: true` continues from its current size and `resume: false` refuses with
+  `remoteFileAlreadyExists` or `localFileAlreadyExists`. So does a larger file whose destination already exists, with
+  `resume: true`. Set `smallFileThreshold` to `0` to send every non-empty file in stripes.
+- **Larger files go in stripes.** `multiUpload` and `multiDownload` gave each worker one range of the file. A swarm
+  hands out stripes of its `stripeSize`, 8 MiB by default, in order, to whichever connection is free. `bufferSize` keeps
+  its meaning, the size of each read and write step; `download`'s default is 512 KiB, where `multiDownload`'s was
+  1 MiB.
+- **Every striped transfer can be resumed.** It writes into a temporary file beside the destination, `<hash>.rmt.tmp`,
+  that carries a version 2 trailer, and renames it onto the destination once complete. An interrupted one leaves its
+  temporary file behind whatever `resume` said, where `.never` deleted it, unless nothing from the start of the file had
+  arrived. Sweep abandoned ones with `cleanupResumableUploads(in:olderThan:)` and
+  `cleanupResumableDownloads(in:olderThan:)`.
+- **Partial files from 3.x are not resumed.** The temporary files that `multiUpload` and `multiDownload` wrote with
+  `resume: .ifPossible` have the same names, but their trailer, version 1 with a block bitmap, reads as corrupt: the
+  next striped transfer to that destination deletes it and starts from zero.
+- **The server must shrink files for striped uploads.** A striped upload cuts its trailer off with `SETSTAT`. A server
+  that refuses gets `resumableTruncateUnsupported`; a `smallFileThreshold` of `FileSize.max` moves every file in place
+  and avoids the truncation.
+- **The progress callback no longer holds up a striped transfer.** It is called on a task of its own, in order, with the
+  bytes moved since its previous call; the transfer waits for it only between stripes, holding no connection. Returning
+  `false` stops the transfer within one stripe per connection. A resumed transfer's first report starts at what the
+  partial file held. A transfer in place calls it inline, as `SFTPClient` does.
+- **Two striped transfers to one destination are refused.** A second striped upload to a destination that one through
+  the same swarm is writing, and a second striped download to a local file that one in the same process is writing,
+  throw the new `FileTransferErrors.transferAlreadyInProgress(path:)`. A `switch` over `FileTransferErrors` without a
+  `default` no longer compiles until it handles the case.
+- `resumableTrailerVersionUnsupported`, `resumableTruncateUnsupported`, and `resumableDestinationNameTooLong` now come
+  from a swarm's striped `upload` and `download`. The way past an unsupported trailer version was
+  `resume: .discardingProgress`; it is now `resume: false`.
+
+## `upload` and `download` become protocol requirements
+
+For `SFTPClient`, nothing changes at the call site or at runtime. `upload` and `download` take the same parameters,
+with the same defaults, and behave as in 3.24: they write the destination directly over the client's one connection,
+`resume: true` continues from the destination's current size, `resume: false` refuses an existing destination, and the
+progress callback is called inline, before the next chunk. `SFTPClient` has no `smallFileThreshold` or `stripeSize`;
+those are properties of a swarm.
+
+What changes is where they are declared. `upload(from:to:resume:bufferSize:permissions:continuation:)` and
+`download(from:to:resume:bufferSize:continuation:)` are requirements of `SFTPClientProtocol` now, instead of extension
+methods, so a swarm held as `any SFTPClientProtocol` still transfers as a swarm. The shorter forms, which leave out any
+of `resume`, `bufferSize`, and `permissions`, are overloads in a protocol extension that call the two requirements with
+3.24's defaults: `resume: false`, a `bufferSize` of 8 MiB for an upload and 512 KiB for a download, and the server's
+default permissions. Custom conformers must implement both requirements; see
+[Custom `SFTPClientProtocol` conformers](#custom-sftpclientprotocol-conformers).
+
+## AVFoundation methods are `async` and take new labels
+
+`makeAsset` and `makePlayerItem` are `async` now: call them with `await`. Their labels change, with the same defaults
+and the same 32 KiB minimum for the piece size:
+
+| 3.24 | 4.0 |
+|------|-----|
+| `at:` | `path:` |
+| `readAheadSize:` (8 MiB) | `readAhead:` (8 MiB) |
+| `stripeSize:` (2 MiB) | `bufferSize:` (2 MiB) |
+
+`makeAsset`'s `options` parameter and both results are `sending`.
+
+```swift
+// Before
+let asset = client.makeAsset(at: "/Videos/clip", contentType: .mpeg4Movie, readAheadSize: 16 * 1024 * 1024)
+
+// After
+let asset = await client.makeAsset(path: "/Videos/clip", contentType: .mpeg4Movie, readAhead: 16 * 1024 * 1024)
+```
+
+The overloads on a `Collection` of clients are removed. Make a swarm and call the same methods on it. An asset made from
+any `SFTPSwarmProtocol` gets one worker per connection that takes work when it is created, which it asks the swarm for,
+and opens its read handles through the swarm, which spreads them over its connections. On a plain client the methods
+stream over its one connection, as before.
+
+```swift
+// Before
+let clients = [client, try await client.fork(), try await client.fork(), try await client.fork()]
+let item = clients.makePlayerItem(at: "/Videos/holiday.mp4")
+
+// After
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)
+let item = await swarm.makePlayerItem(path: "/Videos/holiday.mp4")
+```
+
+The asset's handles share the swarm's connections with its other operations. A worker whose read failed opens a new
+handle when it is next used, and a swarm opens it on a working connection. Keep the swarm open during playback; closing
+it under a playing asset is a misuse.
 
 ## Custom `SFTPClientProtocol` conformers
 
@@ -529,7 +670,13 @@ Mocks and other types conforming to `SFTPClientProtocol` must:
 - declare `static func getServerHostKey(_:timeOut:)`, without the `openSocketIn` label and the `shortHandForm`
   parameter, and return the
   `known_hosts` line;
-- drop any `import Logging` they had only for the protocol.
+- drop any `import Logging` they had only for the protocol;
+- implement `upload(from:to:resume:bufferSize:permissions:continuation:)` and
+  `download(from:to:resume:bufferSize:continuation:)`, which used to be extension methods with these parameters and
+  defaults, built on the conformer's own `stat`, `createDirectory`, and `openFile`. There is no default implementation
+  to fall back on. The shorter overloads, which leave out any of `resume`, `bufferSize`, and `permissions`, remain
+  extension methods that call these two (see
+  [`upload` and `download` become protocol requirements](#upload-and-download-become-protocol-requirements)).
 
 `SFTPFileProtocol` and `SSHShellAgentProtocol` keep their requirements; only their documented errors changed, and the
 sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `createRandomData(file:length:)` are
@@ -553,7 +700,7 @@ sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `
 1. Bump the dependency to `from: "4.0.0"` and raise deployment targets to the new minimums.
 2. Add swift-log directly if you still use it; make sure PathWorks resolves to 2.1.0 or later.
 3. Remove `trapOnDeInitWithoutClose:`; replace `logger:` with `deinitErrorHandler:` or remove it.
-4. Replace `multiTune(..., logger:)` with `onRound:`, and `TraceSetToLogger` with `TraceSetHandler` + `Trace`.
+4. Replace `TraceSetToLogger` with `TraceSetHandler` + `Trace`.
 5. Replace `SFTPClient(...)` + `login(timeOut:)` and `initAndLogin(...)` with `try await SFTPClient(...)`, moving
    `loginTimeOut` and `operationsTimeOut`, in that order, after `compressionPreference`; replace `fork(loggedIn:)` with `fork()`; use
    `preflightConfigurationCheck` where you created a client only to validate its configuration.
@@ -572,4 +719,13 @@ sizes in `set(size:owner:date:permissions:)`, `createZeros(file:length:)`, and `
 14. Remove `openSocketIn:` and `shortHandForm:` from `getServerHostKey` calls; rename `.loadFromFile` to
     `.loadKnownHostsFile` and `.loadFromFileString` to `.loadKnownHostsString`, and replace `.shortHandAcceptedKeys`
     with `.loadKnownHostsString`, prefixing keys you stored in the shorthand form with `TCPLocation.knownHostsFormat`.
-15. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.
+15. Replace `multiUpload`, `multiDownload`, and `multiTune` with an `SFTPSwarm` and its `upload`, `download`,
+    `autoTuneForUpload`, and `autoTuneForDownload`, passing `resume: true` for `.ifPossible` and `resume: false` for
+    `.never` and `.discardingProgress`; sweep abandoned temporary files with `cleanupResumableUploads` and
+    `cleanupResumableDownloads`.
+16. Add `await` to `makeAsset` and `makePlayerItem`, rename `at:` to `path:`, `readAheadSize:` to `readAhead:`, and
+    `stripeSize:` to `bufferSize:`; make AVFoundation assets from a swarm instead of a collection of clients.
+17. Handle `FileTransferErrors.transferAlreadyInProgress` in exhaustive `switch` statements, and implement
+    `upload(from:to:resume:bufferSize:permissions:continuation:)` and
+    `download(from:to:resume:bufferSize:continuation:)` in custom `SFTPClientProtocol` conformers.
+18. Run your tests in a debug build: any remaining misuse stops at an assertion failure where it happens.

@@ -43,7 +43,18 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
 - Call libssh2 only through Layer 0 wrappers, not directly from Layer 1.
 - Keep libssh2 errors in `Layer 0/Types/LibSSH2Error.swift`; define Layer 1 domain errors as enums under `Layer 1/` (for example in `StructsAndEnums/`), not in `LibSSH2Error`.
 - Prefer protocols (`SFTPClientProtocol`, `SFTPFileProtocol`) for testability; keep concrete types aligned with protocol contracts.
-- Do not add a second high-level client API unless explicitly requested.
+- Do not add a second high-level client API unless explicitly requested. `SFTPSwarm` is the one multi-connection
+  client and is itself an `SFTPClientProtocol`; there is no other way to use several connections at once.
+- Uploads and downloads are `SFTPClientProtocol` requirements, so a swarm held as `any SFTPClientProtocol` still
+  stripes. Transfers over one connection write the destination in place (`uploadInPlace`/`downloadInPlace` in
+  `Layer 1/Convenience/ClientUploadDownload.swift`), as `SFTPClient` always does; only a swarm stripes, in
+  `StripedTransfer` (`Layer 1/Convenience/Transfer/`), for files above its `smallFileThreshold`. Defaults are
+  protocol-extension overloads with fewer parameters that forward to the requirement. Never give an extension method a
+  requirement's exact signature with default arguments: calls that use the defaults dispatch statically to it and
+  bypass the conformer.
+- The trailer in `Layer 1/Convenience/Transfer/ResumableTrailer.swift` is wire format. Changing a frame, its order, or
+  its meaning needs a version bump, a matching edit to `Documentation/ResumableTrailerFormat.md`, and the worked-example
+  test in `Tests/SwiftSFTPTests/Swarm/ResumableTrailerTests.swift` updated with it.
 - Classify every failure before choosing how to report it:
   - **Runtime conditions** a correct program has to expect (network, server, protocol, authentication, filesystem
     state, user input such as an empty path) are thrown.
@@ -58,6 +69,26 @@ the separate `SwiftSFTP-OpenSSL` repository, included here as `Vendor/SwiftSFTP-
   - Library-internal invariants are `precondition`s too.
 - Library code that uses a connection on its own behalf, where the caller may legitimately close it meanwhile (the
   cache's control connection), runs under `MisuseScope.$assertsOnMisuse.withValue(false)`.
+
+## Layer 1 — Swarm (`Sources/SwiftSFTP/Layer 1/Swarm`)
+
+- `SwarmPool` is an actor that owns the connections. An operation leases an idle one with `withLease`, waits first
+  come first served when all are busy, and returns it on every path; the operation itself runs outside the actor. Every
+  `await` inside the pool lets other calls in, so state is checked again after each one, as `adopt` does after a fork.
+- The transfer machinery (`StripeDispenser`, `TransferProgressReporter`, `TransferHandles`, `TransferRegistry`) are
+  actors too. `SwarmSettings` is the one lock-protected class: it holds what `SFTPClientProtocol` reads and writes
+  synchronously (settings, `closed`, the connection compression is reported from). A settings change bumps a
+  generation, and a connection that took an older one gets the new values before its next operation.
+- Only `Error.indicatesBrokenConnection` (in `Layer 1/Types/SwarmError.swift`) decides that a connection broke. A broken
+  connection is retired and replaced; the operation that found it still throws. Transfers alone retry on another
+  connection: stripes, and setup and finish steps that are safe to run twice (`withConnectionRetrying`). Never retry a
+  rename, delete, or other change blindly: the reply may have been lost after the server applied it.
+- Nothing that holds a lease may wait for user code that could itself need a lease. Progress callbacks run on their own
+  task, and transfers wait for them only between stripes, with no connection held.
+- The swarm never closes a connection under an open `SwarmFile` handle, except in `close()`. A retired connection is
+  kept open while it is the only client left to fork replacements from.
+- Library code inside the swarm that uses a member it may have retired or closed meanwhile runs under
+  `MisuseScope.$assertsOnMisuse.withValue(false)`.
 
 ## CryptographicUtils (`Sources/SwiftSFTP/CryptographicUtils`)
 

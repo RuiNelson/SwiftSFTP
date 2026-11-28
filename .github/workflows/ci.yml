@@ -58,7 +58,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests|ResumableTrailerTests|StripeTests|SwarmPoolTests"
 
       # The trait changes the libssh2 build, so it needs its own scratch path. Without the trait, the offline run
       # above checks that the legacy methods are absent.
@@ -149,7 +149,7 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|LegacyAlgorithmsTests|ResumableTrailerTests|StripeTests|SwarmPoolTests"
 
       # The trait changes the libssh2 build, so it needs its own scratch path. Without the trait, the offline run
       # above checks that the legacy methods are absent.
@@ -311,4 +311,4 @@ jobs:
             exit 1
           fi
         env:
-          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests"
+          OFFLINE_TEST_FILTER: "CompressionTests|KeyValidationTests|KeyParsingRegressionTests|PrivateKeyTypesTests|SSHUserKeyAlgorithmTests|SFTPPathTests|SFTPWindowsPathTests|WindowsSFTPPathTests|SFTPFileHandleForEXIFKitTests|ResumableTrailerTests|StripeTests|SwarmPoolTests"

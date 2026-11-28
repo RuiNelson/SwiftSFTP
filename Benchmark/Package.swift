@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "swift-sftp-benchmark", targets: ["SwiftSFTPBenchmark"]),
-        .executable(name: "swift-sftp-multitune", targets: ["SwiftSFTPMultiTune"]),
+        .executable(name: "swift-sftp-autotune", targets: ["SwiftSFTPAutoTune"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -19,7 +19,6 @@ let package = Package(
             url: "https://github.com/apple/swift-argument-parser.git",
             .upToNextMajor(from: "1.8.2")
         ),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -31,11 +30,10 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "SwiftSFTPMultiTune",
+            name: "SwiftSFTPAutoTune",
             dependencies: [
                 .product(name: "SwiftSFTPStatic", package: "SwiftSFTP"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Logging", package: "swift-log"),
             ]
         ),
     ],

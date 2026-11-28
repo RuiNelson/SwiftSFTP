@@ -30,9 +30,9 @@ let cache = ReferenceCache(configuration: .init())
 client.attachCache(cache)
 ```
 
-Nothing else changes in your code. Files you open, `upload` and `download`, parallel transfers, and the AVFoundation
-and EXIF integrations all read through the cache from now on. The first read of a range comes from the server; later
-reads of the same range come from memory.
+Nothing else changes in your code. Files you open, `upload` and `download`, swarms made from the client, and the
+AVFoundation and EXIF integrations all read through the cache from now on. The first read of a range comes from the
+server; later reads of the same range come from memory.
 
 With the default configuration the cache:
 
@@ -58,7 +58,7 @@ let cache = ReferenceCache(storage: storage, configuration: .init())
 
 ### Forks, several servers, and closing
 
-Clients forked from a client with a cache attached share that cache, so the connections of a parallel transfer benefit
+Clients forked from a client with a cache attached share that cache, so the connections of a swarm made from it benefit
 from each other's reads. A cache belongs to one server: for another server, create another `ReferenceCache`. Caches
 for different servers can share one `InMemoryCacheStorage`, and with it one budget.
 

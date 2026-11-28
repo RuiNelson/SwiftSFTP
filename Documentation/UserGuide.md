@@ -12,13 +12,14 @@ The optional products that connect SwiftSFTP to AVFoundation and EXIFKit are cov
 4. [Navigating the Remote Filesystem](#navigating-the-remote-filesystem)
 5. [Working with Files](#working-with-files)
 6. [Uploading and Downloading](#uploading-and-downloading)
-7. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
-8. [Shell Agent (Server-Side Operations)](#shell-agent-server-side-operations)
-9. [Symlinks](#symlinks)
-10. [Filesystem Statistics](#filesystem-statistics)
-11. [Keeping the Connection Alive](#keeping-the-connection-alive)
-12. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
-13. [Error Handling](#error-handling)
+7. [Swarms of Connections](#swarms-of-connections)
+8. [Copying, Renaming, and Deleting](#copying-renaming-and-deleting)
+9. [Shell Agent (Server-Side Operations)](#shell-agent-server-side-operations)
+10. [Symlinks](#symlinks)
+11. [Filesystem Statistics](#filesystem-statistics)
+12. [Keeping the Connection Alive](#keeping-the-connection-alive)
+13. [Validating SSH Keys (Offline)](#validating-ssh-keys-offline)
+14. [Error Handling](#error-handling)
 
 ---
 
@@ -153,7 +154,9 @@ These values stop the process in every build:
 |------|------|
 | `loginTimeOut`, `operationsTimeOut`, `getServerHostKey(timeOut:)`, `timeout`, `teardownGracePeriod` | Zero, negative, or NaN. `.infinity` means no timeout |
 | `setKeepAlive(every:)` | Zero, negative, NaN, or infinite (`nil` disables keepalives) |
-| Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL |
+| Transfers | `bufferSize` or `chunkSize` below one; a local URL that is not a `file://` URL; a negative or non-finite `age` for `cleanupResumableUploads` or `cleanupResumableDownloads` |
+| `SFTPSwarm` | A negative `numberOfForksToCreate`; an empty client list, a client listed twice, or a swarm inside a swarm; a count below one for `increaseClients` or `decreaseClients`, or one that would leave no connection; a `stripeSize` below one |
+| `SwarmOptions`, auto-tune | A negative `tries`, or a negative or non-finite `delay`; a `clientCountLimit` below one or a negative `maximumBackAndForths` |
 | `UserAuthentication` | An empty `.privateKeys([])` array |
 | Shell agent | An empty input list (`tar`, `zip`, `sevenZip`, `concat`), a `compressionLevel` outside `0...9` |
 | `ReferenceCache` and `InMemoryCacheStorage` configuration, `compareFiles` | Negative sizes and intervals, and the other out-of-range values their documentation names |
@@ -210,6 +213,9 @@ The fork is logged in when it returns. It inherits the server location, operatio
 acceptance policy, authentication, compression preferences in both directions, teardown grace period, read-ahead,
 write-ahead, and deinit error handler. It has an independent SSH session, socket, SFTP subsystem, identity, and
 keepalive state.
+
+To keep several connections open and share work between them, make an [`SFTPSwarm`](#swarms-of-connections) instead
+of managing forks yourself.
 
 ### Closing the connection
 
@@ -612,7 +618,12 @@ try await file.truncate(toSize: 0)
 
 ## Uploading and Downloading
 
-Both methods handle chunking and directory creation automatically. The progress callback lets you report progress or cancel the transfer.
+`upload` and `download` move a whole file between the local filesystem and the server. They are requirements of
+`SFTPClientProtocol`, so a swarm held as `any SFTPClientProtocol` still transfers as a swarm. An `SFTPClient` writes
+the destination directly, over its one connection, as SwiftSFTP 3.24 did. An [`SFTPSwarm`](#swarms-of-connections)
+does the same for small files, and sends larger ones in stripes over all of its connections, through a temporary file
+it can resume; see [Transfers over a swarm](#transfers-over-a-swarm). The progress callback lets you report progress
+or stop the transfer.
 
 ### Upload
 
@@ -627,13 +638,19 @@ try await client.upload(
     let percent = Double(bytesTransferred) * 100 / Double(totalBytes)
     let speed   = Double(lastChunkBytes) / lastChunkInterval    // bytes/sec
     print(String(format: "%.0f%%  %.1f KB/s", percent, speed / 1024))
-    return true     // return false to cancel
+    return true     // return false to stop
 }
 ```
 
-- The destination's parent directories are created automatically.
-- By default the remote file must not already exist (uses `.exclusive`). If it does, `FileTransferErrors.remoteFileAlreadyExists` is thrown.
-- Pass `resume: true` to continue an interrupted upload: if the remote file already exists, the transfer starts at its current size and appends the remaining local bytes.
+- Missing parent directories of the destination are created first, and are **not** removed again if the upload fails.
+- With `resume: false`, the default, the destination must not exist: `FileTransferErrors.remoteFileAlreadyExists` is
+  thrown if it does, and `.remotePathIsADirectory` if it is a directory. For `resume: true`, see
+  [Resuming an interrupted transfer](#resuming-an-interrupted-transfer).
+- `permissions` (the server's default when left out) are requested when the remote file is created.
+- `bufferSize` is how much of the local file each step reads, 8 MiB by default. Each step's write returns only once the
+  server has acknowledged all of it, so steps several times `writeAhead` keep the connection busy (see
+  [Write-ahead](#write-ahead)).
+- Overloads leave out any of `resume`, `bufferSize`, and `permissions`.
 
 ### Download
 
@@ -648,186 +665,209 @@ try await client.download(
 }
 ```
 
-- By default the local file must not already exist. If it does, `FileTransferErrors.localFileAlreadyExists` is thrown.
-- Pass `resume: true` to continue an interrupted download: if the local file already exists, the transfer starts at its current size and appends the remaining remote bytes.
+- The source must exist; symbolic links are followed. `FileTransferErrors.remoteFileNotFound` is thrown for a missing
+  source, and on a swarm for one that is not a regular file; `.remotePathIsADirectory` is thrown for a directory.
+- The destination's directory must exist. With `resume: false`, the default, the destination itself must not:
+  `FileTransferErrors.localFileAlreadyExists` is thrown if it does.
+- `bufferSize` is how much each step reads from the server, 512 KiB by default.
+- Overloads leave out `resume`, `bufferSize`, or both.
 
-### Parallel transfers
+### Resuming an interrupted transfer
 
-Use `multiUpload` and `multiDownload` to split a file into byte ranges and transfer those ranges concurrently over
-independent SSH/SFTP connections:
-
-```swift
-try await client.multiUpload(
-    from: localFile,
-    to: "/home/alice/backups/archive.zip",
-    workers: 4,
-    resume: .ifPossible
-) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
-    return true
-}
-
-try await client.multiDownload(
-    from: "/home/alice/backups/archive.zip",
-    to: destination,
-    workers: 4,
-    resume: .ifPossible
-) { _, _, _, _ in true }
-```
-
-`workers` is the maximum total number of connections, including the client on which the method is called. Additional
-connections are created with `fork()`. Forks are attempted sequentially; if any additional fork cannot
-log in, no more forks are attempted and the transfer continues silently with the workers already connected. This
-allows servers with lower per-user or global connection limits to reduce parallelism without failing the transfer.
-
-Both methods preallocate the destination and report aggregate, serialized progress for the complete file. Neither can
-be resumed: an interrupted transfer starts over from the beginning, and neither leaves anything behind to continue
-from. `multiUpload` writes to a uniquely named temporary file in the destination directory and atomically renames it
-only after every range succeeds; failure or cancellation triggers a best-effort removal of that temporary file.
-`multiDownload` removes its incomplete local destination after failure or cancellation.
-
-To continue an interrupted multi-worker transfer instead of restarting it, use
-[Resumable parallel transfers](#resumable-parallel-transfers) below.
-
-### Resumable parallel transfers
-
-Passing `resume: .ifPossible` makes `multiUpload` and `multiDownload` behave exactly as above, with one difference:
-an interrupted transfer can be continued rather than restarted.
-
-```swift
-try await client.multiUpload(
-    from: localFile,
-    to: "/home/alice/backups/archive.zip",
-    workers: 4,
-    resume: .ifPossible
-) { bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval in
-    let percent = Double(bytesTransferred) * 100 / Double(totalBytes)
-    print(String(format: "%.0f%%", percent))
-    return true     // return false to cancel; the progress made so far is kept
-}
-
-try await client.multiDownload(
-    from: "/home/alice/backups/archive.zip",
-    to: destination,
-    workers: 4,
-    resume: .ifPossible
-) { _, _, _, _ in true }
-```
-
-Resuming is not a mode or a session — it is the same call, made again. A dropped connection surfaces as a thrown
-error like any other, and the next call with the same source and destination transfers only the blocks that are
-missing:
+A transfer that `SFTPClient` did not finish (cancelled, stopped by its callback, cut off by a dropped connection, or
+killed with the process) leaves the destination holding what had arrived. Pass `resume: true` to continue it: when the
+destination exists, its current size is the starting offset, and only the rest of the source is read and appended to
+it. When the destination does not exist, `resume: true` changes nothing.
 
 ```swift
 for attempt in 1 ... 3 {
     do {
-        try await client.multiUpload(
-            from: localFile,
-            to: "/home/alice/backups/archive.zip",
-            workers: 4,
-            resume: .ifPossible
-        ) { _, _, _, _ in true }
+        try await client.upload(from: localFile, to: "/home/alice/backups/archive.zip", resume: true) { _, _, _, _ in
+            true
+        }
         break
     } catch {
         guard attempt < 3 else { throw error }
         try await Task.sleep(nanoseconds: 5 * 1_000_000_000)
-        // The next iteration picks up where this one stopped; it does not start over.
+        // The next iteration appends what the destination is missing; it does not start over.
     }
 }
 ```
 
-Neither method retries or reconnects on its own, and neither waits: a failure ends the call.
+Neither method calls itself again: a failure that ends the call is thrown. The same loop works on a swarm, which
+continues its own way; see [Resuming a striped transfer](#resuming-a-striped-transfer).
 
-How progress is stored, what survives an interruption, what is not protected, and how workers relate to progress are
-covered in [Resumable transfer details](ResumableTransferDetails.md).
+> **Warning: resuming in place trusts the destination.** Its size is the only record of what arrived. Nothing checks
+> that its bytes came from the same source, so resuming onto a file that holds something else, or after the source
+> changed, appends to it and leaves a mixture of both. Where that matters, delete the destination and transfer again, or
+> verify the result.
+
+### Transfers over a swarm
+
+An `SFTPSwarm` chooses how to move each file:
+
+- A file of `smallFileThreshold` bytes or less, 10 MiB by default (`SFTPSwarm.defaultSmallFileThreshold`), moves **in
+  place** over one connection, exactly as on an `SFTPClient`: no temporary file, and `resume: true` appends.
+- A larger file whose destination already exists is continued in place over one connection when `resume` is `true`,
+  as `SFTPClient` would continue it. With `resume: false`, the call throws `FileTransferErrors.remoteFileAlreadyExists`
+  for an upload and `.localFileAlreadyExists` for a download, as on a client.
+- Any other file goes **in stripes** of `stripeSize` bytes, 8 MiB by default (`SFTPSwarm.defaultStripeSize`), sent in
+  order to whichever connection is free, so every connection of the swarm takes part. The stripes go into a temporary
+  file beside the destination, which is renamed onto it once complete, so the destination appears only whole. An
+  interrupted striped transfer can be [resumed](#resuming-a-striped-transfer) from that temporary file.
+
+```swift
+swarm.smallFileThreshold = 64 * 1024 * 1024   // stripe only files above 64 MiB
+swarm.smallFileThreshold = 0                  // stripe every non-empty file
+swarm.stripeSize = 16 * 1024 * 1024           // each connection moves 16 MiB at a time
+```
+
+`stripeSize` is the unit one connection moves at a time and the granularity of resuming: the stripes in flight when a
+transfer is interrupted are sent again by the next call, so larger stripes repeat more. Values below one stop the
+process. `bufferSize` keeps its meaning inside a stripe, the size of each read and write step, and each step's write
+returns only once the server has acknowledged all of it, so steps several times `writeAhead` keep a connection busy.
+Both properties belong to the swarm, not to its connections, and a swarm's `fork()` copies them.
+
+#### Temporary files
+
+The temporary file is named `<hash>.rmt.tmp`, where the hash is the first 128 bits of the SHA-256 of the destination's
+file name, in uppercase Crockford Base32 (26 characters). It lives in the destination's own directory: on the server
+for an upload, on disk for a download. The name depends only on the destination, so a retry finds the file an
+interrupted attempt left, and a thousand failed attempts at one file leave one temporary file behind. A listing of the
+directory during the transfer shows the temporary file instead of the destination.
+
+The temporary file is preallocated and carries a trailer past the payload that records the destination's name, the
+payload's size, the source's modification time, and how much of the payload has arrived. The trailer is cut off before
+the rename, and the destination is checked again just before it. [Resumable trailer format](ResumableTrailerFormat.md)
+describes its layout. `permissions` are requested when the temporary file is created; the rename keeps them.
+
+An upload in stripes needs a server that shrinks a file with `SETSTAT`, to cut the trailer off. A server that refuses,
+or accepts and does nothing, gets `FileTransferErrors.resumableTruncateUnsupported`: the file is not renamed into place,
+and its temporary file is kept with the whole payload marked as arrived, so once the server is fixed the next upload
+with `resume: true` finishes it without sending the payload again. A `smallFileThreshold` of `FileSize.max` moves every
+file in place, as `SFTPClient` does, and needs no truncation, at the cost of resuming from a temporary file and of
+spreading a transfer over the swarm. Transfers in place have no trailer and are not affected.
+
+#### Resuming a striped transfer
+
+A striped transfer that is interrupted (cancelled, stopped by its callback, cut off by a dropped connection, or killed
+with the process) leaves its temporary file behind on purpose. The next call with the same source and destination and
+`resume: true` sends only what is missing; with `resume: false`, it deletes the temporary file and starts over:
+
+```swift
+try await swarm.download(from: "/home/alice/backups/archive.zip", to: destination, resume: true) { _, _, _, _ in
+    true    // continues the temporary file an interrupted download left, if any
+}
+```
+
+A swarm sends a stripe that failed on a broken connection again on another connection, up to three times in all (see
+[Broken connections](#broken-connections)); a failure that ends the call is thrown, as on a client.
+
+A partial file is continued only when the destination name, the payload size, and the source's modification time
+recorded in its trailer still match: the local file's modification time for an upload, the remote file's for a
+download. Anything else is treated as another transfer's leftovers: the partial file is deleted and the transfer starts
+from zero, without an error.
+
+Stripes are handed out in order, so the holes an interruption leaves are near the end of the payload, and one number in
+the trailer, the *valid prefix*, says how many bytes from the start can be trusted. It grows only once every stripe
+before it is on the destination (acknowledged by the server for an upload, written to the local file for a download),
+and it is written at most once a second. An interruption therefore costs sending again the stripes that were in flight,
+plus, after an error or a crash, those finished since the last update. Progress starts where the partial file left off:
+a transfer resumed at 80% reports about 80% on its first callback.
+
+What happens to the temporary file:
+
+| What happened | The temporary file |
+|---------------|--------------------|
+| A stop (the task was cancelled, or the callback returned `false`) | Kept, with the valid prefix written once more |
+| An error: network, server, local I/O, short read or write | Kept, with the valid prefix as last written |
+| A crash or kill | Kept, with the valid prefix as last written |
+| A stop or an error while the valid prefix is still zero | Deleted: there is nothing to resume |
+| The next call passes `resume: false` | Deleted by that call, which starts from zero |
+| Trailer corrupt, or the source no longer matches | Deleted by the next call with `resume: true`, which starts from zero without an error |
+| Trailer of a version this release does not read | Kept by a call with `resume: true`, which throws `FileTransferErrors.resumableTrailerVersionUnsupported` |
+| Every byte arrived, but the server would not cut the trailer off | Kept with the whole payload marked valid; the call throws `FileTransferErrors.resumableTruncateUnsupported` |
+| Transfer complete | Trailer cut off, then renamed onto the destination |
+
+To start over on purpose, pass `resume: false`, or delete the temporary file: the `path` of
+`resumableTrailerVersionUnsupported` names it, and the sweeps [below](#cleaning-up-abandoned-temporaries) remove those
+left for too long.
+
+> **Warning: two striped transfers to one destination at the same time corrupt each other unless SwiftSFTP sees both.**
+> A second striped upload to a destination that one through the same swarm is writing, and a second striped download to
+> a local file that one in the same process is writing, fail at once with
+> `FileTransferErrors.transferAlreadyInProgress`. Transfers through other swarms, other processes, or other machines are
+> not detected up front: they find the same temporary file and replace or interleave with each other's. An upload checks
+> before publishing that the temporary file still holds its own transfer, and throws the same error when it does not,
+> so it never publishes another transfer's bytes as its own; but the work of both is lost. Serialize those yourself,
+> and transfers in place as well, which are not checked.
+
+> **Warning: a source changed while keeping its size and modification time resumes as if unchanged.** Identity is name,
+> size, and modification time, never a hash of the content. SFTP reports modification times in whole seconds, so a
+> remote file replaced by another of the same size within the same second passes the check, and the resumed download
+> mixes old content with new. Where that matters, pass `resume: false` or verify the result.
 
 #### Cleaning up abandoned temporaries
 
 ```swift
-// Remote: temporaries left behind by a resumable multiUpload
-let sweptRemote: [String] = try await client.cleanupResumableUploads(
+// Remote: temporary files that striped uploads into this directory left behind
+let sweptRemote: [String] = try await swarm.cleanupResumableUploads(
     in: "/home/alice/backups",
     olderThan: 7 * 24 * 60 * 60     // one week, in seconds
 )
 
-// Local: temporaries left behind by a resumable multiDownload
-let sweptLocal: [URL] = try client.cleanupResumableDownloads(
+// Local: temporary files that striped downloads into this directory left behind
+let sweptLocal: [URL] = try swarm.cleanupResumableDownloads(
     in: URL(filePath: "/Users/alice/Downloads"),
     olderThan: 7 * 24 * 60 * 60
 )
 ```
 
-Both list one directory without recursion, delete every regular file whose name ends in `.rmt.tmp` and whose
-modification time is older than `age` seconds ago, and return what actually went away — sorted, and not the same thing
-as what matched, since a file that cannot be deleted is skipped rather than allowed to abort the sweep. A missing or
-unreadable directory throws, so that a mistyped path cannot pass for a clean one; use `try?` if that distinction is
-not worth making. An entry whose modification time cannot be read — one the server listed without a timestamp, for
-instance — is never swept, since there is then no evidence of abandonment. `cleanupResumableDownloads` uses no
-connection and works on a closed client; it lives on the client only because `.rmt.tmp` is a SwiftSFTP convention
-rather than something `FileManager` knows about.
+Both list one directory without recursion, delete every regular file named like a striped transfer's temporary file (26
+Crockford Base32 characters followed by `.rmt.tmp`) whose modification time is more than `age` seconds old, and return
+what they deleted. A file listed without a modification time is left alone, since its age is unknown. A file that
+cannot be deleted is skipped and the sweep goes on; only a failure to list the directory throws. `age` must be finite
+and not negative. Both are available on any `SFTPClientProtocol`, a plain client included. `cleanupResumableDownloads`
+uses no connection; it lives on the client only because `.rmt.tmp` is a SwiftSFTP convention rather than something
+`FileManager` knows about.
 
-> **Warning:** This is the only operation in the feature that destroys resumable progress irreversibly. Neither method
-> reads the trailers of the files it deletes, so neither can tell a transfer abandoned for good from one that another
-> process is writing to at this very moment — which is why `age` has no default value. Size `age` against how long you
-> are willing to consider an interrupted transfer resumable, in hours or days, and never against how long a transfer
-> takes: a paused transfer's modification time does not advance, and remaining resumable for days is the point of the
-> feature. Two further consequences of not reading the trailer: a temporary preserved because it came from a newer
-> release of the library is swept like any other once it is old enough, and, for the remote sweep, `age` is measured
-> on the client's clock against modification times reported by the server's, so a server running behind makes fresh
-> temporaries look old enough to delete.
-
-### Choosing a worker count
-
-The best number of workers depends on the link and on the server, so `multiTune` measures it instead of guessing. It
-transfers a test file once per worker count, starting at `workersStart` and growing by `workersStep`, and stops at the
-first round that is not faster than the best round so far:
-
-```swift
-let workers = try await client.multiTune(
-    testDirection: .upload,
-    workersMax: 8,
-    testFilePath: "/home/alice/tune-probe.bin",
-    testFileSize: 10 * 1024 * 1024,
-    bestOf: 3,
-    onRound: { round in
-        print("\(round.workers) worker(s): \(round.bytesPerSecond / 1_048_576) MiB/s")
-    }
-)
-
-try await client.multiUpload(from: localFile, to: remotePath, workers: workers) { _, _, _, _ in true }
-```
-
-For `.upload`, a local temporary file of `testFileSize` random bytes is created and uploaded to `testFilePath`, which
-is deleted from the server after every round; any parent directories the upload had to create are **not** removed
-again. For `.download`, `testFilePath` must already be a remote regular file, `testFileSize` is ignored, and each
-round downloads to a local temporary file that is removed afterwards.
-
-Because a single timed transfer is sensitive to whatever else the link is carrying, `bestOf` repeats the whole search
-and keeps the worker count from the fastest search. The optional `onRound` callback receives every timed round as a
-`MultiTuneRound`: its search, worker count, size, duration, and throughput. The search is cooperatively cancellable between
-searches, between rounds, and inside each transfer.
-
-Tuning costs `bestOf` × (rounds) full transfers of the test file, so run it once per network and cache the result
-rather than before every transfer.
+> **Warning:** Neither method reads the trailers of the files it deletes, so neither can tell a transfer abandoned for
+> good from one that another process is writing right now, which is why `age` has no default. A running transfer keeps
+> its temporary file's modification time fresh; an interrupted one does not, and staying resumable for days is the
+> point. Size `age` against how long you are willing to consider an interrupted transfer resumable, in hours or days,
+> never against how long a transfer takes. Temporary files kept because their trailer is of another version are swept
+> like any other once they are old enough. For the remote sweep, `age` is measured on the client's clock against
+> modification times reported by the server's, so a server whose clock runs behind makes fresh temporary files look
+> old enough to delete.
 
 ### Progress callback type
 
 ```swift
 public typealias TransferProgress = (FileSize, FileSize, Int, TimeInterval) async -> Bool
-// (bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval) — return false to cancel
+// (bytesTransferred, totalBytes, lastChunkBytes, lastChunkInterval) — return false to stop
 ```
 
-The callback is `async`, so it can `await` (for example hopping to a `@MainActor` to update UI) without blocking. The
-transfer waits for it before sending the next chunk, so keep it short. Synchronous closures still compile unchanged.
+The callback is `async`, so it can `await` (for example hopping to a `@MainActor` to update UI). Synchronous closures
+still compile unchanged. Returning `false` throws `FileTransferErrors.transferCancelled`.
 
-Returning `false` throws `FileTransferErrors.transferCancelled`.
+A transfer in place, on an `SFTPClient` or a swarm, calls the callback inline and waits for it before moving the next
+chunk, as in 3.24, so keep it short. So do the file handle methods, such as `write(from:)` and `read(to:)`.
+
+A swarm's striped transfer calls it from a task of its own, one call at a time and in order, so no connection waits for
+it while moving a stripe. `lastChunkBytes` is everything moved since the previous call, and `lastChunkInterval` the
+seconds since that call. Between stripes, holding no connection, each connection waits for the callback to have seen
+the bytes it moved. A slow callback therefore slows the transfer only at stripe boundaries, and a callback can run
+operations on the same swarm, such as a `stat`, without stalling the transfer it reports on. Bytes sent again after a
+broken connection count again, but `bytesTransferred` never exceeds `totalBytes`.
 
 ### Cancelling a transfer
 
 There are two ways to stop a transfer, and they mean different things.
 
-Returning `false` from the progress callback is a *cooperative stop*: the current chunk finishes, the transfer unwinds
-cleanly, and `FileTransferErrors.transferCancelled` is thrown. It can only take effect between chunks, so it cannot end
-a transfer whose server has stopped sending data.
+Returning `false` from the progress callback is a *cooperative stop*: the transfer stops before its next chunk, or, in
+a swarm's striped transfer, within one stripe per connection; it unwinds cleanly and throws
+`FileTransferErrors.transferCancelled`. It can only take effect between steps, so it cannot end a transfer whose server
+has stopped sending data.
 
 Cancelling the Swift task is a *hard stop* and works even then:
 
@@ -847,13 +887,13 @@ short slices (100 ms) on a dedicated queue and checks for cancellation between t
 within roughly one slice rather than after `operationsTimeOut`, and blocking libssh2 calls never occupy a Swift
 cooperative-pool thread. `read`, `write`, `fsync`, `stat`, and the upload/download conveniences all behave this way.
 
-What a cancelled transfer leaves behind:
+What a stopped transfer leaves behind:
 
 | | |
 |---|---|
-| Downloads | Chunks already received are flushed to the local file before the error surfaces. |
-| Uploads | Requests already sent still reach the remote file; its size is the resume point for `resume: true`. A write cut short with a packet half sent first finishes sending it, for at most `teardownGracePeriod`, and otherwise before the next call that sends. |
-| Remote file position | Advanced by whatever was actually transferred, so the handle stays consistent. |
+| Transfers in place | The destination holds what arrived, and its size is the resume point for `resume: true`. A download flushes the chunks already received to the local file before the error surfaces; an upload's requests already sent still reach the remote file. |
+| Striped transfers | The destination is untouched: it appears only with the final rename. The temporary file stays, with the valid prefix it reached written before the call returns, for a call with `resume: true` to continue; it is deleted when its valid prefix is still zero. See [Resuming a striped transfer](#resuming-a-striped-transfer). |
+| Uploads | A write cut short with a packet half sent first finishes sending it, for at most `teardownGracePeriod`, and otherwise before the next call that sends. |
 | The session | Untouched. If the server recovers, the connection is still usable. |
 
 ### Closing a connection that stopped responding
@@ -919,6 +959,194 @@ try await client.copyClientSide(
 
 For large files on the same host, prefer a [server-side copy](ShellAgent.md#server-side-copy) via the shell agent so
 bytes never leave the server.
+
+---
+
+## Swarms of Connections
+
+An `SFTPSwarm` is a set of SFTP connections to one server that stay open, used as one client. It conforms to
+`SFTPClientProtocol`, so code written against the protocol works with a client or a swarm alike.
+
+One connection's throughput is capped by the requests it keeps in flight: roughly `writeAhead` or `readAhead` divided by
+the round-trip time. At the 2 MiB default that is about 67 MiB/s on a 30 ms link and 20 MiB/s on a 100 ms one, however
+fast the link. More connections add windows, so they help where round trips are long, where the server limits a single
+session, or where the link carries more than one window keeps busy. On a link that one connection already fills, they
+add only handshakes; [auto-tune](#finding-the-best-number-of-connections) measures which case you are in.
+
+### Creating a swarm
+
+```swift
+let client = try await SFTPClient(location, authentication: authentication)
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)   // four connections
+
+try await swarm.upload(from: movie, to: "/Videos/holiday.mp4") { _, _, _, _ in true }
+```
+
+The swarm owns `client` from then on, and closes it with the others. Forks that fail to log in are retried as the
+swarm's [options](#broken-connections) say; when one still fails, the forks already made are closed, `client` stays
+yours and open, and the error is thrown. Forks are opened at most four at a time, because sshd drops connections beyond
+its `MaxStartups` (10 by default) that have not logged in yet.
+
+Two other initializers:
+
+```swift
+// From clients you already have: logged in, to the same server, each once.
+let second = try await client.fork()
+let swarm = try await SFTPSwarm([client, second])
+
+// One new connection, with the parameters of SFTPClient's initializer. Add more with increaseClients(_:).
+let swarm = try await SFTPSwarm(location, authentication: authentication)
+```
+
+An empty list, a client listed twice, or a swarm inside a swarm stops the process; a closed client is a misuse.
+
+The settings `timeout`, `teardownGracePeriod`, `readAhead`, `writeAhead`, and the keepalive apply to every connection,
+those that join later included. Setting one on the swarm returns at once: every connection gets the new value shortly
+after the change, a busy one once its call in flight ends, and a connection that missed it, because it was leased in
+between or joined later, takes it before its next operation. A new swarm takes them from its first client, except the keepalive, which you set with the swarm's own
+`setKeepAlive` (see [Broken connections](#broken-connections)).
+
+`smallFileThreshold` and `stripeSize` belong to the swarm itself rather than to its connections, and decide how it
+transfers files; see [Transfers over a swarm](#transfers-over-a-swarm).
+
+### Sharing out operations
+
+Every operation, from a `stat` to one stripe of a transfer, goes to a connection no other operation is using. While
+every connection is busy, operations wait their turn, first come first served. Uploads and downloads of files larger
+than `smallFileThreshold` split the file into stripes of `stripeSize` bytes (see
+[Transfers over a swarm](#transfers-over-a-swarm)) and send each to the next free connection, so one transfer uses
+every connection, and a short operation waits for one stripe at most, never for a whole striped transfer.
+
+```swift
+// The three run at the same time, on different connections.
+async let photos = swarm.listDirectory(path: "/Photos", recursive: false)
+async let videos = swarm.listDirectory(path: "/Videos", recursive: false)
+async let backup: Void = swarm.download(from: "/Backups/2026.tar", to: archive) { _, _, _, _ in true }
+let (photoList, videoList, _) = try await (photos, videos, backup)
+```
+
+Operations started concurrently run in no particular order, as they would on separate clients: renaming a file while
+deleting it does whatever the server does with the two. Operations awaited one after the other run in that order.
+
+A striped transfer keeps as many stripes in flight as the swarm had working connections when it started. A transfer in
+place, of a file of `smallFileThreshold` bytes or less or onto a destination that `resume: true` continues, holds one
+connection from start to end, as it would on a client.
+
+### File handles
+
+A handle from `openFile` stays on the connection it was opened on, without reserving it: other operations still go to
+that connection between the handle's own calls. The swarm opens a handle on the idle connection with the fewest open
+handles, and does not close a connection while handles opened through it are open, except in `close()`.
+
+### Broken connections
+
+A connection that fails with a network or session error (a socket error, a timeout, a lost session or SFTP channel) is
+taken out of the swarm and replaced by a fork of a working connection. The operation that hit it throws that error,
+except in a striped transfer, which sends the stripe, or the step that sets the transfer up or finishes it, again on
+another connection, up to three times in all. Every other operation throws, a transfer in place included. An SFTP
+status such as a missing file or a refused permission, a local file error, and a cancellation leave the connection in
+place.
+
+`SwarmOptions.replaceBrokenConnections` says how a replacement is made: `tries` forks, `delay` seconds apart, the first
+as soon as the connection breaks. The default is three tries one second apart. Zero tries leaves broken connections
+unreplaced. A negative `tries`, or a negative or non-finite `delay`, stops the process.
+
+```swift
+let swarm = try await SFTPSwarm(
+    client,
+    numberOfForksToCreate: 3,
+    options: SwarmOptions(replaceBrokenConnections: (tries: 5, delay: 2))
+)
+```
+
+File handles on a broken connection keep failing until you close them. When every connection broke and none could be
+replaced, operations throw `SwarmError.noConnections(lastError:)`. With replacement on, each operation that arrives then
+starts one more round of replacement, so the swarm recovers once the server does.
+
+`setKeepAlive` on a swarm configures every connection. A connection whose keepalive fails is taken out and replaced, and
+then `onFailure` is called with the error.
+
+### Growing and shrinking
+
+```swift
+let (healthy, setNumber) = await swarm.clientCount()
+try await swarm.increaseClients(2)
+try await swarm.decreaseClients(1)
+```
+
+`clientCount()` returns the connections taking work now and the number the swarm keeps. `healthy` is lower than
+`setNumber` while a broken connection waits for its replacement, and after every attempt to replace it failed.
+
+`increaseClients(_:)` forks new connections from a working one, each retried as `replaceBrokenConnections` says. It
+keeps the connections it could make; when some could not be made, it throws the last error, and `setNumber` grows only
+by the ones that joined.
+
+`decreaseClients(_:)` removes connections, the least busy first. Idle ones close before it returns; one still running
+an operation, or holding open file handles, takes no new work and closes once it is free. Both take a positive count,
+and the swarm keeps at least one connection; other values stop the process.
+
+### Finding the best number of connections
+
+`autoTuneForUpload` and `autoTuneForDownload` measure rather than guess. Each round transfers a test file in stripes of
+`stripeSize` bytes, whatever `smallFileThreshold` says, and times it:
+
+```swift
+let speeds = try await swarm.autoTuneForUpload(
+    localFile: sample,                            // at least clientCountLimit × stripeSize
+    testFilePath: "/home/alice/tune-probe.bin",   // must not exist yet
+    clientCountLimit: 8,
+    maximumBackAndForths: 2
+)
+for (count, bytesPerSecond) in speeds.sorted(by: { $0.key < $1.key }) {
+    print("\(count) connection(s): \(bytesPerSecond / 1_048_576) MiB/s")
+}
+let (_, best) = await swarm.clientCount()       // the swarm is left at the fastest count
+```
+
+Starting at the swarm's current number of connections, or at `clientCountLimit` when that is lower, the search
+measures one connection more for as long as that is faster. When one more is not faster, it measures the current number
+again, since its first result may have been a fluke, and moves up after all if the repeat is slower; each such repeat
+is a back and forth, and `maximumBackAndForths` caps how many the whole search makes. The search only adds connections:
+it never goes below the starting count nor past `clientCountLimit`, and stops going up where the server refuses another
+connection. To let it settle lower than the swarm is now, shrink the swarm with `decreaseClients(_:)` first.
+The result holds bytes per second by number of connections, the last measurement of each, and the swarm is left at the
+fastest.
+
+For an upload, `testFilePath` must not exist (`FileTransferErrors.remoteFileAlreadyExists` otherwise). Each round
+uploads `localFile` there and deletes it; missing parent directories are created and left. For a download,
+`testFilePath` is the remote file every round downloads into a local temporary file:
+
+```swift
+let speeds = try await swarm.autoTuneForDownload(
+    testFilePath: "/home/alice/tune-probe.bin",
+    createTestFileIfDoesNotExist: (create: true, size: 256 * 1024 * 1024),
+    clientCountLimit: 8,
+    maximumBackAndForths: 2
+)
+```
+
+With `create: true`, a missing test file is uploaded first, filled with random bytes, and deleted at the end. With
+`create: false`, a missing one throws `FileTransferErrors.remoteFileNotFound`.
+
+Use a test file of at least `clientCountLimit` stripes of `stripeSize` bytes (8 MiB each by default), ideally several
+times that, or there is not enough work to share. Other operations running on the swarm meanwhile share its connections
+and skew the measurements. Each round is a full transfer, so tune once per network and keep the result: a later swarm
+starts at that count with `numberOfForksToCreate: best - 1`.
+
+### Closing a swarm
+
+```swift
+try await swarm.close()
+```
+
+`close()` closes every connection, the busy ones included, and fails the operations waiting for one with
+`SwarmError.closed`. File handles opened through the swarm close with their connections. It throws the first error of
+closing a connection once all of them are closed, and calling it again is allowed. Using a swarm after `close()` is a
+misuse, as for a client. A swarm released without `close()` releases its connections, which close themselves as
+released clients do.
+
+`fork()` on a swarm creates an independent swarm with as many connections, the same options, and the same settings,
+`smallFileThreshold` and `stripeSize` included.
 
 ---
 
@@ -1146,22 +1374,33 @@ Thrown by `SFTPClient.init` after the handshake when a host key acceptance other
 | Case | Cause |
 |------|-------|
 | `.transferCancelled` | Progress callback returned `false` |
-| `.localFileNotFound` | Local source file missing |
+| `.localFileNotFound` | Local source file missing, or a directory |
 | `.localFileAlreadyExists(path:)` | Download destination already exists |
 | `.shortWrite(expected:actual:)` | Server accepted fewer bytes than sent |
-| `.shortRead(expected:actual:)` | Source file ended before a requested transfer range was read |
-| `.remoteFileNotFound(path:)` | Remote source path does not exist |
+| `.shortRead(expected:actual:)` | Source file ended before a requested transfer range was read, for example a remote file that shrank during a download |
+| `.remoteFileNotFound(path:)` | Remote source path does not exist or is not a regular file |
 | `.remoteDirectoryNotFound(path:)` | Remote directory does not exist or the path is not a directory |
 | `.remoteFileAlreadyExists(path:)` | Remote destination already exists |
 | `.remotePathIsADirectory(path:)` | Expected file, found directory |
 | `.remotePathIsAFile(path:)` | Expected directory, found file |
-| `.resumableTrailerVersionUnsupported(version:path:)` | A resumable transfer found a partial file written by a newer release of SwiftSFTP. The partial file is preserved, not deleted; `resume: .discardingProgress` discards it and starts over |
-| `.resumableTruncateUnsupported(path:)` | Every byte arrived, but the server refused to shrink the trailer away, so the rename was skipped. The partial file is preserved with every block marked done, and a later run finishes it without re-transferring anything |
-| `.resumableDestinationNameTooLong(byteCount:maximum:)` | Destination file name is longer than the 4096 bytes a trailer can record; refused before anything is created |
+| `.resumableTrailerVersionUnsupported(version:path:)` | A swarm's striped upload or download, with `resume: true`, found a partial file whose trailer is of a version this release does not read, most likely written by another release of SwiftSFTP. The partial file at `path` is kept; pass `resume: false` or delete it to start over |
+| `.resumableTruncateUnsupported(path:)` | A swarm's striped upload or download moved every byte, but the server, or for a download the local file system, refused to shrink the trailer away, so the rename was skipped. The partial file is kept with its whole payload marked valid, and once the server is fixed a later run with `resume: true` finishes it without sending the payload again. Transfers in place have no trailer and never throw it |
+| `.resumableDestinationNameTooLong(byteCount:maximum:)` | The destination file name of a swarm's striped transfer is longer than the 4096 bytes a trailer can record; refused before anything is created |
+| `.transferAlreadyInProgress(path:)` | Another striped transfer in this process is writing the same temporary file: an upload to the same destination through the same swarm, or a download to the same local file. A striped upload whose temporary file another swarm or process replaced throws it as it finishes. Transfers in place never throw it |
+
+### Swarm errors (`SwarmError`)
+
+Thrown by `SFTPSwarm` operations, besides the errors of the connection an operation ran on:
+
+| Case | Cause |
+|------|-------|
+| `.closed` | The swarm was closed while the operation waited for a connection |
+| `.noConnections(lastError:)` | Every connection broke and none could be replaced; `lastError` is the most recent failure, of a connection or of an attempt to replace one |
 
 ### Using a client after close
 
-These are misuses: a debug build stops, and a release build throws `MisuseError`. See
+These are misuses, and so is using a swarm after its `close()`: a debug build stops, and a release build throws
+`MisuseError`. See
 [Errors, misuse, and impossible values](#errors-misuse-and-impossible-values).
 
 ### Shell agent errors (`ShellAgentError`)

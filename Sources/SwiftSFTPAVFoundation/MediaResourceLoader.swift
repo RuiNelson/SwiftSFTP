@@ -15,19 +15,27 @@
         private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
         private var lastReader: MediaReaderID = 0
 
-        /// Creates a loader with one worker per client, each opening `path` read-only on its own connection.
+        /// Creates a loader with `workers` workers, each opening `path` read-only through `client` on its first fetch.
+        ///
+        /// A swarm opens each handle on an idle connection with the fewest open handles, which spreads the workers over
+        /// its connections.
         convenience init(
-            clients: [any SFTPClientProtocol],
+            client: any SFTPClientProtocol,
+            workers: Int,
             path: String,
             contentType: UTType,
             readAheadSize: Int,
             stripeSize: Int
         ) {
-            let openers = clients.map { client -> @Sendable () async throws -> any SFTPFileProtocol in
-                { try await client.openFile(.read, path: path, permissions: []) }
+            let opener: @Sendable () async throws -> any SFTPFileProtocol = {
+                try await client.openFile(.read, path: path, permissions: [])
             }
             self.init(
-                source: MediaSource(openers: openers, readAheadSize: readAheadSize, stripeSize: stripeSize),
+                source: MediaSource(
+                    openers: Array(repeating: opener, count: max(workers, 1)),
+                    readAheadSize: readAheadSize,
+                    stripeSize: stripeSize
+                ),
                 contentType: contentType
             )
         }
