@@ -69,9 +69,11 @@ struct ReferenceCacheSimulationTests {
 
         await withTaskGroup(of: (UInt64, String?, Int, Int).self) { group in
             for seed in seeds {
+                await SimulationSlots.shared.acquire()
                 group.addTask {
                     let simulation = CacheSimulation(seed: seed, options: options(seed))
                     await simulation.run()
+                    await SimulationSlots.shared.release()
                     return (seed, simulation.failure, simulation.hits, simulation.reads)
                 }
             }
@@ -204,6 +206,42 @@ struct ReferenceCacheSimulationTests {
             var options = Self.options(seed: seed, answersMetadata: false, concurrent: true)
             options.writesThroughSilencedHandles = true
             return options
+        }
+    }
+}
+
+/// How many simulations run at once, across every test of the suite: half the processors.
+///
+/// The suite runs some 2,500 seeds. Started all at once, they filled the queue of Swift's cooperative thread pool for
+/// the first 20 seconds or more of a test run: every other job, such as a released file's background close or a test
+/// polling for it, waited behind thousands of simulation steps, and the integration tests running beside them missed
+/// their time limits, a different one each run. Half the pool stays free for them, and the suite takes about as long.
+private actor SimulationSlots {
+    static let shared = SimulationSlots(count: max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
+
+    private var free: Int
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    private init(count: Int) {
+        free = count
+    }
+
+    /// Waits for a slot, first come first served.
+    func acquire() async {
+        if free > 0 {
+            free -= 1
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    /// Hands the slot to the next simulation waiting, or frees it.
+    func release() {
+        if waiting.isEmpty {
+            free += 1
+        }
+        else {
+            waiting.removeFirst().resume()
         }
     }
 }

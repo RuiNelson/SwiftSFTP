@@ -104,9 +104,9 @@ struct KeyValidationTests {
     private static let availableTypes = AsymmetricKeyType.allCases.filter(\.isAvailable)
 
     @Test("every key type parses in each of its formats", arguments: availableTypes)
-    func allKeyTypes(type: AsymmetricKeyType) throws {
+    func allKeyTypes(type: AsymmetricKeyType) async throws {
         let password = Data.testPassword
-        let pair = try Self.generate(type)
+        let pair = try await TestKeyPairs.shared(type)
 
         var privateKeys = try [pair.privateKey.encode(format: .pkcs8)]
         var encryptedKeys = try [pair.privateKey.encode(format: .pkcs8, passphrase: password)]
@@ -134,8 +134,8 @@ struct KeyValidationTests {
     }
 
     @Test("validForSSHAuth is true exactly for the key types OpenSSH defines", arguments: availableTypes)
-    func validForSSHAuth(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func validForSSHAuth(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.shared(type)
         let isSSHType = type.openSSHName != nil
 
         #expect(pair.privateKey.validForSSHAuth == isSSHType)
@@ -165,9 +165,9 @@ struct KeyValidationTests {
     }
 
     @Test("SSH user key detection ignores algorithms SSH cannot authenticate with")
-    func detectNonSSHKeyTypes() throws {
+    func detectNonSSHKeyTypes() async throws {
         for type in [AsymmetricKeyType.ed448, .mlDSA65, .slhDSA_SHA2_128f] where type.isAvailable {
-            let key = try Self.generate(type).privateKey
+            let key = try await TestKeyPairs.shared(type).privateKey
             #expect(!key.validForSSHAuth)
             #expect(try SSHUserKeyAlgorithm.detect(from: key.encode(format: .pkcs8)) == nil)
         }
@@ -177,33 +177,6 @@ struct KeyValidationTests {
     func unsupportedAlgorithm() {
         let x25519 = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VuBCIEIJBnXO0IVpixz1NANiecSZqO33LPr1TZsbEeUas+ctRD\n-----END PRIVATE KEY-----"
         #expect(throws: (any Error).self) { try PrivateKey(string: x25519) }
-    }
-
-    /// Generates a key pair of `type`, with a small RSA modulus to keep the suite fast.
-    private static func generate(_ type: AsymmetricKeyType) throws -> AsymmetricKeyPair {
-        switch type {
-        case .rsa: try AsymmetricCryptography.RSA.generateKeyPair(bits: AsymmetricCryptography.RSA.minimumBits)
-        case .ed25519: try AsymmetricCryptography.EdDSA.Ed25519.generateKeyPair()
-        case .ed448: try AsymmetricCryptography.EdDSA.Ed448.generateKeyPair()
-        case .ecdsaP256: try AsymmetricCryptography.ECDSA.P256.generateKeyPair()
-        case .ecdsaP384: try AsymmetricCryptography.ECDSA.P384.generateKeyPair()
-        case .ecdsaP521: try AsymmetricCryptography.ECDSA.P521.generateKeyPair()
-        case .mlDSA44: try AsymmetricCryptography.MLDSA.MLDSA44.generateKeyPair()
-        case .mlDSA65: try AsymmetricCryptography.MLDSA.MLDSA65.generateKeyPair()
-        case .mlDSA87: try AsymmetricCryptography.MLDSA.MLDSA87.generateKeyPair()
-        case .slhDSA_SHA2_128s: try AsymmetricCryptography.SLHDSA.SHA2_128s.generateKeyPair()
-        case .slhDSA_SHA2_128f: try AsymmetricCryptography.SLHDSA.SHA2_128f.generateKeyPair()
-        case .slhDSA_SHA2_192s: try AsymmetricCryptography.SLHDSA.SHA2_192s.generateKeyPair()
-        case .slhDSA_SHA2_192f: try AsymmetricCryptography.SLHDSA.SHA2_192f.generateKeyPair()
-        case .slhDSA_SHA2_256s: try AsymmetricCryptography.SLHDSA.SHA2_256s.generateKeyPair()
-        case .slhDSA_SHA2_256f: try AsymmetricCryptography.SLHDSA.SHA2_256f.generateKeyPair()
-        case .slhDSA_SHAKE_128s: try AsymmetricCryptography.SLHDSA.SHAKE_128s.generateKeyPair()
-        case .slhDSA_SHAKE_128f: try AsymmetricCryptography.SLHDSA.SHAKE_128f.generateKeyPair()
-        case .slhDSA_SHAKE_192s: try AsymmetricCryptography.SLHDSA.SHAKE_192s.generateKeyPair()
-        case .slhDSA_SHAKE_192f: try AsymmetricCryptography.SLHDSA.SHAKE_192f.generateKeyPair()
-        case .slhDSA_SHAKE_256s: try AsymmetricCryptography.SLHDSA.SHAKE_256s.generateKeyPair()
-        case .slhDSA_SHAKE_256f: try AsymmetricCryptography.SLHDSA.SHAKE_256f.generateKeyPair()
-        }
     }
 
     // MARK: - Invalid inputs

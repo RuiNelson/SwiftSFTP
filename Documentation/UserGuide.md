@@ -1048,7 +1048,7 @@ status such as a missing file or a refused permission, a local file error, and a
 place.
 
 `SwarmOptions.replaceBrokenConnections` says how a replacement is made: `tries` forks, `delay` seconds apart, the first
-as soon as the connection breaks. The default is three tries one second apart. Zero tries leaves broken connections
+as soon as the connection breaks. The default is one try, with no delay. Zero tries leaves broken connections
 unreplaced. A negative `tries`, or a negative or non-finite `delay`, stops the process.
 
 ```swift

@@ -15,13 +15,12 @@
             authentication: UserAuthentication(name: "unused", auth: .password("unused"))
         )
 
-        func makeMedia(with client: SFTPClient) -> (AVURLAsset, AVPlayerItem, AVURLAsset) {
+        func makeMedia(with client: SFTPClient, swarm: SFTPSwarm) async -> (AVURLAsset, AVPlayerItem, AVURLAsset) {
             let source: any SFTPClientProtocol = client
-            return (
-                source.makeAsset(at: "/Videos/holiday.mp4"),
-                source.makePlayerItem(at: "/Audio/extensionless", contentType: .mp3),
-                [client].makeAsset(at: "/Videos/holiday.mp4", readAheadSize: 4 * 1024 * 1024)
-            )
+            let asset = await source.makeAsset(path: "/Videos/holiday.mp4")
+            let item = await source.makePlayerItem(path: "/Audio/extensionless", contentType: .mp3)
+            let streamed = await swarm.makeAsset(path: "/Videos/holiday.mp4", readAhead: 4 * 1024 * 1024)
+            return (asset, item, streamed)
         }
         _ = makeMedia
     }

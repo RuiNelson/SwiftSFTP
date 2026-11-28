@@ -26,34 +26,6 @@ struct AsymmetricTests {
 
     private static let traditionalPEMTypes: [AsymmetricKeyType] = [.ecdsaP256, .ecdsaP384, .ecdsaP521, .rsa]
 
-    /// Generates a key pair of `type` through its algorithm namespace type.
-    private static func generate(_ type: AsymmetricKeyType) throws -> AsymmetricKeyPair {
-        typealias AC = AsymmetricCryptography
-        switch type {
-        case .ed25519: return try AC.EdDSA.Ed25519.generateKeyPair()
-        case .ed448: return try AC.EdDSA.Ed448.generateKeyPair()
-        case .ecdsaP256: return try AC.ECDSA.P256.generateKeyPair()
-        case .ecdsaP384: return try AC.ECDSA.P384.generateKeyPair()
-        case .ecdsaP521: return try AC.ECDSA.P521.generateKeyPair()
-        case .rsa: return try AC.RSA.generateKeyPair(bits: AC.RSA.minimumBits)
-        case .mlDSA44: return try AC.MLDSA.MLDSA44.generateKeyPair()
-        case .mlDSA65: return try AC.MLDSA.MLDSA65.generateKeyPair()
-        case .mlDSA87: return try AC.MLDSA.MLDSA87.generateKeyPair()
-        case .slhDSA_SHA2_128s: return try AC.SLHDSA.SHA2_128s.generateKeyPair()
-        case .slhDSA_SHA2_128f: return try AC.SLHDSA.SHA2_128f.generateKeyPair()
-        case .slhDSA_SHA2_192s: return try AC.SLHDSA.SHA2_192s.generateKeyPair()
-        case .slhDSA_SHA2_192f: return try AC.SLHDSA.SHA2_192f.generateKeyPair()
-        case .slhDSA_SHA2_256s: return try AC.SLHDSA.SHA2_256s.generateKeyPair()
-        case .slhDSA_SHA2_256f: return try AC.SLHDSA.SHA2_256f.generateKeyPair()
-        case .slhDSA_SHAKE_128s: return try AC.SLHDSA.SHAKE_128s.generateKeyPair()
-        case .slhDSA_SHAKE_128f: return try AC.SLHDSA.SHAKE_128f.generateKeyPair()
-        case .slhDSA_SHAKE_192s: return try AC.SLHDSA.SHAKE_192s.generateKeyPair()
-        case .slhDSA_SHAKE_192f: return try AC.SLHDSA.SHAKE_192f.generateKeyPair()
-        case .slhDSA_SHAKE_256s: return try AC.SLHDSA.SHAKE_256s.generateKeyPair()
-        case .slhDSA_SHAKE_256f: return try AC.SLHDSA.SHAKE_256f.generateKeyPair()
-        }
-    }
-
     // MARK: - Generation and round trips
 
     @Test(
@@ -71,24 +43,25 @@ struct AsymmetricTests {
     }
 
     @Test("generates key pairs of the requested type", arguments: availableTypes)
-    func generate(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func generate(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.fresh(type)
         #expect(pair.type == type)
         #expect(pair.publicKey.type == type)
         #expect(pair.privateKey.publicKey == pair.publicKey)
-        #expect(try Self.generate(type).privateKey != pair.privateKey)
+        let other = try await TestKeyPairs.fresh(type)
+        #expect(other.privateKey != pair.privateKey)
     }
 
     @Test("DER round trip", arguments: availableTypes)
-    func derRoundTrip(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func derRoundTrip(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.shared(type)
         #expect(try PrivateKey(derRepresentation: pair.privateKey.derRepresentation) == pair.privateKey)
         #expect(try PublicKey(derRepresentation: pair.publicKey.derRepresentation) == pair.publicKey)
     }
 
     @Test("PKCS#8 round trip, plain and encrypted", arguments: availableTypes)
-    func pkcs8RoundTrip(type: AsymmetricKeyType) throws {
-        let key = try Self.generate(type).privateKey
+    func pkcs8RoundTrip(type: AsymmetricKeyType) async throws {
+        let key = try await TestKeyPairs.shared(type).privateKey
 
         let plain = try key.encode(format: .pkcs8)
         #expect(plain.hasPrefix("-----BEGIN PRIVATE KEY-----"))
@@ -104,16 +77,16 @@ struct AsymmetricTests {
     }
 
     @Test("public PEM round trip", arguments: availableTypes)
-    func publicPEMRoundTrip(type: AsymmetricKeyType) throws {
-        let publicKey = try Self.generate(type).publicKey
+    func publicPEMRoundTrip(type: AsymmetricKeyType) async throws {
+        let publicKey = try await TestKeyPairs.shared(type).publicKey
         let pem = try publicKey.encode(format: .pem)
         #expect(pem.hasPrefix("-----BEGIN PUBLIC KEY-----"))
         #expect(try PublicKey(string: pem) == publicKey)
     }
 
     @Test("OpenSSH round trip, plain and encrypted", arguments: openSSHTypes)
-    func openSSHRoundTrip(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func openSSHRoundTrip(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.shared(type)
 
         let publicLine = try pair.publicKey.encode(format: .openSSH)
         #expect(try publicLine.hasPrefix("\(#require(type.openSSHName)) "))
@@ -137,8 +110,8 @@ struct AsymmetricTests {
     }
 
     @Test("algorithm-specific PEM round trip, plain and encrypted", arguments: traditionalPEMTypes)
-    func traditionalPEMRoundTrip(type: AsymmetricKeyType) throws {
-        let key = try Self.generate(type).privateKey
+    func traditionalPEMRoundTrip(type: AsymmetricKeyType) async throws {
+        let key = try await TestKeyPairs.shared(type).privateKey
         let header = type == .rsa ? "-----BEGIN RSA PRIVATE KEY-----" : "-----BEGIN EC PRIVATE KEY-----"
 
         let plain = try key.encode(format: .pem)
@@ -163,8 +136,8 @@ struct AsymmetricTests {
     // MARK: - Unsupported combinations
 
     @Test("formats the key type does not define are rejected", arguments: availableTypes)
-    func unsupportedFormats(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func unsupportedFormats(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.shared(type)
         if !Self.openSSHTypes.contains(type) {
             #expect(throws: AsymmetricCryptographyError.unsupportedPrivateKeyFormat(.openSSH, type)) {
                 try pair.privateKey.encode(format: .openSSH)
@@ -334,8 +307,8 @@ struct AsymmetricTests {
     }
 
     @Test("public keys read from text and DER files", arguments: availableTypes)
-    func publicKeyFiles(type: AsymmetricKeyType) throws {
-        let key = try Self.generate(type).publicKey
+    func publicKeyFiles(type: AsymmetricKeyType) async throws {
+        let key = try await TestKeyPairs.shared(type).publicKey
         var formats: [PublicKeyFormat] = [.pem]
         if type.openSSHName != nil {
             formats.append(.openSSH)
@@ -348,8 +321,8 @@ struct AsymmetricTests {
     }
 
     @Test("private keys read from text and DER files", arguments: availableTypes)
-    func privateKeyFiles(type: AsymmetricKeyType) throws {
-        let key = try Self.generate(type).privateKey
+    func privateKeyFiles(type: AsymmetricKeyType) async throws {
+        let key = try await TestKeyPairs.shared(type).privateKey
         let encrypted = try key.encode(format: .pkcs8, passphrase: Self.passphrase)
         #expect(try Self.withTemporaryFile(Data(encrypted.utf8)) {
             try PrivateKey(file: $0, passphrase: Self.passphrase)
@@ -390,8 +363,8 @@ struct AsymmetricTests {
     }
 
     @Test("LosslessStringConvertible round trip", arguments: availableTypes)
-    func losslessStringConvertible(type: AsymmetricKeyType) throws {
-        let pair = try Self.generate(type)
+    func losslessStringConvertible(type: AsymmetricKeyType) async throws {
+        let pair = try await TestKeyPairs.shared(type)
         let publicFormat: PublicKeyFormat = type.openSSHName != nil ? .openSSH : .pem
         #expect(try pair.publicKey.description == (pair.publicKey.encode(format: publicFormat)))
         #expect(PublicKey(pair.publicKey.description) == pair.publicKey)

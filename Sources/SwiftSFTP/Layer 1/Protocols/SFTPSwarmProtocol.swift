@@ -17,7 +17,7 @@ public struct SwarmOptions: Sendable {
         self.replaceBrokenConnections = replaceBrokenConnections
     }
 
-    /// Three tries, one second apart.
+    /// One try, with no delay.
     public static let `default` = SwarmOptions()
 }
 

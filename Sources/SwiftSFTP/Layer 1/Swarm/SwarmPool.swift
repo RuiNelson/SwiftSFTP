@@ -99,6 +99,11 @@ extension SwarmPool {
         members.first { !$0.isRetired }?.client ?? members.last?.client
     }
 
+    /// ``template`` while the swarm is open, `nil` once it is closed.
+    private var forkTemplate: any SFTPClientProtocol? {
+        isClosed ? nil : template
+    }
+
     private var healthyCount: Int {
         members.count(where: { !$0.isRetired })
     }
@@ -317,13 +322,15 @@ extension SwarmPool {
         }
     }
 
-    /// Lowers the target by `count` and retires that many connections, the least busy first.
+    /// Lowers the target by `count` and retires the working connections above it, the least busy first.
     ///
     /// - Returns: The idle connections that left, which the caller closes and reports.
     func decrease(by count: Int) -> [any SFTPClientProtocol] {
         precondition(target - count >= 1, "A swarm keeps at least one connection")
         target -= count
-        let excess = healthyCount + pendingForks - target
+        // Forks still logging in are not counted: one that finishes once the target is met is closed instead of
+        // joining, so the cut falls on them first, rather than on working connections in favour of forks that may fail.
+        let excess = healthyCount - target
         if excess > 0 {
             let victims = members.indices
                 .filter { !members[$0].isRetired }
@@ -331,8 +338,7 @@ extension SwarmPool {
                     (members[$0].isLeased ? 1 : 0, members[$0].openHandles.count)
                         < (members[$1].isLeased ? 1 : 0, members[$1].openHandles.count)
                 }
-                // Every connection may be broken while replacements log in: then none is retired here.
-                .prefix(max(0, min(excess, healthyCount - 1)))
+                .prefix(excess)
             for index in victims {
                 members[index].isRetired = true
             }
@@ -391,12 +397,17 @@ extension SwarmPool {
             if attempt > 0 {
                 try? await Task.sleep(nanoseconds: policy.delay.nanoseconds)
             }
-            guard !isClosed, let template else {
+            guard !isClosed, template != nil else {
                 break
             }
             do {
                 let client = try await forkLimiter.run {
-                    try await MisuseScope.$assertsOnMisuse.withValue(false) {
+                    // Chosen once the fork's turn comes: a retired template picked before waiting for the limiter may
+                    // have been closed meanwhile, which would fail the fork without trying the server.
+                    guard let template = await self.forkTemplate else {
+                        throw SwarmError.closed
+                    }
+                    return try await MisuseScope.$assertsOnMisuse.withValue(false) {
                         try await template.fork()
                     }
                 }

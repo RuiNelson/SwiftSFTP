@@ -33,6 +33,31 @@ struct SwarmPoolTests {
         }
     }
 
+    @Test("shrinking while a replacement logs in gives up the replacement, not a working connection")
+    func decreaseWhileReplacementIsPending() async throws {
+        let clients = try (0 ..< 3).map { _ in try unconnectedClient() }
+        // A long delay keeps the replacement pending for the whole test.
+        let pool = SwarmPool(
+            clients: clients,
+            options: SwarmOptions(replaceBrokenConnections: (tries: 2, delay: 60)),
+            settings: SwarmSettings(from: clients[0])
+        )
+        await pool.markBroken(ObjectIdentifier(clients[0]), failure: LibSSH2Error.socketDisconnect(nil))
+        var counts = await pool.counts
+        #expect(counts.healthy == 2 && counts.target == 3)
+
+        // The two working connections are exactly the new target: none of them leaves.
+        let closing = await pool.decrease(by: 1)
+        #expect(closing.isEmpty)
+        counts = await pool.counts
+        #expect(counts.healthy == 2 && counts.target == 2)
+        #expect(await pool.openClients.count == 2)
+
+        for client in await closing + (pool.close()) {
+            await SwarmPool.closeQuietly(client)
+        }
+    }
+
     @Test("a broken connection with open handles stays open until they close")
     func brokenConnectionWaitsForHandles() async throws {
         let clients = try (0 ..< 2).map { _ in try unconnectedClient() }
