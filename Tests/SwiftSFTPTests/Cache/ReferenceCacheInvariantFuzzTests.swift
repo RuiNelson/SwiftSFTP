@@ -4,7 +4,7 @@ import Testing
 
 /// Calls of every kind, in any order and with any arguments, including ones the client never makes: whatever it is
 /// told, the cache must keep its books straight and hand out only bytes it was given.
-@Suite("ReferenceCache: any calls in any order", .disabled("takes over 5 minutes"))
+@Suite("ReferenceCache: any calls in any order")
 struct ReferenceCacheInvariantFuzzTests {
     /// Paths as a client sends them, and as it never would: unsanitized, relative, above the current directory, and two
     /// spellings of one accented name.
@@ -237,11 +237,20 @@ struct ReferenceCacheInvariantFuzzTests {
                 let source = await cache.normalize(path)
                 let target = await cache.normalize(destination)
 
-                // The bytes of everything at or under the source may now be answered under the destination.
-                for (key, bytes) in given where CachePath.isPath(key, atOrUnder: source) {
-                    let moved = CachePath.rebase(key, from: source, to: target)
-                    for (position, values) in bytes {
-                        given[moved, default: [:]][position, default: []].formUnion(values)
+                // The bytes of everything at or under the source move to the destination, as the cache moves them, and
+                // join what the destination already held, which the cache drops. Copying them instead would keep the
+                // source too: a destination inside the source then lands the copies under the source, so each such
+                // rename doubles what the model holds, and a few dozen of them exhaust memory.
+                if source != target {
+                    let moving = given.filter { CachePath.isPath($0.key, atOrUnder: source) }
+                    for key in moving.keys {
+                        given[key] = nil
+                    }
+                    for (key, bytes) in moving {
+                        let moved = CachePath.rebase(key, from: source, to: target)
+                        for (position, values) in bytes {
+                            given[moved, default: [:]][position, default: []].formUnion(values)
+                        }
                     }
                 }
                 await cache.didRename(from: path, to: destination)

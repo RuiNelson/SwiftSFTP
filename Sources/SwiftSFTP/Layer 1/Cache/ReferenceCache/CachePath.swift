@@ -79,11 +79,17 @@ enum CachePath {
         }
     }
 
-    /// The directory holding `path`: `"/"` for the root and its children, `"."` for the current directory and its
-    /// children.
+    /// The directory holding `path`: `"/"` for the root and its children, `"."` for the current directory, its
+    /// children, and the directories above it.
+    ///
+    /// Every relative path lies under `"."`, as ``isPath(_:atOrUnder:)`` has it, so `".."`, `"../.."`, and so on have
+    /// `"."` as their parent too. Ascending from them instead never ends: the parent of `".."` would be `"../.."`.
     static func parent(of path: String) -> String {
         guard path != "/", path != "." else {
             return path
+        }
+        if path.first != "/", path.pathComponents.allSatisfy({ $0 == ".." }) {
+            return "."
         }
         let parent = path.removingLastPathComponent
         return parent.isEmpty ? "." : parent

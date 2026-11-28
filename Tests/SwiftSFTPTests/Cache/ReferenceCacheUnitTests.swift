@@ -1082,3 +1082,34 @@ struct OpenFileRegistryTests {
         #expect(!a.isSame(as: ReferenceCache.FileVersion(attributes)))
     }
 }
+
+@Suite("ReferenceCache: path arithmetic", .timeLimit(.minutes(1)))
+struct CachePathTests {
+    @Test("the ancestors of a path end at the root or the current directory, from above it too")
+    func ancestorsEnd() {
+        #expect(CachePath.ancestors(of: "/a/f") == ["/a", "/"])
+        #expect(CachePath.ancestors(of: "a/f") == ["a", "."])
+        #expect(CachePath.ancestors(of: "..") == ["."])
+        #expect(CachePath.ancestors(of: "../..") == ["."])
+        #expect(CachePath.ancestors(of: "../f") == ["..", "."])
+        #expect(CachePath.ancestors(of: "../../f") == ["../..", "."])
+    }
+
+    @Test("a directory above the current one has the current directory as its parent")
+    func parentAboveTheCurrentDirectory() {
+        #expect(CachePath.parent(of: "..") == ".")
+        #expect(CachePath.parent(of: "../..") == ".")
+        #expect(CachePath.parent(of: "../f") == "..")
+        #expect(CachePath.parent(of: ".") == ".")
+        #expect(CachePath.parent(of: "/") == "/")
+    }
+
+    @Test("changes and reads above the current directory finish")
+    func pathsAboveTheCurrentDirectory() async {
+        let cache = makeCache()
+        await cache.storeBlock(bytes(10), path: "../f", offset: 0, source: .upload, request: nil)
+        await cache.didRename(from: "../f", to: "../g")
+        await cache.invalidate(path: "..")
+        #expect(await cache.invariantViolations() == [])
+    }
+}
