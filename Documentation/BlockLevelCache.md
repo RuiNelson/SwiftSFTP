@@ -58,8 +58,17 @@ let cache = ReferenceCache(storage: storage, configuration: .init())
 
 ### Forks, several servers, and closing
 
-Clients forked from a client with a cache attached share that cache, so the connections of a swarm made from it benefit
-from each other's reads. A cache belongs to one server: for another server, create another `ReferenceCache`. Caches
+Clients forked from a client with a cache attached share that cache. A swarm shares one cache across all its
+connections: attach it to the swarm, or make the swarm from a client that has one.
+
+```swift
+let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)
+swarm.attachCache(cache)
+```
+
+Every connection, the replacements of broken ones and those added later included, reads through it, so the
+connections benefit from each other's reads, striped transfers included, and a rename or delete on one connection
+reaches the files open on the others. `swarm.detachCache()` detaches it from all of them. A cache belongs to one server: for another server, create another `ReferenceCache`. Caches
 for different servers can share one `InMemoryCacheStorage`, and with it one budget.
 
 When you are done, detach the cache and let it go:
@@ -106,6 +115,9 @@ Line by line:
   seconds, which makes browsing faster. Changes made by others can go unnoticed for that long; changes made through the
   client never do.
 - `resolvesRelativePaths: true` lets a relative path and an absolute path to the same file share what is cached.
+
+For a swarm, fork the control connection from the client before making the swarm of it, then attach the cache to the
+swarm.
 
 The control connection stays yours: closing the client does not close it. When done, detach the cache, then close the
 connection; close the connection too if the initializer throws:

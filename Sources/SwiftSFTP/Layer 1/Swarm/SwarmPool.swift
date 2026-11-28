@@ -447,6 +447,7 @@ extension SwarmPool {
     private func prepare(_ client: any SFTPClientProtocol) async -> Taken {
         let snapshot = settings.snapshot
         SwarmSettings.apply(snapshot.values, to: client)
+        settings.shareCache(with: client)
         await SwarmSettings.apply(snapshot.keepAlive, to: client, pool: self)
         return (snapshot.generation, snapshot.keepAliveGeneration)
     }

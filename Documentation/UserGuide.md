@@ -1009,6 +1009,12 @@ between or joined later, takes it before its next operation. A new swarm takes t
 `smallFileThreshold` and `stripeSize` belong to the swarm itself rather than to its connections, and decide how it
 transfers files; see [Transfers over a swarm](#transfers-over-a-swarm).
 
+A [block-level cache](BlockLevelCache.md) is shared by every connection too. Attach it with `swarm.attachCache(_:)`,
+or make the swarm from a client that has one: a new swarm takes the cache of its first client, and its other clients
+drop theirs. The connections keep track of their open files together, so a rename or delete on one reaches the files
+open on the others, and connections that join later use the same cache. `swarm.detachCache()` and `close()` detach it
+from all of them.
+
 ### Sharing out operations
 
 Every operation, from a `stat` to one stripe of a transfer, goes to a connection no other operation is using. While
@@ -1146,7 +1152,7 @@ misuse, as for a client. A swarm released without `close()` releases its connect
 released clients do.
 
 `fork()` on a swarm creates an independent swarm with as many connections, the same options, and the same settings,
-`smallFileThreshold` and `stripeSize` included.
+`smallFileThreshold` and `stripeSize` included. It starts with the same cache, as a client's fork does.
 
 ---
 

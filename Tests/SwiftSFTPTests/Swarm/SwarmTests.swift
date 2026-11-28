@@ -604,7 +604,7 @@ extension String {
 
 /// Runs `body` with a swarm of `connections` forks of a logged-in test client, and that client, which stays outside the
 /// swarm to set up and check the server's side.
-private func withSwarm(
+func withSwarm(
     connections: Int,
     options: SwarmOptions = .default,
     _ body: (SFTPSwarm, SFTPClient) async throws -> Void
@@ -632,7 +632,7 @@ private func withSwarm(
 }
 
 /// A local temporary file of `count` random bytes, and the bytes.
-private func randomFile(_ count: Int) throws -> (URL, Data) {
+func randomFile(_ count: Int) throws -> (URL, Data) {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("swiftsftp-swarm-\(UUID().uuidString).bin")
     let words = (0 ..< (count + 7) / 8).map { _ in UInt64.random(in: .min ... .max) }
     let data = words.withUnsafeBytes { Data($0.prefix(count)) }
@@ -641,7 +641,7 @@ private func randomFile(_ count: Int) throws -> (URL, Data) {
 }
 
 /// The whole content of a remote file.
-private func remoteData(_ client: SFTPClient, _ path: String) async throws -> Data {
+func remoteData(_ client: SFTPClient, _ path: String) async throws -> Data {
     let handle = try await client.openFile(.read, path: path, permissions: [])
     var data = Data()
     while let chunk = try await handle.read(upTo: 256 * 1024), !chunk.isEmpty {

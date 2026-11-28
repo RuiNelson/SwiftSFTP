@@ -74,8 +74,8 @@ public extension SFTPClient {
     func fork() async throws -> Self {
         try checkClosed()
 
-        let cache = internalStateQueue.sync {
-            _cache
+        let (cache, sharedCache) = internalStateQueue.sync {
+            (_cache, _sharedCache)
         }
         let instance = try Self(
             unconnectedTo: tcpLocation,
@@ -92,6 +92,7 @@ public extension SFTPClient {
             instance._readAhead = readAhead
             instance._writeAhead = writeAhead
             instance._cache = cache
+            instance._sharedCache = sharedCache
         }
 
         try await instance.loginOrClose()

@@ -97,6 +97,7 @@ extension SFTPClient {
             _keepAliveTask = nil
             _abandonedHandles = []
             _cache = nil
+            _sharedCache = nil
 
             return resources
         }

@@ -7,19 +7,19 @@ public extension SFTPClient {
         let attachment = CacheAttachment(cache: cache, openFiles: OpenFileRegistry())
         internalStateQueue.sync {
             _cache = attachment
+            _sharedCache = nil
         }
     }
 
     func detachCache() {
         internalStateQueue.sync {
             _cache = nil
+            _sharedCache = nil
         }
     }
 
     func hasCacheAttached() -> Bool {
-        internalStateQueue.sync {
-            _cache != nil
-        }
+        cacheAttachment != nil
     }
 }
 
@@ -47,11 +47,16 @@ extension SFTPClient {
         cacheAttachment?.cache
     }
 
-    /// The attached cache and the registry of files open with it, or `nil`. Must not be read on `internalStateQueue`.
+    /// The attached cache and the registry of files open with it, or `nil`: the swarm's, when the client is a
+    /// connection of one. Must not be read on `internalStateQueue`.
     var cacheAttachment: CacheAttachment? {
-        internalStateQueue.sync {
-            _cache
+        let (own, shared) = internalStateQueue.sync {
+            (_cache, _sharedCache)
         }
+        guard let shared else {
+            return own
+        }
+        return shared.attachment
     }
 }
 

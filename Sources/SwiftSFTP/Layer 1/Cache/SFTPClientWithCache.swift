@@ -23,6 +23,15 @@ import Foundation
 /// ```
 ///
 /// Closing the client does not close a connection the cache holds; whoever owns the cache closes it.
+///
+/// An ``SFTPSwarm`` attaches a cache to all its connections at once, and they keep track of their open files together,
+/// as a client and its forks do. Fork the control connection from the client before making the swarm of it:
+///
+/// ```swift
+/// let control = try await client.fork()
+/// let swarm = try await SFTPSwarm(client, numberOfForksToCreate: 3)
+/// swarm.attachCache(MySFTPCache(controlConnection: control))
+/// ```
 public protocol SFTPClientWithCache: Sendable {
     /// Attaches `cache`, replacing any cache already attached.
     ///

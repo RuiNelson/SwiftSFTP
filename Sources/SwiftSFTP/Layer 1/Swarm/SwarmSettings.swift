@@ -40,8 +40,13 @@ final class SwarmSettings: @unchecked Sendable {
     private var _closed = false
     private var _representative: any SFTPClientProtocol
 
-    /// Takes the settings of `client`, which also reports compression until the pool names another connection.
+    /// The cache every connection uses, which ``SFTPSwarm/attachCache(_:)`` and ``SFTPSwarm/detachCache()`` change.
+    let cache: SharedCacheAttachment
+
+    /// Takes the settings and the cache of `client`, which also reports compression until the pool names another
+    /// connection.
     init(from client: any SFTPClientProtocol) {
+        cache = SharedCacheAttachment((client as? any SwarmCacheMember)?.currentCacheAttachment)
         values = Values(
             timeout: client.timeout,
             teardownGracePeriod: client.teardownGracePeriod,

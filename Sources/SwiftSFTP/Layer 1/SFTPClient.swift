@@ -24,6 +24,9 @@ public final class SFTPClient: SFTPClientProtocol, SFTPClientWithCache {
     /// The attached cache and the registry of files open with it, or `nil`. Protected by `internalStateQueue`. See
     /// ``attachCache(_:)``.
     nonisolated(unsafe) var _cache: CacheAttachment?
+    /// The cache attachment of the swarm this client is a connection of, used in place of `_cache` while set. Protected
+    /// by `internalStateQueue`. See ``SFTPSwarm/attachCache(_:)``.
+    nonisolated(unsafe) var _sharedCache: SharedCacheAttachment?
     /// Changes of abandoned calls finished or dropped since the cache last heard of them. Protected by
     /// `finishedChangesLock`, never by the session I/O lock, so handing them over never waits on a transfer. See
     /// ``reportFinishedChanges()``.

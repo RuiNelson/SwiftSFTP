@@ -4,7 +4,7 @@ import PathWorks
 /// A reference ``SFTPBlockLevelReadCache`` that keeps file contents in a ``CacheStorage``, and optionally metadata in
 /// memory.
 ///
-/// Attach one cache to a client, and its forks, connected to one server:
+/// Attach one cache to a client, and its forks, or to a swarm, connected to one server:
 ///
 /// ```swift
 /// let control = try await client.fork()
@@ -166,9 +166,10 @@ public actor ReferenceCache: SFTPBlockLevelReadCache {
 
     /// Creates a cache with `control` as its control connection.
     ///
-    /// Open `control` yourself, typically with `client.fork()` on the client the cache is for. Fork before attaching
-    /// any cache to that client: a fork made while a cache is attached starts with that cache, and the control
-    /// connection must not use one. Use `control` for nothing else afterwards.
+    /// Open `control` yourself, typically with `client.fork()` on the client the cache is for, or the client a swarm is
+    /// made of, before making the swarm. Fork before attaching any cache to that client: a fork made while a cache is
+    /// attached starts with that cache, and the control connection must not use one. Use `control` for nothing else
+    /// afterwards.
     ///
     /// `control` stays the caller's: the cache never closes it. Close it once the cache is detached from every client,
     /// or when this initializer throws. With ``Configuration/resolvesRelativePaths``, this reads the server's working

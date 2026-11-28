@@ -14,7 +14,12 @@ import Foundation
 /// Settings such as ``timeout`` and ``readAhead`` apply to every connection, including the replacements and additions
 /// that join later: a connection that missed a change takes it before its next operation. A new swarm takes them from
 /// its first client.
-public final class SFTPSwarm: SFTPSwarmProtocol {
+///
+/// A cache, attached with ``attachCache(_:)``, is shared by every connection the same way. A new swarm takes the cache
+/// attached to its first client, if any, and its other clients drop theirs: the files they opened before keep it until
+/// they close. Its forks start with the same cache, and keep track of their open files with the swarm, as the forks of
+/// an ``SFTPClient`` do.
+public final class SFTPSwarm: SFTPSwarmProtocol, SFTPClientWithCache {
     /// ``smallFileThreshold`` of a new swarm.
     public static let defaultSmallFileThreshold: FileSize = 10 * 1024 * 1024
     /// ``stripeSize`` of a new swarm.
@@ -42,6 +47,9 @@ public final class SFTPSwarm: SFTPSwarmProtocol {
         let values = settings.snapshot.values
         for client in clients.dropFirst() {
             SwarmSettings.apply(values, to: client)
+        }
+        for client in clients {
+            settings.shareCache(with: client)
         }
         self.settings = settings
         pool = SwarmPool(clients: clients, options: options, settings: settings)
@@ -169,6 +177,7 @@ public final class SFTPSwarm: SFTPSwarmProtocol {
         guard settings.close() else {
             return
         }
+        detachCache()
         let clients = await pool.close()
         let failure = await withTaskGroup(of: (any Error)?.self) { group in
             for client in clients {
